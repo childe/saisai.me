@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>项目导航 - SaiSai.me</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            padding: 40px;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 40px;
+            font-size: 2.5em;
+        }
+        .folder-section {
+            margin-bottom: 30px;
+            border-left: 4px solid #667eea;
+            padding-left: 20px;
+        }
+        .folder-name {
+            font-size: 1.4em;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+        }
+        .folder-icon {
+            margin-right: 10px;
+            font-size: 1.2em;
+        }
+        .file-list {
+            list-style: none;
+            padding: 0;
+        }
+        .file-item {
+            margin-bottom: 10px;
+        }
+        .file-link {
+            display: block;
+            padding: 12px 20px;
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            text-decoration: none;
+            color: #495057;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        .file-link:hover {
+            background: #667eea;
+            color: white;
+            transform: translateX(5px);
+            box-shadow: 0 2px 10px rgba(102, 126, 234, 0.3);
+        }
+        .file-link::before {
+            content: "📄";
+            margin-right: 10px;
+        }
+        .empty-message {
+            color: #6c757d;
+            font-style: italic;
+            padding: 20px;
+            text-align: center;
+            background: #f8f9fa;
+            border-radius: 6px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>项目导航</h1>
+        
+        <div class="folder-section">
+            <div class="folder-name">
+                <span class="folder-icon">📁</span>
+                x-y-line
+            </div>
+            <ul class="file-list">
+                <li class="file-item">
+                    <a href="x-y-line/coordinate-plotter.html" class="file-link">坐标绘图器</a>
+                </li>
+            </ul>
+        </div>
+
+        <div style="text-align: center; margin-top: 40px; color: #6c757d;">
+            <p>当前项目共有 1 个文件夹，包含 1 个页面</p>
+        </div>
+    </div>
+</body>
+</html>

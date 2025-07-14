@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>坐标系直线绘制器</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            display: flex;
+            gap: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .canvas-container {
+            flex: 2;
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .canvas {
+            border: 2px solid #333;
+            cursor: crosshair;
+            background: white;
+        }
+        
+        .controls {
+            flex: 1;
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .line-input {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: #fafafa;
+        }
+        
+        .line-input h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        
+        .point-input {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            align-items: center;
+        }
+        
+        .point-input input {
+            width: 60px;
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            text-align: center;
+        }
+        
+        .point-input label {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        button {
+            width: 100%;
+            padding: 10px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        button:hover {
+            background: #0056b3;
+        }
+        
+        .clear-btn {
+            background: #dc3545;
+            margin-top: 20px;
+        }
+        
+        .clear-btn:hover {
+            background: #c82333;
+        }
+        
+        .info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #e9ecef;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        .intersection-info {
+            margin-top: 10px;
+            padding: 10px;
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 5px;
+            color: #155724;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="canvas-container">
+            <canvas id="canvas" class="canvas" width="600" height="600"></canvas>
+        </div>
+        
+        <div class="controls">
+            <h2>直线绘制控制面板</h2>
+            
+            <div class="line-input">
+                <h3>直线 A</h3>
+                <div class="point-input">
+                    <label>点1: X</label>
+                    <input type="number" id="ax1" value="-2" step="1">
+                    <label>Y</label>
+                    <input type="number" id="ay1" value="-1" step="1">
+                </div>
+                <div class="point-input">
+                    <label>点2: X</label>
+                    <input type="number" id="ax2" value="3" step="1">
+                    <label>Y</label>
+                    <input type="number" id="ay2" value="4" step="1">
+                </div>
+                <button onclick="drawLineA()">绘制直线 A</button>
+            </div>
+            
+            <div class="line-input">
+                <h3>直线 B</h3>
+                <div class="point-input">
+                    <label>点1: X</label>
+                    <input type="number" id="bx1" value="-1" step="1">
+                    <label>Y</label>
+                    <input type="number" id="by1" value="3" step="1">
+                </div>
+                <div class="point-input">
+                    <label>点2: X</label>
+                    <input type="number" id="bx2" value="4" step="1">
+                    <label>Y</label>
+                    <input type="number" id="by2" value="-2" step="0.1">
+                </div>
+                <button onclick="drawLineB()">绘制直线 B</button>
+            </div>
+            
+            <button class="clear-btn" onclick="clearCanvas()">清除画布</button>
+            
+            <div class="info">
+                <strong>使用说明：</strong>
+                <p>1. 在右侧输入直线A和直线B的坐标点</p>
+                <p>2. 点击对应按钮绘制直线</p>
+                <p>3. 两直线相交时会自动显示交点Z</p>
+                <div id="intersection-info" class="intersection-info" style="display: none;">
+                    <strong>交点信息：</strong>
+                    <div id="intersection-details"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let lineA = null;
+        let lineB = null;
+        
+        const scale = 50;
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        
+        function drawCoordinateSystem() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制网格
+            ctx.strokeStyle = '#e0e0e0';
+            ctx.lineWidth = 0.5;
+            
+            for (let i = -6; i <= 6; i++) {
+                const x = centerX + i * scale;
+                const y = centerY + i * scale;
+                
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+            
+            // 绘制坐标轴
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 2;
+            
+            // X轴
+            ctx.beginPath();
+            ctx.moveTo(0, centerY);
+            ctx.lineTo(canvas.width, centerY);
+            ctx.stroke();
+            
+            // Y轴
+            ctx.beginPath();
+            ctx.moveTo(centerX, 0);
+            ctx.lineTo(centerX, canvas.height);
+            ctx.stroke();
+            
+            // 轴标签
+            ctx.fillStyle = '#333';
+            ctx.font = '14px Arial';
+            ctx.textAlign = 'center';
+            
+            for (let i = -5; i <= 5; i++) {
+                if (i !== 0) {
+                    const x = centerX + i * scale;
+                    const y = centerY + i * scale;
+                    
+                    ctx.fillText(i.toString(), x, centerY + 20);
+                    ctx.fillText((-i).toString(), centerX - 20, y);
+                }
+            }
+            
+            // 原点
+            ctx.fillText('O', centerX - 15, centerY + 15);
+        }
+        
+        function toCanvasCoords(x, y) {
+            return {
+                x: centerX + x * scale,
+                y: centerY - y * scale
+            };
+        }
+        
+        function drawLine(line, color) {
+            if (!line) return;
+            
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            
+            // 计算直线方程 y = mx + b
+            const m = (line.y2 - line.y1) / (line.x2 - line.x1);
+            const b = line.y1 - m * line.x1;
+            
+            // 计算直线在画布上的两个端点
+            const x1_canvas = -6;
+            const y1_canvas = m * x1_canvas + b;
+            const x2_canvas = 6;
+            const y2_canvas = m * x2_canvas + b;
+            
+            const start = toCanvasCoords(x1_canvas, y1_canvas);
+            const end = toCanvasCoords(x2_canvas, y2_canvas);
+            
+            ctx.beginPath();
+            ctx.moveTo(start.x, start.y);
+            ctx.lineTo(end.x, end.y);
+            ctx.stroke();
+            
+            // 绘制端点
+            drawPoint(line.x1, line.y1, color);
+            drawPoint(line.x2, line.y2, color);
+        }
+        
+        function drawPoint(x, y, color) {
+            const coords = toCanvasCoords(x, y);
+            
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(coords.x, coords.y, 4, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            ctx.fillStyle = '#333';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(`(${x}, ${y})`, coords.x, coords.y - 10);
+        }
+        
+        function findIntersection(line1, line2) {
+            if (!line1 || !line2) return null;
+            
+            const m1 = (line1.y2 - line1.y1) / (line1.x2 - line1.x1);
+            const b1 = line1.y1 - m1 * line1.x1;
+            
+            const m2 = (line2.y2 - line2.y1) / (line2.x2 - line2.x1);
+            const b2 = line2.y1 - m2 * line2.x1;
+            
+            if (Math.abs(m1 - m2) < 1e-10) return null; // 平行线
+            
+            const x = (b2 - b1) / (m1 - m2);
+            const y = m1 * x + b1;
+            
+            return { x, y };
+        }
+        
+        function drawIntersectionPoint(intersection) {
+            if (!intersection) return;
+            
+            const coords = toCanvasCoords(intersection.x, intersection.y);
+            
+            // 绘制交点
+            ctx.fillStyle = '#ff0000';
+            ctx.beginPath();
+            ctx.arc(coords.x, coords.y, 6, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // 绘制虚线到坐标轴
+            ctx.strokeStyle = '#ff0000';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([5, 5]);
+            
+            // 垂直线到X轴
+            ctx.beginPath();
+            ctx.moveTo(coords.x, coords.y);
+            ctx.lineTo(coords.x, centerY);
+            ctx.stroke();
+            
+            // 水平线到Y轴
+            ctx.beginPath();
+            ctx.moveTo(coords.x, coords.y);
+            ctx.lineTo(centerX, coords.y);
+            ctx.stroke();
+            
+            ctx.setLineDash([]);
+            
+            // 标签
+            ctx.fillStyle = '#ff0000';
+            ctx.font = 'bold 14px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText(`Z(${intersection.x.toFixed(2)}, ${intersection.y.toFixed(2)})`, coords.x + 10, coords.y - 10);
+            
+            // 坐标轴上的投影点
+            ctx.fillStyle = '#666';
+            ctx.beginPath();
+            ctx.arc(coords.x, centerY, 3, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.arc(centerX, coords.y, 3, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // 更新交点信息
+            document.getElementById('intersection-details').innerHTML = `
+                交点Z坐标: (${intersection.x.toFixed(2)}, ${intersection.y.toFixed(2)})<br>
+                X轴投影: (${intersection.x.toFixed(2)}, 0)<br>
+                Y轴投影: (0, ${intersection.y.toFixed(2)})
+            `;
+            document.getElementById('intersection-info').style.display = 'block';
+        }
+        
+        function drawLineA() {
+            const ax1 = parseFloat(document.getElementById('ax1').value);
+            const ay1 = parseFloat(document.getElementById('ay1').value);
+            const ax2 = parseFloat(document.getElementById('ax2').value);
+            const ay2 = parseFloat(document.getElementById('ay2').value);
+            
+            if (isNaN(ax1) || isNaN(ay1) || isNaN(ax2) || isNaN(ay2)) {
+                alert('请输入有效的数值！');
+                return;
+            }
+            
+            lineA = { x1: ax1, y1: ay1, x2: ax2, y2: ay2 };
+            redraw();
+        }
+        
+        function drawLineB() {
+            const bx1 = parseFloat(document.getElementById('bx1').value);
+            const by1 = parseFloat(document.getElementById('by1').value);
+            const bx2 = parseFloat(document.getElementById('bx2').value);
+            const by2 = parseFloat(document.getElementById('by2').value);
+            
+            if (isNaN(bx1) || isNaN(by1) || isNaN(bx2) || isNaN(by2)) {
+                alert('请输入有效的数值！');
+                return;
+            }
+            
+            lineB = { x1: bx1, y1: by1, x2: bx2, y2: by2 };
+            redraw();
+        }
+        
+        function redraw() {
+            drawCoordinateSystem();
+            
+            if (lineA) {
+                drawLine(lineA, '#007bff');
+            }
+            
+            if (lineB) {
+                drawLine(lineB, '#28a745');
+            }
+            
+            const intersection = findIntersection(lineA, lineB);
+            if (intersection) {
+                drawIntersectionPoint(intersection);
+            } else {
+                document.getElementById('intersection-info').style.display = 'none';
+            }
+        }
+        
+        function clearCanvas() {
+            lineA = null;
+            lineB = null;
+            document.getElementById('intersection-info').style.display = 'none';
+            drawCoordinateSystem();
+        }
+        
+        // 初始化
+        drawCoordinateSystem();
+    </script>
+</body>
+</html>
