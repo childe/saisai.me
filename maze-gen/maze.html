@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>50×50 迷宫生成器</title>
+    <title>迷宫生成器</title>
     <style>
         body {
             margin: 0;
@@ -20,13 +20,41 @@
             margin-bottom: 20px;
         }
         
+        .size-controls {
+            margin: 20px 0;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .size-btn {
+            padding: 8px 16px;
+            font-size: 14px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .size-btn:hover {
+            background-color: #45a049;
+            transform: translateY(-1px);
+        }
+        
+        .size-btn.active {
+            background-color: #2196F3;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        
         #maze {
             display: grid;
-            grid-template-columns: repeat(50, 8px);
-            grid-template-rows: repeat(50, 8px);
             gap: 0;
             #border: 2px solid #000;
             background-color: #fff;
+            margin: 20px 0;
         }
         
         .cell {
@@ -75,7 +103,16 @@
     </style>
 </head>
 <body>
-    <h1>50×50 迷宫</h1>
+    <h1>迷宫生成器</h1>
+    
+    <div class="size-controls">
+        <button class="size-btn" onclick="setMazeSize(10)" id="size-10">10×10</button>
+        <button class="size-btn" onclick="setMazeSize(20)" id="size-20">20×20</button>
+        <button class="size-btn" onclick="setMazeSize(30)" id="size-30">30×30</button>
+        <button class="size-btn" onclick="setMazeSize(40)" id="size-40">40×40</button>
+        <button class="size-btn active" onclick="setMazeSize(50)" id="size-50">50×50</button>
+    </div>
+    
     <div id="maze"></div>
     <button onclick="generateMaze()">重新生成迷宫</button>
     <button onclick="showPath()">显示道路</button>
@@ -480,9 +517,43 @@
         let currentMaze = null;
         let currentConnections = null;
         let solutionPath = [];
+        let currentSize = 50;
+
+        function setMazeSize(size) {
+            currentSize = size;
+            
+            // Update active button
+            document.querySelectorAll('.size-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`size-${size}`).classList.add('active');
+            
+            // Update maze grid CSS
+            updateMazeGridCSS(size);
+            
+            // Generate new maze with the selected size
+            generateMaze();
+        }
+        
+        function updateMazeGridCSS(size) {
+            const cellSize = Math.max(4, Math.min(12, 400 / size)); // Adaptive cell size
+            const mazeElement = document.getElementById('maze');
+            mazeElement.style.gridTemplateColumns = `repeat(${size}, ${cellSize}px)`;
+            mazeElement.style.gridTemplateRows = `repeat(${size}, ${cellSize}px)`;
+            
+            // Update cell size in CSS
+            const styleSheet = document.styleSheets[0];
+            // Find and update the .cell rule
+            for (let i = 0; i < styleSheet.cssRules.length; i++) {
+                const rule = styleSheet.cssRules[i];
+                if (rule.selectorText === '.cell') {
+                    rule.style.width = `${cellSize}px`;
+                    rule.style.height = `${cellSize}px`;
+                    break;
+                }
+            }
+        }
 
         function generateMaze() {
-            const generator = new MazeGenerator(50, 50);
+            const generator = new MazeGenerator(currentSize, currentSize);
             const mazeData = generator.generate();
             currentMaze = mazeData.maze;
             currentConnections = mazeData.connections;
@@ -571,7 +642,7 @@
             solutionPath = findPath(currentMaze, currentConnections);
             
             const cells = document.querySelectorAll('.cell');
-            const width = 50;
+            const width = currentSize;
             
             solutionPath.forEach(([x, y]) => {
                 const index = x * width + y;
@@ -588,8 +659,11 @@
             });
         }
 
-        // Generate initial maze
-        generateMaze();
+        // Initialize with default size and generate initial maze
+        window.addEventListener('DOMContentLoaded', function() {
+            updateMazeGridCSS(currentSize);
+            generateMaze();
+        });
     </script>
 </body>
 </html>
