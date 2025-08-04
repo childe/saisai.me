@@ -239,45 +239,6 @@
             }
         }
         
-        .virtual-controls {
-            display: none;
-            grid-template-columns: repeat(3, 60px);
-            grid-template-rows: repeat(3, 60px);
-            gap: 5px;
-            margin-top: 15px;
-            justify-content: center;
-        }
-        
-        .virtual-btn {
-            background-color: #2196F3;
-            border: none;
-            border-radius: 12px;
-            color: white;
-            font-size: 20px;
-            cursor: pointer;
-            touch-action: manipulation;
-            -webkit-tap-highlight-color: transparent;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-        }
-        
-        .virtual-btn:active {
-            transform: scale(0.95);
-            background-color: #1976D2;
-        }
-        
-        .virtual-btn:nth-child(2) { grid-column: 2; grid-row: 1; } /* 上 */
-        .virtual-btn:nth-child(3) { grid-column: 1; grid-row: 2; } /* 左 */
-        .virtual-btn:nth-child(4) { grid-column: 3; grid-row: 2; } /* 右 */
-        .virtual-btn:nth-child(5) { grid-column: 2; grid-row: 3; } /* 下 */
-        
-        @media (max-width: 768px) {
-            .virtual-controls {
-                display: grid;
-            }
-        }
     </style>
 </head>
 <body>
@@ -302,15 +263,8 @@
             <button onclick="hidePath()">隐藏道路</button>
         </div>
         
-        <div class="virtual-controls">
-            <button class="virtual-btn" onclick="movePlayer('up')">↑</button>
-            <button class="virtual-btn" onclick="movePlayer('left')">←</button>
-            <button class="virtual-btn" onclick="movePlayer('right')">→</button>
-            <button class="virtual-btn" onclick="movePlayer('down')">↓</button>
-        </div>
-        
         <div style="margin-top: 15px; text-align: center; color: #666; font-size: clamp(12px, 2.5vw, 14px);">
-            <p>使用键盘方向键、虚拟按钮或在迷宫上滑动手势控制小人移动</p>
+            <p>使用键盘方向键或在迷宫上滑动手势控制小人移动</p>
         </div>
     </div>
 
