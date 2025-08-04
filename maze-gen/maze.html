@@ -79,6 +79,23 @@
             overflow: hidden;
             max-width: 95vw;
             max-height: 70vh;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+            position: relative;
+        }
+        
+        .swipe-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #2196F3;
+            font-size: 24px;
+            pointer-events: none;
+            z-index: 20;
+            opacity: 0;
+            transition: opacity 0.2s;
         }
         
         .cell {
@@ -275,7 +292,9 @@
             <button class="size-btn active" onclick="setMazeSize(50)" id="size-50">50×50</button>
         </div>
         
-        <div id="maze"></div>
+        <div id="maze">
+            <div class="swipe-indicator" id="swipeIndicator"></div>
+        </div>
         
         <div class="action-buttons">
             <button onclick="generateMaze()">重新生成</button>
@@ -291,7 +310,7 @@
         </div>
         
         <div style="margin-top: 15px; text-align: center; color: #666; font-size: clamp(12px, 2.5vw, 14px);">
-            <p>使用键盘方向键或虚拟按钮控制小人移动</p>
+            <p>使用键盘方向键、虚拟按钮或在迷宫上滑动手势控制小人移动</p>
         </div>
     </div>
 
@@ -540,7 +559,18 @@
             const connections = data.connections;
             
             const mazeElement = document.getElementById('maze');
+            // 保留滑动指示器，只清空迷宫内容
+            const swipeIndicator = document.getElementById('swipeIndicator');
             mazeElement.innerHTML = '';
+            if (swipeIndicator) {
+                mazeElement.appendChild(swipeIndicator);
+            } else {
+                // 如果指示器不存在，创建一个
+                const newIndicator = document.createElement('div');
+                newIndicator.className = 'swipe-indicator';
+                newIndicator.id = 'swipeIndicator';
+                mazeElement.appendChild(newIndicator);
+            }
             
             const height = maze.length;
             const width = maze[0].length;
@@ -860,6 +890,7 @@
         window.addEventListener('DOMContentLoaded', function() {
             updateMazeGridCSS(currentSize);
             generateMaze();
+            initTouchEvents(); // 初始化触摸事件
         });
         
         // 监听窗口大小变化
@@ -1074,6 +1105,118 @@
                     break;
             }
         });
+        
+        // 触摸手势支持
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let touchEndX = 0;
+        let touchEndY = 0;
+        const minSwipeDistance = 30; // 最小滑动距离
+        
+        function handleTouchStart(event) {
+            if (isMoving) return;
+            
+            event.preventDefault();
+            const touch = event.touches[0];
+            touchStartX = touch.clientX;
+            touchStartY = touch.clientY;
+        }
+        
+        function handleTouchMove(event) {
+            if (isMoving) return;
+            
+            event.preventDefault();
+            const touch = event.touches[0];
+            touchEndX = touch.clientX;
+            touchEndY = touch.clientY;
+            
+            // 实时显示滑动方向指示器
+            showSwipeIndicator();
+        }
+        
+        function handleTouchEnd(event) {
+            if (isMoving) return;
+            
+            event.preventDefault();
+            hideSwipeIndicator();
+            
+            const deltaX = touchEndX - touchStartX;
+            const deltaY = touchEndY - touchStartY;
+            const absDeltaX = Math.abs(deltaX);
+            const absDeltaY = Math.abs(deltaY);
+            
+            // 检查是否达到最小滑动距离
+            if (Math.max(absDeltaX, absDeltaY) < minSwipeDistance) {
+                return;
+            }
+            
+            // 判断滑动方向
+            if (absDeltaX > absDeltaY) {
+                // 水平滑动
+                if (deltaX > 0) {
+                    movePlayer('right');
+                } else {
+                    movePlayer('left');
+                }
+            } else {
+                // 垂直滑动
+                if (deltaY > 0) {
+                    movePlayer('down');
+                } else {
+                    movePlayer('up');
+                }
+            }
+        }
+        
+        function showSwipeIndicator() {
+            const indicator = document.getElementById('swipeIndicator');
+            if (!indicator) return; // 安全检查
+            
+            const deltaX = touchEndX - touchStartX;
+            const deltaY = touchEndY - touchStartY;
+            const absDeltaX = Math.abs(deltaX);
+            const absDeltaY = Math.abs(deltaY);
+            
+            if (Math.max(absDeltaX, absDeltaY) < minSwipeDistance) {
+                indicator.style.opacity = '0';
+                return;
+            }
+            
+            let arrow = '';
+            if (absDeltaX > absDeltaY) {
+                arrow = deltaX > 0 ? '→' : '←';
+            } else {
+                arrow = deltaY > 0 ? '↓' : '↑';
+            }
+            
+            indicator.textContent = arrow;
+            indicator.style.opacity = '0.7';
+        }
+        
+        function hideSwipeIndicator() {
+            const indicator = document.getElementById('swipeIndicator');
+            if (indicator) { // 安全检查
+                indicator.style.opacity = '0';
+            }
+        }
+        
+        // 初始化触摸事件监听
+        function initTouchEvents() {
+            const mazeElement = document.getElementById('maze');
+            if (mazeElement) {
+                mazeElement.addEventListener('touchstart', handleTouchStart, { passive: false });
+                mazeElement.addEventListener('touchmove', handleTouchMove, { passive: false });
+                mazeElement.addEventListener('touchend', handleTouchEnd, { passive: false });
+                mazeElement.addEventListener('touchcancel', hideSwipeIndicator);
+            }
+        }
+        
+        // 防止默认的滚动和缩放行为
+        document.addEventListener('touchmove', function(event) {
+            if (event.target.closest('#maze')) {
+                event.preventDefault();
+            }
+        }, { passive: false });
     </script>
 </body>
 </html>
