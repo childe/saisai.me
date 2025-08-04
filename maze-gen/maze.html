@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>50×50 迷宫生成器</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        
+        #maze {
+            display: grid;
+            grid-template-columns: repeat(50, 8px);
+            grid-template-rows: repeat(50, 8px);
+            gap: 0;
+            #border: 2px solid #000;
+            background-color: #fff;
+        }
+        
+        .cell {
+            width: 8px;
+            height: 8px;
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .wall {
+            background-color: #fff;
+        }
+        
+        .path {
+            background-color: #fff;
+        }
+        
+        .solution {
+            background-color: #ff0000 !important;
+            opacity: 0.8;
+        }
+        
+        .entrance {
+            background-color: #4CAF50;
+        }
+        
+        .exit {
+            background-color: #f44336;
+        }
+        
+        button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        
+        button:hover {
+            background-color: #1976D2;
+        }
+    </style>
+</head>
+<body>
+    <h1>50×50 迷宫</h1>
+    <div id="maze"></div>
+    <button onclick="generateMaze()">重新生成迷宫</button>
+    <button onclick="showPath()">显示道路</button>
+    <button onclick="hidePath()">隐藏道路</button>
+
+    <script>
+        class MazeGenerator {
+            constructor(width, height) {
+                this.width = width;
+                this.height = height;
+                this.maze = [];
+                this.connections = []; // Store connection info for each cell
+            }
+
+            generate() {
+                // Initialize maze with all walls (1 = wall, 0 = path)
+                this.maze = Array(this.height).fill().map(() => Array(this.width).fill(1));
+                
+                // Initialize connections array - each cell has connections in 4 directions
+                // connections[row][col] = {up: false, down: false, left: false, right: false}
+                this.connections = Array(this.height).fill().map(() => 
+                    Array(this.width).fill().map(() => ({up: false, down: false, left: false, right: false}))
+                );
+                
+                // Step 1: Create entrance and exit - they are walls with openings to outside
+                // Entrance at top-left corner - opening on top and left edges
+                this.connections[0][0].up = true; // Opening to outside (top edge)
+                this.connections[0][0].left = true; // Opening to outside (left edge)
+                
+                // Exit at bottom-right corner - opening on bottom and right edges  
+                this.connections[this.height - 1][this.width - 1].down = true; // Opening to outside (bottom edge)
+                this.connections[this.height - 1][this.width - 1].right = true; // Opening to outside (right edge)
+                
+                // Step 2: Generate a random path from entrance to exit
+                this.createRandomMainPath();
+                
+                // Step 3: For non-path cells, randomly open 1-2 directions
+                this.randomlyOpenWallConnections();
+                
+                return {maze: this.maze, connections: this.connections};
+            }
+            
+            createRandomMainPath() {
+                // Generate path data and create connections immediately
+                const pathSteps = this.generatePathSteps();
+                this.createConnections(pathSteps);
+            }
+            
+            generatePathSteps() {
+                // Start from a cell adjacent to entrance to a cell adjacent to exit
+                let currentRow = 1;
+                let currentCol = 1;
+                const targetRow = this.height - 2;
+                const targetCol = this.width - 2;
+                
+                // Track visited cells to prevent going back
+                const visited = Array(this.height).fill().map(() => Array(this.width).fill(false));
+                const pathSteps = [];
+                
+                // Clear starting point
+                visited[currentRow][currentCol] = true;
+                pathSteps.push([currentRow, currentCol]);
+                
+                // Pure random walk to exit without revisiting cells
+                while (currentRow !== targetRow || currentCol !== targetCol) {
+                    // Get all possible valid directions (within bounds and not visited)
+                    const validDirections = [];
+                    const allDirections = [[-1, 0], [1, 0], [0, -1], [0, 1]]; // up, down, left, right
+                    
+                    for (const [dr, dc] of allDirections) {
+                        const newRow = currentRow + dr;
+                        const newCol = currentCol + dc;
+                        
+                        // Check if within bounds and not previously visited
+                        if (newRow > 0 && newRow < this.height - 1 && 
+                            newCol > 0 && newCol < this.width - 1 && 
+                            !visited[newRow][newCol]) {
+                            validDirections.push([dr, dc]);
+                        }
+                    }
+                    
+                    // If we have valid directions, choose randomly
+                    if (validDirections.length > 0) {
+                        const [dr, dc] = validDirections[Math.floor(Math.random() * validDirections.length)];
+                        currentRow += dr;
+                        currentCol += dc;
+                        visited[currentRow][currentCol] = true;
+                        pathSteps.push([currentRow, currentCol]);
+                    } else {
+                        // If no valid unvisited directions, we're stuck
+                        // This could happen with pure random walk - need backtracking or restart
+                        console.log("Stuck at", currentRow, currentCol, "- restarting path generation");
+                        
+                        // Restart the path generation
+                        currentRow = 1;
+                        currentCol = 1;
+                        visited.forEach(row => row.fill(false));
+                        pathSteps.length = 0; // Clear path steps
+                        
+                        visited[currentRow][currentCol] = true;
+                        pathSteps.push([currentRow, currentCol]);
+                    }
+                }
+                
+                return pathSteps;
+            }
+            
+            createConnections(pathSteps) {
+                // Set all path cells to be paths in the maze
+                for (const [row, col] of pathSteps) {
+                    this.maze[row][col] = 0;
+                }
+                
+                // Create connections between adjacent cells in the path
+                for (let stepIndex = 0; stepIndex < pathSteps.length; stepIndex++) {
+                    const [row, col] = pathSteps[stepIndex];
+                    
+                    // Set up connections for this step
+                    if (stepIndex > 0) {
+                        const [prevRow, prevCol] = pathSteps[stepIndex - 1];
+                        
+                        // Connect current cell to previous cell
+                        if (prevRow === row - 1) { // Previous is above
+                            this.connections[row][col].up = true;
+                            this.connections[prevRow][prevCol].down = true;
+                        } else if (prevRow === row + 1) { // Previous is below
+                            this.connections[row][col].down = true;
+                            this.connections[prevRow][prevCol].up = true;
+                        } else if (prevCol === col - 1) { // Previous is left
+                            this.connections[row][col].left = true;
+                            this.connections[prevRow][prevCol].right = true;
+                        } else if (prevCol === col + 1) { // Previous is right
+                            this.connections[row][col].right = true;
+                            this.connections[prevRow][prevCol].left = true;
+                        }
+                    }
+                    
+                    // Connect to entrance - if this is (1,1), connect to entrance at (0,0)
+                    if (row === 1 && col === 1) {
+                        // Connect upward to (0,1) or leftward to (1,0), then to entrance
+                        if (col > 0) {
+                            this.connections[row][col].up = true;
+                            this.connections[0][col].down = true;
+                            this.connections[0][col].left = true; // Connect (0,1) to entrance (0,0)
+                            this.connections[0][0].right = true; // Connect entrance to (0,1)
+                        }
+                        if (row > 0) {
+                            this.connections[row][col].left = true;
+                            this.connections[row][0].right = true;
+                            this.connections[row][0].up = true; // Connect (1,0) to entrance (0,0)  
+                            this.connections[0][0].down = true; // Connect entrance to (1,0)
+                        }
+                    }
+                    
+                    // Connect to exit - if this is (height-2, width-2), connect to exit at (height-1, width-1)
+                    if (row === this.height - 2 && col === this.width - 2) {
+                        // Connect downward to (height-1, width-2) or rightward to (height-2, width-1), then to exit
+                        if (col < this.width - 1) {
+                            this.connections[row][col].down = true;
+                            this.connections[this.height - 1][col].up = true;
+                            this.connections[this.height - 1][col].right = true; // Connect (height-1, width-2) to exit
+                            this.connections[this.height - 1][this.width - 1].left = true; // Connect exit to (height-1, width-2)
+                        }
+                        if (row < this.height - 1) {
+                            this.connections[row][col].right = true;
+                            this.connections[row][this.width - 1].left = true;
+                            this.connections[row][this.width - 1].down = true; // Connect (height-2, width-1) to exit
+                            this.connections[this.height - 1][this.width - 1].up = true; // Connect exit to (height-2, width-1)
+                        }
+                    }
+                }
+                
+                console.log("Path generation complete! Total steps:", pathSteps.length);
+            }
+            
+            randomlyOpenWallConnections() {
+                // For each internal cell that is a wall, randomly open 1-2 directions
+                for (let row = 1; row < this.height - 1; row++) {
+                    for (let col = 1; col < this.width - 1; col++) {
+                        // Skip cells that are already part of main path
+                        if (this.maze[row][col] === 0) {
+                            continue;
+                        }
+                        
+                        // This is a wall cell, randomly open 1 or 2 directions
+                        const directions = ['up', 'down', 'left', 'right'];
+                        
+                        // Randomly choose to open 1 or 2 directions (70% chance for 1, 30% chance for 2)
+                        const numDirections = Math.random() < 0.7 ? 1 : 2;
+                        
+                        // Shuffle directions and pick the first numDirections
+                        const shuffledDirections = [...directions].sort(() => Math.random() - 0.5);
+                        const selectedDirections = shuffledDirections.slice(0, numDirections);
+                        
+                        // Open the selected directions
+                        for (const direction of selectedDirections) {
+                            this.connections[row][col][direction] = true;
+                            
+                            // Also open the corresponding direction in the adjacent cell if it exists
+                            let adjRow = row;
+                            let adjCol = col;
+                            let adjDirection = '';
+                            
+                            if (direction === 'up') {
+                                adjRow = row - 1;
+                                adjDirection = 'down';
+                            } else if (direction === 'down') {
+                                adjRow = row + 1;
+                                adjDirection = 'up';
+                            } else if (direction === 'left') {
+                                adjCol = col - 1;
+                                adjDirection = 'right';
+                            } else if (direction === 'right') {
+                                adjCol = col + 1;
+                                adjDirection = 'left';
+                            }
+                            
+                            // Check bounds and open adjacent cell's corresponding direction
+                            if (adjRow >= 0 && adjRow < this.height && 
+                                adjCol >= 0 && adjCol < this.width) {
+                                this.connections[adjRow][adjCol][adjDirection] = true;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            randomlyOpenDirections() {
+                // For each internal cell, randomly decide whether to make it a path
+                for (let row = 1; row < this.height - 1; row++) {
+                    for (let col = 1; col < this.width - 1; col++) {
+                        // Skip cells that are already part of main path
+                        if (this.maze[row][col] === 0) {
+                            continue;
+                        }
+                        
+                        // Random chance to make this cell a path (40% chance)
+                        if (Math.random() < 0.4) {
+                            this.maze[row][col] = 0;
+                        }
+                    }
+                }
+            }
+        }
+
+        function renderMaze(data) {
+            const maze = data.maze || data;
+            const connections = data.connections;
+            
+            const mazeElement = document.getElementById('maze');
+            mazeElement.innerHTML = '';
+            
+            const height = maze.length;
+            const width = maze[0].length;
+            
+            for (let i = 0; i < height; i++) {
+                for (let j = 0; j < width; j++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.style.position = 'relative';
+                    
+                    // All cells are either walls or paths, no special entrance/exit colors
+                    if (maze[i][j] === 1) {
+                        cell.classList.add('wall');
+                    } else {
+                        cell.classList.add('path');
+                    }
+                    
+                    // Add connection walls for all cells (both path and wall) if we have connection data
+                    if (connections && connections[i] && connections[i][j]) {
+                        const conn = connections[i][j];
+                        
+                        // Helper function to check if a cell is completely sealed (no connections in any direction)
+                        function isCellSealed(row, col) {
+                            if (connections[row] && connections[row][col]) {
+                                const cellConn = connections[row][col];
+                                return !cellConn.up && !cellConn.down && !cellConn.left && !cellConn.right;
+                            }
+                            return true; // If no connection data, assume sealed
+                        }
+                        
+                        // Add walls for blocked directions, but skip outer boundary walls at entrance and exit
+                        // Also skip walls between two completely sealed cells
+                        // To avoid double-rendering, only render walls on specific edges:
+                        // - Top walls: only render on the upper cell (smaller row index)
+                        // - Left walls: only render on the left cell (smaller column index)
+                        
+                        // Helper function to check if we should render a wall between two cells
+                        function shouldRenderWall(currentRow, currentCol, adjRow, adjCol) {
+                            // Skip if both cells are completely sealed
+                            if (isCellSealed(currentRow, currentCol) && isCellSealed(adjRow, adjCol)) {
+                                return false;
+                            }
+                            
+                            // Skip entrance/exit boundary openings
+                            if ((currentRow === 0 && currentCol === 0) || (adjRow === 0 && adjCol === 0)) {
+                                return false; // Skip entrance boundaries
+                            }
+                            if ((currentRow === height - 1 && currentCol === width - 1) || (adjRow === height - 1 && adjCol === width - 1)) {
+                                return false; // Skip exit boundaries
+                            }
+                            
+                            // Check if there's a wall between the cells
+                            if (connections[currentRow] && connections[currentRow][currentCol] &&
+                                connections[adjRow] && connections[adjRow][adjCol]) {
+                                const currentConn = connections[currentRow][currentCol];
+                                const adjConn = connections[adjRow][adjCol];
+                                
+                                // Determine direction and check connections
+                                if (adjRow === currentRow - 1) { // Adjacent cell is above
+                                    return !currentConn.up || !adjConn.down;
+                                } else if (adjCol === currentCol - 1) { // Adjacent cell is to the left
+                                    return !currentConn.left || !adjConn.right;
+                                }
+                            }
+                            return true;
+                        }
+                        
+                        // Only render top walls (horizontal lines between vertically adjacent cells)
+                        if (i > 0) { // Not the top row
+                            if (shouldRenderWall(i, j, i - 1, j)) {
+                                const wallTop = document.createElement('div');
+                                wallTop.style.position = 'absolute';
+                                wallTop.style.top = '0';
+                                wallTop.style.left = '0';
+                                wallTop.style.width = '100%';
+                                wallTop.style.height = '1px';
+                                wallTop.style.backgroundColor = '#000';
+                                cell.appendChild(wallTop);
+                            }
+                        }
+                        
+                        // Only render left walls (vertical lines between horizontally adjacent cells)
+                        if (j > 0) { // Not the leftmost column
+                            if (shouldRenderWall(i, j, i, j - 1)) {
+                                const wallLeft = document.createElement('div');
+                                wallLeft.style.position = 'absolute';
+                                wallLeft.style.top = '0';
+                                wallLeft.style.left = '0';
+                                wallLeft.style.width = '1px';
+                                wallLeft.style.height = '100%';
+                                wallLeft.style.backgroundColor = '#000';
+                                cell.appendChild(wallLeft);
+                            }
+                        }
+                        
+                        // Add outer boundaries (edges of the maze)
+                        // Top boundary
+                        if (i === 0 && !(i === 0 && j === 0)) { // Top edge, but not entrance
+                            const wallTop = document.createElement('div');
+                            wallTop.style.position = 'absolute';
+                            wallTop.style.top = '0';
+                            wallTop.style.left = '0';
+                            wallTop.style.width = '100%';
+                            wallTop.style.height = '1px';
+                            wallTop.style.backgroundColor = '#000';
+                            cell.appendChild(wallTop);
+                        }
+                        
+                        // Bottom boundary
+                        if (i === height - 1 && !(i === height - 1 && j === width - 1)) { // Bottom edge, but not exit
+                            const wallBottom = document.createElement('div');
+                            wallBottom.style.position = 'absolute';
+                            wallBottom.style.bottom = '0';
+                            wallBottom.style.left = '0';
+                            wallBottom.style.width = '100%';
+                            wallBottom.style.height = '1px';
+                            wallBottom.style.backgroundColor = '#000';
+                            cell.appendChild(wallBottom);
+                        }
+                        
+                        // Left boundary
+                        if (j === 0 && !(i === 0 && j === 0)) { // Left edge, but not entrance
+                            const wallLeft = document.createElement('div');
+                            wallLeft.style.position = 'absolute';
+                            wallLeft.style.top = '0';
+                            wallLeft.style.left = '0';
+                            wallLeft.style.width = '1px';
+                            wallLeft.style.height = '100%';
+                            wallLeft.style.backgroundColor = '#000';
+                            cell.appendChild(wallLeft);
+                        }
+                        
+                        // Right boundary
+                        if (j === width - 1 && !(i === height - 1 && j === width - 1)) { // Right edge, but not exit
+                            const wallRight = document.createElement('div');
+                            wallRight.style.position = 'absolute';
+                            wallRight.style.top = '0';
+                            wallRight.style.right = '0';
+                            wallRight.style.width = '1px';
+                            wallRight.style.height = '100%';
+                            wallRight.style.backgroundColor = '#000';
+                            cell.appendChild(wallRight);
+                        }
+                    }
+                    
+                    mazeElement.appendChild(cell);
+                }
+            }
+        }
+
+        let currentMaze = null;
+        let currentConnections = null;
+        let solutionPath = [];
+
+        function generateMaze() {
+            const generator = new MazeGenerator(50, 50);
+            const mazeData = generator.generate();
+            currentMaze = mazeData.maze;
+            currentConnections = mazeData.connections;
+            solutionPath = [];
+            // Render the complete maze with connections
+            renderMaze({maze: mazeData.maze, connections: mazeData.connections});
+        }
+
+        function findPath(maze, connections) {
+            const height = maze.length;
+            const width = maze[0].length;
+            const start = [1, 1];
+            const end = [height - 2, width - 2];
+            
+            // Helper function to check if two adjacent cells are connected
+            function canMove(fromRow, fromCol, toRow, toCol) {
+                // Check if both cells are paths
+                if (maze[fromRow][fromCol] !== 0 || maze[toRow][toCol] !== 0) {
+                    return false;
+                }
+                
+                // Check connections based on direction
+                const rowDiff = toRow - fromRow;
+                const colDiff = toCol - fromCol;
+                
+                if (rowDiff === -1 && colDiff === 0) { // Moving up
+                    return connections[fromRow][fromCol].up && connections[toRow][toCol].down;
+                } else if (rowDiff === 1 && colDiff === 0) { // Moving down
+                    return connections[fromRow][fromCol].down && connections[toRow][toCol].up;
+                } else if (rowDiff === 0 && colDiff === -1) { // Moving left
+                    return connections[fromRow][fromCol].left && connections[toRow][toCol].right;
+                } else if (rowDiff === 0 && colDiff === 1) { // Moving right
+                    return connections[fromRow][fromCol].right && connections[toRow][toCol].left;
+                }
+                
+                return false;
+            }
+            
+            // BFS to find shortest path using connection information
+            const queue = [start];
+            const visited = Array(height).fill().map(() => Array(width).fill(false));
+            const parent = Array(height).fill().map(() => Array(width).fill(null));
+            
+            visited[start[0]][start[1]] = true;
+            const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+            
+            while (queue.length > 0) {
+                const [x, y] = queue.shift();
+                
+                if (x === end[0] && y === end[1]) {
+                    break;
+                }
+                
+                for (const [dx, dy] of directions) {
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    
+                    if (nx >= 0 && nx < height && ny >= 0 && ny < width && 
+                        !visited[nx][ny] && canMove(x, y, nx, ny)) {
+                        visited[nx][ny] = true;
+                        parent[nx][ny] = [x, y];
+                        queue.push([nx, ny]);
+                    }
+                }
+            }
+            
+            // Reconstruct path
+            const path = [];
+            let current = end;
+            
+            // Trace back from end to start
+            while (current) {
+                path.unshift(current);
+                if (current[0] === start[0] && current[1] === start[1]) {
+                    break;
+                }
+                current = parent[current[0]][current[1]];
+            }
+            
+            return path;
+        }
+
+        function showPath() {
+            if (!currentMaze || !currentConnections) return;
+            
+            solutionPath = findPath(currentMaze, currentConnections);
+            
+            const cells = document.querySelectorAll('.cell');
+            const width = 50;
+            
+            solutionPath.forEach(([x, y]) => {
+                const index = x * width + y;
+                if (cells[index]) {
+                    cells[index].classList.add('solution');
+                }
+            });
+        }
+
+        function hidePath() {
+            const cells = document.querySelectorAll('.solution');
+            cells.forEach(cell => {
+                cell.classList.remove('solution');
+            });
+        }
+
+        // Generate initial maze
+        generateMaze();
+    </script>
+</body>
+</html>
