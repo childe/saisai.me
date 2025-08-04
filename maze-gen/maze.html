@@ -110,6 +110,24 @@
             background-color: #f44336;
         }
         
+        .player {
+            background-color: #000 !important;
+            border-radius: 2px;
+            position: relative;
+            z-index: 10;
+        }
+        
+        .player::after {
+            content: '●';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 60%;
+            line-height: 1;
+        }
+        
         .action-buttons {
             display: flex;
             gap: 10px;
@@ -203,6 +221,46 @@
                 max-height: 50vh;
             }
         }
+        
+        .virtual-controls {
+            display: none;
+            grid-template-columns: repeat(3, 60px);
+            grid-template-rows: repeat(3, 60px);
+            gap: 5px;
+            margin-top: 15px;
+            justify-content: center;
+        }
+        
+        .virtual-btn {
+            background-color: #2196F3;
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        
+        .virtual-btn:active {
+            transform: scale(0.95);
+            background-color: #1976D2;
+        }
+        
+        .virtual-btn:nth-child(2) { grid-column: 2; grid-row: 1; } /* 上 */
+        .virtual-btn:nth-child(3) { grid-column: 1; grid-row: 2; } /* 左 */
+        .virtual-btn:nth-child(4) { grid-column: 3; grid-row: 2; } /* 右 */
+        .virtual-btn:nth-child(5) { grid-column: 2; grid-row: 3; } /* 下 */
+        
+        @media (max-width: 768px) {
+            .virtual-controls {
+                display: grid;
+            }
+        }
     </style>
 </head>
 <body>
@@ -223,6 +281,17 @@
             <button onclick="generateMaze()">重新生成</button>
             <button onclick="showPath()">显示道路</button>
             <button onclick="hidePath()">隐藏道路</button>
+        </div>
+        
+        <div class="virtual-controls">
+            <button class="virtual-btn" onclick="movePlayer('up')">↑</button>
+            <button class="virtual-btn" onclick="movePlayer('left')">←</button>
+            <button class="virtual-btn" onclick="movePlayer('right')">→</button>
+            <button class="virtual-btn" onclick="movePlayer('down')">↓</button>
+        </div>
+        
+        <div style="margin-top: 15px; text-align: center; color: #666; font-size: clamp(12px, 2.5vw, 14px);">
+            <p>使用键盘方向键或虚拟按钮控制小人移动</p>
         </div>
     </div>
 
@@ -626,6 +695,7 @@
         let currentConnections = null;
         let solutionPath = [];
         let currentSize = 50;
+        let playerPosition = { row: 0, col: 0 }; // 小人当前位置
 
         function setMazeSize(size) {
             currentSize = size;
@@ -676,8 +746,12 @@
             currentMaze = mazeData.maze;
             currentConnections = mazeData.connections;
             solutionPath = [];
+            // 重置小人位置到入口
+            playerPosition = { row: 0, col: 0 };
             // Render the complete maze with connections
             renderMaze({maze: mazeData.maze, connections: mazeData.connections});
+            // 显示小人
+            updatePlayerDisplay();
         }
 
         function findPath(maze, connections) {
@@ -794,6 +868,211 @@
         // 监听屏幕方向变化（移动设备）
         window.addEventListener('orientationchange', function() {
             setTimeout(handleResize, 100); // 延迟一点执行，等待方向变化完成
+        });
+        
+        // 更新小人显示位置
+        function updatePlayerDisplay() {
+            // 移除所有现有的小人标记
+            document.querySelectorAll('.player').forEach(cell => {
+                cell.classList.remove('player');
+            });
+            
+            // 在当前位置添加小人标记
+            const cells = document.querySelectorAll('.cell');
+            const index = playerPosition.row * currentSize + playerPosition.col;
+            if (cells[index]) {
+                cells[index].classList.add('player');
+            }
+        }
+        
+        // 检查两个相邻格子是否连通
+        function canMove(fromRow, fromCol, toRow, toCol) {
+            if (!currentMaze || !currentConnections) {
+                return false;
+            }
+            
+            // 检查是否为相邻格子
+            const rowDiff = Math.abs(toRow - fromRow);
+            const colDiff = Math.abs(toCol - fromCol);
+            if (!((rowDiff === 1 && colDiff === 0) || (rowDiff === 0 && colDiff === 1))) {
+                return false;
+            }
+            
+            // 检查边界
+            if (toRow < 0 || toRow >= currentSize || toCol < 0 || toCol >= currentSize) {
+                return false;
+            }
+            
+            // 简化逻辑：直接使用connections数据判断
+            const fromConnections = currentConnections[fromRow][fromCol];
+            const toConnections = currentConnections[toRow][toCol];
+            
+            // 根据移动方向检查连接
+            if (toRow === fromRow - 1) { // 向上移动
+                return fromConnections.up && toConnections.down;
+            } else if (toRow === fromRow + 1) { // 向下移动
+                return fromConnections.down && toConnections.up;
+            } else if (toCol === fromCol - 1) { // 向左移动
+                return fromConnections.left && toConnections.right;
+            } else if (toCol === fromCol + 1) { // 向右移动
+                return fromConnections.right && toConnections.left;
+            }
+            
+            return false;
+        }
+        
+        // 跳跃到下一个路口的移动算法
+        function findNextIntersection(row, col, direction) {
+            const directions = {
+                'up': [-1, 0],
+                'down': [1, 0],
+                'left': [0, -1],
+                'right': [0, 1]
+            };
+            
+            if (!directions[direction]) return null;
+            
+            const [dRow, dCol] = directions[direction];
+            let currentRow = row;
+            let currentCol = col;
+            
+            // 先检查是否可以在该方向移动
+            if (!canMove(currentRow, currentCol, currentRow + dRow, currentCol + dCol)) {
+                return null;
+            }
+            
+            // 继续在该方向移动，直到达到路口
+            while (true) {
+                const nextRow = currentRow + dRow;
+                const nextCol = currentCol + dCol;
+                
+                // 检查是否可以移动到下一个位置
+                if (!canMove(currentRow, currentCol, nextRow, nextCol)) {
+                    break;
+                }
+                
+                // 移动到下一个位置
+                currentRow = nextRow;
+                currentCol = nextCol;
+                
+                // 检查是否到达路口
+                if (isIntersection(currentRow, currentCol)) {
+                    break;
+                }
+            }
+            
+            // 如果位置没有变化，说明无法移动
+            if (currentRow === row && currentCol === col) {
+                return null;
+            }
+            
+            return { row: currentRow, col: currentCol };
+        }
+        
+        // 检查是否为路口（有多个可选方向或是特殊位置）
+        function isIntersection(row, col) {
+            if (!currentConnections) return false;
+            
+            // 入口和出口总是路口
+            if ((row === 0 && col === 0) || (row === currentSize - 1 && col === currentSize - 1)) {
+                return true;
+            }
+            
+            // 计算可用方向数
+            let availableDirections = 0;
+            if (canMove(row, col, row - 1, col)) availableDirections++; // 上
+            if (canMove(row, col, row + 1, col)) availableDirections++; // 下
+            if (canMove(row, col, row, col - 1)) availableDirections++; // 左
+            if (canMove(row, col, row, col + 1)) availableDirections++; // 右
+            
+            // 如果有超过2个方向可选，则认为是路口
+            // 或者只有1个方向（死胡同）也认为是路口
+            return availableDirections !== 2;
+        }
+        
+        // 移动小人（跳跃到路口）
+        function movePlayer(direction) {
+            if (!currentMaze || !currentConnections) {
+                return;
+            }
+            
+            const newPos = findNextIntersection(playerPosition.row, playerPosition.col, direction);
+            
+            if (newPos) {
+                // 添加平滑移动动画
+                animatePlayerMovement(playerPosition, newPos, () => {
+                    playerPosition = newPos;
+                    updatePlayerDisplay();
+                    
+                    // 检查是否到达出口
+                    if (playerPosition.row === currentSize - 1 && playerPosition.col === currentSize - 1) {
+                        setTimeout(() => {
+                            alert('恭喜！你成功走出了迷宫！');
+                        }, 100);
+                    }
+                });
+            }
+        }
+        
+        // 平滑移动动画
+        let isMoving = false;
+        
+        function animatePlayerMovement(fromPos, toPos, callback) {
+            if (isMoving) return; // 防止重复移动
+            isMoving = true;
+            
+            const steps = Math.max(Math.abs(toPos.row - fromPos.row), Math.abs(toPos.col - fromPos.col));
+            const stepDuration = 100; // 每步的时间（毫秒）
+            const rowStep = (toPos.row - fromPos.row) / steps;
+            const colStep = (toPos.col - fromPos.col) / steps;
+            
+            let currentStep = 0;
+            
+            function animateStep() {
+                currentStep++;
+                const currentRow = Math.round(fromPos.row + rowStep * currentStep);
+                const currentCol = Math.round(fromPos.col + colStep * currentStep);
+                
+                // 更新显示位置
+                const tempPos = { row: currentRow, col: currentCol };
+                const originalPos = playerPosition;
+                playerPosition = tempPos;
+                updatePlayerDisplay();
+                playerPosition = originalPos;
+                
+                if (currentStep < steps) {
+                    setTimeout(animateStep, stepDuration);
+                } else {
+                    isMoving = false;
+                    callback();
+                }
+            }
+            
+            animateStep();
+        }
+        
+        // 键盘事件监听
+        document.addEventListener('keydown', function(event) {
+            if (isMoving) return; // 移动中不响应按键
+            
+            switch(event.key) {
+                case 'ArrowUp':
+                    event.preventDefault();
+                    movePlayer('up');
+                    break;
+                case 'ArrowDown':
+                    event.preventDefault();
+                    movePlayer('down');
+                    break;
+                case 'ArrowLeft':
+                    event.preventDefault();
+                    movePlayer('left');
+                    break;
+                case 'ArrowRight':
+                    event.preventDefault();
+                    movePlayer('right');
+                    break;
+            }
         });
     </script>
 </body>
