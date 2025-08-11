@@ -275,11 +275,24 @@
                 this.height = height;
                 this.maze = [];
                 this.connections = []; // Store connection info for each cell
+                this.originalMainPath = []; // Store the original main path
             }
 
             generate() {
                 // Initialize maze with all walls (1 = wall, 0 = path)
                 this.maze = Array(this.height).fill().map(() => Array(this.width).fill(1));
+                
+                // Set entrance and exit as paths
+                this.maze[0][0] = 0; // Entrance
+                this.maze[this.height - 1][this.width - 1] = 0; // Exit
+                
+                // Set entrance adjacent cells as paths
+                if (this.width > 1) this.maze[0][1] = 0; // Right of entrance
+                if (this.height > 1) this.maze[1][0] = 0; // Below entrance
+                
+                // Set exit adjacent cells as paths  
+                if (this.width > 1) this.maze[this.height - 1][this.width - 2] = 0; // Left of exit
+                if (this.height > 1) this.maze[this.height - 2][this.width - 1] = 0; // Above exit
                 
                 // Initialize connections array - each cell has connections in 4 directions
                 // connections[row][col] = {up: false, down: false, left: false, right: false}
@@ -301,6 +314,10 @@
                 
                 // Step 3: For non-path cells, randomly open 1-2 directions
                 this.randomlyOpenWallConnections();
+                
+                // Step 4: Eliminate redundant paths, keeping only the main path
+                // TEMPORARILY DISABLED FOR DEBUGGING
+                // this.eliminateRedundantPaths();
                 
                 return {maze: this.maze, connections: this.connections};
             }
@@ -371,6 +388,9 @@
             }
             
             createConnections(pathSteps) {
+                // Store the original main path including entrance and exit
+                this.originalMainPath = [[0, 0], ...pathSteps, [this.height - 1, this.width - 1]];
+                
                 // Set all path cells to be paths in the maze
                 for (const [row, col] of pathSteps) {
                     this.maze[row][col] = 0;
@@ -402,36 +422,34 @@
                     
                     // Connect to entrance - if this is (1,1), connect to entrance at (0,0)
                     if (row === 1 && col === 1) {
-                        // Connect upward to (0,1) or leftward to (1,0), then to entrance
-                        if (col > 0) {
-                            this.connections[row][col].up = true;
-                            this.connections[0][col].down = true;
-                            this.connections[0][col].left = true; // Connect (0,1) to entrance (0,0)
-                            this.connections[0][0].right = true; // Connect entrance to (0,1)
-                        }
-                        if (row > 0) {
-                            this.connections[row][col].left = true;
-                            this.connections[row][0].right = true;
-                            this.connections[row][0].up = true; // Connect (1,0) to entrance (0,0)  
-                            this.connections[0][0].down = true; // Connect entrance to (1,0)
-                        }
+                        // Direct connection from entrance (0,0) to (1,1)
+                        // Method 1: Connect via (0,1)
+                        this.connections[row][col].up = true; // (1,1) -> (0,1)
+                        this.connections[0][1].down = true; // (0,1) -> (1,1)
+                        this.connections[0][1].left = true; // (0,1) -> (0,0)
+                        this.connections[0][0].right = true; // (0,0) -> (0,1)
+                        
+                        // Method 2: Connect via (1,0)
+                        this.connections[row][col].left = true; // (1,1) -> (1,0)
+                        this.connections[1][0].right = true; // (1,0) -> (1,1)
+                        this.connections[1][0].up = true; // (1,0) -> (0,0)
+                        this.connections[0][0].down = true; // (0,0) -> (1,0)
                     }
                     
                     // Connect to exit - if this is (height-2, width-2), connect to exit at (height-1, width-1)
                     if (row === this.height - 2 && col === this.width - 2) {
-                        // Connect downward to (height-1, width-2) or rightward to (height-2, width-1), then to exit
-                        if (col < this.width - 1) {
-                            this.connections[row][col].down = true;
-                            this.connections[this.height - 1][col].up = true;
-                            this.connections[this.height - 1][col].right = true; // Connect (height-1, width-2) to exit
-                            this.connections[this.height - 1][this.width - 1].left = true; // Connect exit to (height-1, width-2)
-                        }
-                        if (row < this.height - 1) {
-                            this.connections[row][col].right = true;
-                            this.connections[row][this.width - 1].left = true;
-                            this.connections[row][this.width - 1].down = true; // Connect (height-2, width-1) to exit
-                            this.connections[this.height - 1][this.width - 1].up = true; // Connect exit to (height-2, width-1)
-                        }
+                        // Direct connection from (height-2, width-2) to exit (height-1, width-1)
+                        // Method 1: Connect via (height-1, width-2)
+                        this.connections[row][col].down = true; // (h-2,w-2) -> (h-1,w-2)
+                        this.connections[this.height - 1][col].up = true; // (h-1,w-2) -> (h-2,w-2)
+                        this.connections[this.height - 1][col].right = true; // (h-1,w-2) -> (h-1,w-1)
+                        this.connections[this.height - 1][this.width - 1].left = true; // (h-1,w-1) -> (h-1,w-2)
+                        
+                        // Method 2: Connect via (height-2, width-1)
+                        this.connections[row][col].right = true; // (h-2,w-2) -> (h-2,w-1)
+                        this.connections[row][this.width - 1].left = true; // (h-2,w-1) -> (h-2,w-2)
+                        this.connections[row][this.width - 1].down = true; // (h-2,w-1) -> (h-1,w-1)
+                        this.connections[this.height - 1][this.width - 1].up = true; // (h-1,w-1) -> (h-2,w-1)
                     }
                 }
                 
@@ -505,6 +523,250 @@
                         }
                     }
                 }
+            }
+            
+            // Find all paths from entrance to exit and seal redundant ones
+            eliminateRedundantPaths() {
+                // Use a much simpler approach: check if multiple paths exist and block strategically
+                const mainPath = this.findMainPath();
+                if (!mainPath || mainPath.length === 0) {
+                    console.log("No main path found");
+                    return;
+                }
+                
+                console.log("Main path found with length:", mainPath.length);
+                const mainPathCells = new Set(mainPath.map(([r, c]) => `${r},${c}`));
+                
+                // Simple strategy: block cells that create shortcuts around the main path
+                let blockedCells = this.blockShortcutCells(mainPathCells);
+                
+                console.log(`Simple blocking completed - blocked ${blockedCells} cells`);
+            }
+            
+            // Find the main path from entrance to exit using BFS (shortest path)
+            findMainPath() {
+                const height = this.height;
+                const width = this.width;
+                const start = [0, 0]; // Entrance
+                const end = [height - 1, width - 1]; // Exit
+                
+                // BFS to find shortest path
+                const queue = [start];
+                const visited = Array(height).fill().map(() => Array(width).fill(false));
+                const parent = Array(height).fill().map(() => Array(width).fill(null));
+                
+                visited[start[0]][start[1]] = true;
+                const directions = [
+                    [-1, 0, 'up', 'down'],
+                    [1, 0, 'down', 'up'],
+                    [0, -1, 'left', 'right'],
+                    [0, 1, 'right', 'left']
+                ];
+                
+                while (queue.length > 0) {
+                    const [currentRow, currentCol] = queue.shift();
+                    
+                    if (currentRow === end[0] && currentCol === end[1]) {
+                        break;
+                    }
+                    
+                    for (const [dr, dc, fromDir, toDir] of directions) {
+                        const newRow = currentRow + dr;
+                        const newCol = currentCol + dc;
+                        
+                        // Check bounds
+                        if (newRow < 0 || newRow >= height || newCol < 0 || newCol >= width) {
+                            continue;
+                        }
+                        
+                        // Check if already visited
+                        if (visited[newRow][newCol]) {
+                            continue;
+                        }
+                        
+                        // Check if connected
+                        if (this.connections[currentRow][currentCol][fromDir] && 
+                            this.connections[newRow][newCol][toDir]) {
+                            
+                            visited[newRow][newCol] = true;
+                            parent[newRow][newCol] = [currentRow, currentCol];
+                            queue.push([newRow, newCol]);
+                        }
+                    }
+                }
+                
+                // Reconstruct path
+                const path = [];
+                let current = end;
+                
+                while (current) {
+                    path.unshift(current);
+                    if (current[0] === start[0] && current[1] === start[1]) {
+                        break;
+                    }
+                    current = parent[current[0]][current[1]];
+                }
+                
+                return path.length > 1 ? path : [];
+            }
+            
+            // Seal alternative paths by removing connections that create shortcuts
+            sealAlternativePaths(mainPathCells) {
+                let sealedCount = 0;
+                
+                // Iterate through all cells and find those that create alternative connections
+                for (let row = 0; row < this.height; row++) {
+                    for (let col = 0; col < this.width; col++) {
+                        // Skip cells that are part of main path
+                        if (mainPathCells.has(`${row},${col}`)) {
+                            continue;
+                        }
+                        
+                        // Check if this cell has connections that bypass the main path
+                        if (this.hasAlternativeConnections(row, col, mainPathCells)) {
+                            if (this.canSealCell(row, col, mainPathCells)) {
+                                this.sealCell(row, col);
+                                sealedCount++;
+                            }
+                        }
+                    }
+                }
+                
+                return sealedCount;
+            }
+            
+            // Simple and efficient method to block shortcut cells
+            blockShortcutCells(mainPathCells) {
+                let blockedCount = 0;
+                
+                // Check each cell to see if it creates shortcuts
+                for (let row = 1; row < this.height - 1; row++) {
+                    for (let col = 1; col < this.width - 1; col++) {
+                        // Skip main path cells
+                        if (mainPathCells.has(`${row},${col}`)) {
+                            continue;
+                        }
+                        
+                        // Check if this cell is connected to main path from multiple sides
+                        if (this.isShortcutCell(row, col, mainPathCells)) {
+                            this.sealCell(row, col);
+                            blockedCount++;
+                            console.log(`Blocked shortcut cell at (${row}, ${col})`);
+                            
+                            // Limit the number of cells we block to avoid over-blocking
+                            if (blockedCount >= 20) {
+                                break;
+                            }
+                        }
+                    }
+                    if (blockedCount >= 20) {
+                        break;
+                    }
+                }
+                
+                return blockedCount;
+            }
+            
+            // Check if a cell creates shortcuts by connecting to main path from multiple directions
+            isShortcutCell(row, col, mainPathCells) {
+                // Don't seal cells that are too close to entrance or exit
+                if ((row <= 2 && col <= 2) || 
+                    (row >= this.height - 3 && col >= this.width - 3)) {
+                    return false;
+                }
+                
+                const directions = [
+                    [-1, 0, 'up'],
+                    [1, 0, 'down'],
+                    [0, -1, 'left'],
+                    [0, 1, 'right']
+                ];
+                
+                let mainPathConnections = 0;
+                let connectedMainPathCells = [];
+                
+                for (const [dr, dc, dir] of directions) {
+                    const adjRow = row + dr;
+                    const adjCol = col + dc;
+                    
+                    // Check bounds
+                    if (adjRow < 0 || adjRow >= this.height || adjCol < 0 || adjCol >= this.width) {
+                        continue;
+                    }
+                    
+                    // Check if connected to this adjacent cell and if adjacent cell is on main path
+                    if (this.connections[row][col][dir] && mainPathCells.has(`${adjRow},${adjCol}`)) {
+                        mainPathConnections++;
+                        connectedMainPathCells.push([adjRow, adjCol]);
+                    }
+                }
+                
+                // If connected to main path from 2+ directions, check if they are far apart
+                if (mainPathConnections >= 2) {
+                    // Make sure the connected main path cells are not adjacent to each other
+                    // (to avoid breaking critical path segments)
+                    for (let i = 0; i < connectedMainPathCells.length; i++) {
+                        for (let j = i + 1; j < connectedMainPathCells.length; j++) {
+                            const [r1, c1] = connectedMainPathCells[i];
+                            const [r2, c2] = connectedMainPathCells[j];
+                            const distance = Math.abs(r1 - r2) + Math.abs(c1 - c2);
+                            
+                            // If connected main path cells are far apart, it's likely a shortcut
+                            if (distance > 2) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                
+                return false;
+            }
+            
+            // Check if a cell can be safely sealed without breaking main path connectivity
+            canSealCell(row, col, mainPathCells) {
+                // Don't seal cells that are part of the main path
+                if (mainPathCells.has(`${row},${col}`)) {
+                    return false;
+                }
+                
+                // Don't seal entrance or exit
+                if ((row === 0 && col === 0) || (row === this.height - 1 && col === this.width - 1)) {
+                    return false;
+                }
+                
+                // Check if sealing this cell would isolate any important areas
+                // For simplicity, we'll seal cells that are not critical junctions
+                const connectionCount = Object.values(this.connections[row][col]).filter(Boolean).length;
+                
+                // If the cell has only 1 or 2 connections, it's likely safe to seal
+                // Cells with 3+ connections are junctions and should be preserved
+                return connectionCount <= 2;
+            }
+            
+            // Seal a cell by removing all its connections
+            sealCell(row, col) {
+                // Remove all connections from this cell
+                const directions = [
+                    [-1, 0, 'up', 'down'],
+                    [1, 0, 'down', 'up'],
+                    [0, -1, 'left', 'right'],
+                    [0, 1, 'right', 'left']
+                ];
+                
+                for (const [dr, dc, fromDir, toDir] of directions) {
+                    const adjRow = row + dr;
+                    const adjCol = col + dc;
+                    
+                    // Remove connection from current cell
+                    this.connections[row][col][fromDir] = false;
+                    
+                    // Remove corresponding connection from adjacent cell if it exists
+                    if (adjRow >= 0 && adjRow < this.height && adjCol >= 0 && adjCol < this.width) {
+                        this.connections[adjRow][adjCol][toDir] = false;
+                    }
+                }
+                
+                console.log(`Sealed cell at (${row}, ${col})`);
             }
         }
 
@@ -741,19 +1003,43 @@
         function findPath(maze, connections) {
             const height = maze.length;
             const width = maze[0].length;
-            const start = [1, 1];
-            const end = [height - 2, width - 2];
+            const start = [0, 0]; // Use actual entrance
+            const end = [height - 1, width - 1]; // Use actual exit
+            
+            console.log(`Searching path from (${start[0]}, ${start[1]}) to (${end[0]}, ${end[1]})`);
+            console.log(`Maze size: ${height}x${width}`);
+            
+            // Debug entrance connections
+            console.log("Entrance (0,0) connections:", connections[0][0]);
+            console.log("Exit connections:", connections[height-1][width-1]);
+            
+            // Check if entrance can move to adjacent cells
+            console.log("Can move from entrance to (0,1):", connections[0][0].right && connections[0][1] && connections[0][1].left);
+            console.log("Can move from entrance to (1,0):", connections[0][0].down && connections[1][0] && connections[1][0].up);
             
             // Helper function to check if two adjacent cells are connected
             function canMove(fromRow, fromCol, toRow, toCol) {
-                // Check if both cells are paths
-                if (maze[fromRow][fromCol] !== 0 || maze[toRow][toCol] !== 0) {
+                // Special handling for entrance and exit
+                const isEntrance = (r, c) => r === 0 && c === 0;
+                const isExit = (r, c) => r === height - 1 && c === width - 1;
+                
+                // Allow movement to/from entrance and exit regardless of maze cell value
+                if (!isEntrance(fromRow, fromCol) && !isExit(fromRow, fromCol) && maze[fromRow][fromCol] !== 0) {
+                    return false;
+                }
+                if (!isEntrance(toRow, toCol) && !isExit(toRow, toCol) && maze[toRow][toCol] !== 0) {
                     return false;
                 }
                 
                 // Check connections based on direction
                 const rowDiff = toRow - fromRow;
                 const colDiff = toCol - fromCol;
+                
+                // Check if we have connection data for both cells
+                if (!connections[fromRow] || !connections[fromRow][fromCol] || 
+                    !connections[toRow] || !connections[toRow][toCol]) {
+                    return false;
+                }
                 
                 if (rowDiff === -1 && colDiff === 0) { // Moving up
                     return connections[fromRow][fromCol].up && connections[toRow][toCol].down;
@@ -800,6 +1086,11 @@
             const path = [];
             let current = end;
             
+            // Check if we found a path
+            if (!parent[end[0]][end[1]] && !(end[0] === start[0] && end[1] === start[1])) {
+                return [];
+            }
+            
             // Trace back from end to start
             while (current) {
                 path.unshift(current);
@@ -813,9 +1104,19 @@
         }
 
         function showPath() {
-            if (!currentMaze || !currentConnections) return;
+            if (!currentMaze || !currentConnections) {
+                console.log("No maze or connections data");
+                return;
+            }
             
+            console.log("Finding path...");
             solutionPath = findPath(currentMaze, currentConnections);
+            console.log("Path found:", solutionPath.length, "steps");
+            
+            if (solutionPath.length === 0) {
+                console.log("No path found!");
+                return;
+            }
             
             const cells = document.querySelectorAll('.cell');
             const width = currentSize;
@@ -826,6 +1127,8 @@
                     cells[index].classList.add('solution');
                 }
             });
+            
+            console.log("Path displayed successfully");
         }
 
         function hidePath() {
