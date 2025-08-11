@@ -258,7 +258,7 @@
         </div>
         
         <div class="action-buttons">
-            <button onclick="generateMaze()">重新生成</button>
+            <button onclick="regenerateMaze()">重新生成</button>
             <button onclick="showPath()">显示道路</button>
             <button onclick="hidePath()">隐藏道路</button>
         </div>
@@ -269,13 +269,79 @@
     </div>
 
     <script>
+        // Simple pseudo-random number generator with seed support
+        class SeededRandom {
+            constructor(seed) {
+                this.seed = seed || Date.now();
+                this.current = this.seed;
+            }
+            
+            // Linear Congruential Generator (LCG)
+            next() {
+                this.current = (this.current * 1664525 + 1013904223) % Math.pow(2, 32);
+                return this.current / Math.pow(2, 32);
+            }
+            
+            // Generate random integer between min (inclusive) and max (exclusive)
+            nextInt(min, max) {
+                return Math.floor(this.next() * (max - min)) + min;
+            }
+            
+            // Generate random boolean
+            nextBool() {
+                return this.next() < 0.5;
+            }
+            
+            // Shuffle array in place using Fisher-Yates algorithm
+            shuffle(array) {
+                for (let i = array.length - 1; i > 0; i--) {
+                    const j = this.nextInt(0, i + 1);
+                    [array[i], array[j]] = [array[j], array[i]];
+                }
+                return array;
+            }
+        }
+        
+        // Parse URL parameters
+        function getURLParameter(name) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(name);
+        }
+        
+        // Get seed from URL or generate random one
+        function getSeed() {
+            const urlSeed = getURLParameter('seed');
+            if (urlSeed) {
+                const numericSeed = parseInt(urlSeed, 10);
+                if (!isNaN(numericSeed)) {
+                    return numericSeed;
+                }
+                // If not a number, create hash from string
+                let hash = 0;
+                for (let i = 0; i < urlSeed.length; i++) {
+                    const char = urlSeed.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash = hash & hash; // Convert to 32-bit integer
+                }
+                return Math.abs(hash);
+            }
+            return Date.now(); // Random seed if not provided
+        }
+        
+        // Generate new random seed for regeneration
+        function generateNewSeed() {
+            return Date.now() + Math.floor(Math.random() * 1000);
+        }
+
         class MazeGenerator {
-            constructor(width, height) {
+            constructor(width, height, seed) {
                 this.width = width;
                 this.height = height;
                 this.maze = [];
                 this.connections = []; // Store connection info for each cell
                 this.originalMainPath = []; // Store the original main path
+                this.random = new SeededRandom(seed);
+                this.seed = seed || this.random.seed;
             }
 
             generate() {
@@ -363,7 +429,7 @@
                     
                     // If we have valid directions, choose randomly
                     if (validDirections.length > 0) {
-                        const [dr, dc] = validDirections[Math.floor(Math.random() * validDirections.length)];
+                        const [dr, dc] = validDirections[this.random.nextInt(0, validDirections.length)];
                         currentRow += dr;
                         currentCol += dc;
                         visited[currentRow][currentCol] = true;
@@ -469,10 +535,10 @@
                         const directions = ['up', 'down', 'left', 'right'];
                         
                         // Randomly choose to open 1 or 2 directions (70% chance for 1, 30% chance for 2)
-                        const numDirections = Math.random() < 0.7 ? 1 : 2;
+                        const numDirections = this.random.next() < 0.7 ? 1 : 2;
                         
                         // Shuffle directions and pick the first numDirections
-                        const shuffledDirections = [...directions].sort(() => Math.random() - 0.5);
+                        const shuffledDirections = this.random.shuffle([...directions]);
                         const selectedDirections = shuffledDirections.slice(0, numDirections);
                         
                         // Open the selected directions
@@ -518,7 +584,7 @@
                         }
                         
                         // Random chance to make this cell a path (40% chance)
-                        if (Math.random() < 0.4) {
+                        if (this.random.next() < 0.4) {
                             this.maze[row][col] = 0;
                         }
                     }
@@ -986,8 +1052,19 @@
             }
         }
 
-        function generateMaze() {
-            const generator = new MazeGenerator(currentSize, currentSize);
+        function generateMaze(useNewSeed = false) {
+            let seed;
+            if (useNewSeed) {
+                seed = generateNewSeed();
+                // Update URL with new seed
+                const url = new URL(window.location);
+                url.searchParams.set('seed', seed);
+                window.history.replaceState({}, '', url);
+            } else {
+                seed = getSeed();
+            }
+            
+            const generator = new MazeGenerator(currentSize, currentSize, seed);
             const mazeData = generator.generate();
             currentMaze = mazeData.maze;
             currentConnections = mazeData.connections;
@@ -998,6 +1075,21 @@
             renderMaze({maze: mazeData.maze, connections: mazeData.connections});
             // 显示小人
             updatePlayerDisplay();
+            
+            // Log the seed for debugging
+            console.log(`Maze generated with seed: ${generator.seed}`);
+            
+            // Update URL with seed if not already present and not using new seed
+            if (!useNewSeed && !getURLParameter('seed')) {
+                const url = new URL(window.location);
+                url.searchParams.set('seed', generator.seed);
+                window.history.replaceState({}, '', url);
+            }
+        }
+        
+        // Generate new maze with new random seed
+        function regenerateMaze() {
+            generateMaze(true);
         }
 
         function findPath(maze, connections) {
