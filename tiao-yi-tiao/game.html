@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D 跳一跳 - 终极交互版</title>
+    <title>3D 跳一跳 - 快速节奏版</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #f0f0f0; font-family: 'Arial', sans-serif; }
         #score-container {
@@ -75,10 +75,10 @@
     let jumpVelocity = { x: 0, y: 0, z: 0 };
     let currentBlockIndex = 0;
     let heroSkinUnlocked = false;
-    let comboCount = 0; // ✨ 新增：记录连击次数
+    let comboCount = 0;
 
     // 动画相关
-    let activeRubikAnimations = []; // 存储正在旋转的魔方
+    let activeRubikAnimations = []; 
 
     // 音频上下文
     let audioCtx;
@@ -134,12 +134,11 @@
         chargeGainNode = audioCtx.createGain();
         
         chargeOscillator.type = 'sine';
-        chargeOscillator.frequency.setValueAtTime(400, audioCtx.currentTime); // 初始频率
+        chargeOscillator.frequency.setValueAtTime(400, audioCtx.currentTime); 
         
-        // 创建一个 LFO 来制作 "滴滴滴" 的颤音效果
         const lfo = audioCtx.createOscillator();
         lfo.type = 'square';
-        lfo.frequency.value = 8; // 每秒8次
+        lfo.frequency.value = 8; 
         const lfoGain = audioCtx.createGain();
         lfoGain.gain.value = 500; 
 
@@ -154,11 +153,9 @@
 
     function updateChargeSound(compressionLevel) {
         if (chargeOscillator && audioCtx) {
-            // 随着蓄力（compression 变小），频率升高
             const freq = 400 + (1 - compressionLevel) * 400; 
             chargeOscillator.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.1);
             
-            // 模拟 "滴滴滴" 的断续感
             const time = audioCtx.currentTime;
             const volume = (Math.sin(time * 20) > 0) ? 0.1 : 0;
             chargeGainNode.gain.setTargetAtTime(volume, time, 0.01);
@@ -167,7 +164,6 @@
 
     function stopChargeSound() {
         if (chargeOscillator) {
-            // 平滑停止
             chargeGainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
             chargeOscillator.stop(audioCtx.currentTime + 0.1);
             chargeOscillator = null;
@@ -177,14 +173,14 @@
 
     function playMusicBoxMelody() {
         initAudio();
-        const notes = [523.25, 659.25, 783.99, 1046.50, 783.99, 659.25]; // C E G C G E
+        const notes = [523.25, 659.25, 783.99, 1046.50, 783.99, 659.25]; 
         const duration = 0.15;
         let startTime = audioCtx.currentTime;
 
         notes.forEach((freq, i) => {
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
-            osc.type = 'triangle'; // 八音盒音色接近三角波
+            osc.type = 'triangle'; 
             osc.frequency.value = freq;
             
             osc.connect(gain);
@@ -192,7 +188,6 @@
 
             osc.start(startTime + i * duration);
             
-            // 包络：快速起音，慢速衰减
             gain.gain.setValueAtTime(0, startTime + i * duration);
             gain.gain.linearRampToValueAtTime(0.2, startTime + i * duration + 0.05);
             gain.gain.exponentialRampToValueAtTime(0.001, startTime + i * duration + 0.4);
@@ -201,11 +196,9 @@
         });
     }
 
-    // ✨ 新增：中心命中音效（音调随连击升高）
     function playCenterHitSound(combo) {
         initAudio();
         
-        // 创建两个振荡器来模拟金属撞击的“咣”声（稍微失谐）
         const osc1 = audioCtx.createOscillator();
         const osc2 = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
@@ -213,14 +206,12 @@
         osc1.type = 'triangle';
         osc2.type = 'sine';
 
-        // 计算音调：基础频率 C5 (523.25Hz)，每连击一次升高一个半音（约1.06倍）
-        // 限制最高音调，防止过于刺耳（比如限制在15连击）
         const pitchStep = Math.min(combo, 15);
         const baseFreq = 523.25; 
         const freq = baseFreq * Math.pow(1.05946, pitchStep); 
 
         osc1.frequency.setValueAtTime(freq, audioCtx.currentTime);
-        osc2.frequency.setValueAtTime(freq * 1.5, audioCtx.currentTime); // 五度音程增加厚度
+        osc2.frequency.setValueAtTime(freq * 1.5, audioCtx.currentTime); 
 
         osc1.connect(gain);
         osc2.connect(gain);
@@ -230,10 +221,9 @@
         osc1.start(now);
         osc2.start(now);
 
-        // 打击感包络：瞬间起音，然后快速衰减
         gain.gain.setValueAtTime(0, now);
-        gain.gain.linearRampToValueAtTime(0.4, now + 0.02); // 冲击
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5); // 尾韵
+        gain.gain.linearRampToValueAtTime(0.4, now + 0.02); 
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5); 
 
         osc1.stop(now + 0.6);
         osc2.stop(now + 0.6);
@@ -251,7 +241,7 @@
         blocks = [];
         
         score = 0;
-        comboCount = 0; // 重置连击
+        comboCount = 0; 
         heroSkinUnlocked = false;
         updateScoreUI();
         document.getElementById('game-over').style.display = 'none';
@@ -268,7 +258,6 @@
         currentBlockIndex = 0;
     }
 
-    // ... (createHero, checkSkinUnlock, spawnParticle, updateParticles 保持不变) ...
     function createHero() {
         hero = new THREE.Group();
         const material = new THREE.MeshLambertMaterial({ color: 0x333333 }); 
@@ -327,7 +316,6 @@
 
     // --- 特殊方块生成与效果 ---
 
-    // 魔方：增加 tag 标记顶层
     function createRubikMesh(size) {
         const group = new THREE.Group();
         const segments = 3;
@@ -347,10 +335,8 @@
                     const color = colors[Math.floor(Math.random() * colors.length)];
                     const material = new THREE.MeshLambertMaterial({ color: color });
                     const voxel = new THREE.Mesh(geometry, material);
-                    // 实际坐标
                     voxel.position.set((x - 1) * offset, (y - 1) * offset, (z - 1) * offset);
                     
-                    // 标记：如果 y 是最高层 (y=2 => 索引)，标记为顶层
                     if (y === 2) {
                         voxel.userData.isTopLayer = true;
                     }
@@ -364,11 +350,9 @@
         return group;
     }
 
-    // 触发魔方动画
     function triggerRubikAnimation(rubikGroup) {
-        // 创建一个 pivot (轴心)，将顶层方块 attach 到这个轴心上，旋转轴心，再 detach
         const pivot = new THREE.Group();
-        pivot.position.y = CONFIG.cubeSize / 3; // 轴心位置大概在顶层下方一点
+        pivot.position.y = CONFIG.cubeSize / 3; 
         rubikGroup.add(pivot);
 
         const topVoxels = [];
@@ -378,20 +362,18 @@
             }
         });
 
-        // 手动模拟 attach
         topVoxels.forEach(voxel => {
             pivot.attach(voxel);
         });
 
         activeRubikAnimations.push({
             pivot: pivot,
-            targetRotation: Math.PI / 2, // 旋转 90 度
+            targetRotation: Math.PI / 2, 
             currentRotation: 0,
             speed: 0.1
         });
     }
 
-    // 便利店：给玻璃材质命名，方便查找
     function createStoreMesh(size) {
         const group = new THREE.Group();
         const mainGeo = new THREE.BoxGeometry(size, size, size);
@@ -420,9 +402,8 @@
             color: 0x87CEEB, 
             transparent: true, 
             opacity: 0.9,
-            emissive: 0x000000 // 初始不发光
+            emissive: 0x000000 
         });
-        // 标记这个材质，方便后续点亮
         doorMat.userData.isGlass = true;
 
         const doorZ = new THREE.Mesh(new THREE.BoxGeometry(doorWidth, doorHeight, 0.1), doorMat);
@@ -441,11 +422,9 @@
         return group;
     }
 
-    // 点亮便利店
     function lightUpStore(storeGroup) {
         storeGroup.traverse((child) => {
             if (child.material && child.material.userData && child.material.userData.isGlass) {
-                // 变成暖黄色高亮
                 child.material.color.setHex(0xFFFFE0);
                 child.material.emissive.setHex(0xFFD700); 
                 child.material.emissiveIntensity = 0.8;
@@ -454,7 +433,6 @@
         });
     }
 
-    // 音乐盒生成保持不变
     function createMusicBoxMesh(size) {
         const group = new THREE.Group();
         const baseGeo = new THREE.BoxGeometry(size, size, size);
@@ -563,7 +541,6 @@
         if (state === 'ready') {
             state = 'charging';
             compression = 1;
-            // ⚡️ 1. 开始播放蓄力音效
             startChargeSound();
         }
     }
@@ -571,7 +548,6 @@
     function onMouseUp(e) {
         if (state === 'charging') {
             state = 'jumping';
-            // ⚡️ 停止蓄力音效
             stopChargeSound();
             
             const power = 1 - compression; 
@@ -603,7 +579,6 @@
                 compression -= CONFIG.compressionSpeed; 
                 hero.scale.y = compression;
                 hero.position.y = (CONFIG.cubeSize/2) + (CONFIG.heroSize/2 * compression);
-                // ⚡️ 更新音效频率
                 updateChargeSound(compression);
             }
         }
@@ -625,7 +600,6 @@
             }
         }
         
-        // ✨ 处理魔方动画
         for(let i = activeRubikAnimations.length - 1; i >= 0; i--) {
             const anim = activeRubikAnimations[i];
             if (anim.currentRotation < anim.targetRotation) {
@@ -633,7 +607,6 @@
                 anim.pivot.rotation.y += step;
                 anim.currentRotation += step;
             } else {
-                // 动画结束，修正角度，移除动画
                 anim.pivot.rotation.y = anim.targetRotation;
                 activeRubikAnimations.splice(i, 1);
             }
@@ -655,7 +628,7 @@
     }
 
     function handleLanding() {
-        state = 'ready';
+        // state = 'ready'; 
         jumpVelocity = {x:0, y:0, z:0};
         hero.position.y = CONFIG.cubeSize/2 + CONFIG.heroSize/2; 
         hero.rotation.set(0,0,0); 
@@ -674,12 +647,17 @@
         );
 
         if (distToNext < 2.8) {
+            state = 'waiting'; // 进入等待状态
             successLand(targetBlock, distToNext);
             currentBlockIndex++;
-            spawnNextBlock();
+            // ✨ 延迟 200ms 后生成新方块并恢复控制
+            setTimeout(() => {
+                spawnNextBlock();
+                state = 'ready';
+            }, 200);
         } 
         else if (distToCurr < 2.8) {
-            
+            state = 'ready'; // 原地跳跃直接恢复
         }
         else {
             state = 'ended';
@@ -699,15 +677,14 @@
         let text = "+1";
         let color = "#333";
 
-        // ✨ 判定连击：跳到中心（距离 < 0.8）
         if (distance < 0.8) {
             points = 2; 
             text = "完美 +2";
             color = "#ff0000";
-            comboCount++; // 累加连击
-            playCenterHitSound(comboCount); // 播放“咣”音效
+            comboCount++; 
+            playCenterHitSound(comboCount); 
         } else {
-            comboCount = 0; // 如果没跳到中心，连击重置
+            comboCount = 0; 
         }
 
         if (block.type.score > 0) {
@@ -725,7 +702,6 @@
                 updateScoreUI();
                 checkSkinUnlock();
 
-                // ⚡️ 2. 触发特殊方块的交互逻辑
                 if (block.type.id === 'music') {
                     playMusicBoxMelody();
                 } else if (block.type.id === 'rubik') {
