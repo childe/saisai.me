@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D 跳一跳 - 快速节奏版</title>
+    <title>3D 跳一跳 - 精准判定版</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #f0f0f0; font-family: 'Arial', sans-serif; }
         #score-container {
@@ -60,7 +60,8 @@
             { id: 'normal', color: 0xffffff, score: 0, shape: 'box', prob: 0.4 }, 
             { id: 'store', color: 0x4fc3f7, score: 15, shape: 'box', prob: 0.2, name: "便利店" }, 
             { id: 'rubik', color: 0xff5252, score: 10, shape: 'box', prob: 0.2, name: "魔方" }, 
-            { id: 'music', color: 0xff9800, score: 30, shape: 'cylinder', prob: 0.2, name: "音乐盒" } 
+            // ✨ 修正：音乐盒现在的模型是方形底座，所以形状改为 box，确保碰撞检测准确
+            { id: 'music', color: 0xff9800, score: 30, shape: 'box', prob: 0.2, name: "音乐盒" } 
         ]
     };
 
@@ -628,7 +629,6 @@
     }
 
     function handleLanding() {
-        // state = 'ready'; 
         jumpVelocity = {x:0, y:0, z:0};
         hero.position.y = CONFIG.cubeSize/2 + CONFIG.heroSize/2; 
         hero.rotation.set(0,0,0); 
@@ -636,28 +636,42 @@
         const targetBlock = blocks[currentBlockIndex + 1];
         const currentBlock = blocks[currentBlockIndex];
         
-        const distToNext = Math.sqrt(
+        // 计算纯几何距离（用于分数奖励判断，如“正中心”）
+        const distToNextCenter = Math.sqrt(
             Math.pow(hero.position.x - targetBlock.x, 2) + 
             Math.pow(hero.position.z - targetBlock.z, 2)
         );
-        
-        const distToCurr = Math.sqrt(
-            Math.pow(hero.position.x - currentBlock.x, 2) + 
-            Math.pow(hero.position.z - currentBlock.z, 2)
-        );
 
-        if (distToNext < 2.8) {
-            state = 'waiting'; // 进入等待状态
-            successLand(targetBlock, distToNext);
+        // ✨ 严格的碰撞检测：判定是否落在方块面上
+        const isSafe = (block, x, z) => {
+            const limit = CONFIG.cubeSize / 2; // 2.0
+            const dx = x - block.x;
+            const dz = z - block.z;
+            
+            if (block.type.shape === 'box') {
+                // 矩形判定：中心点坐标偏移必须在矩形范围内
+                return Math.abs(dx) <= limit && Math.abs(dz) <= limit;
+            } else {
+                // 圆形判定：中心点距离必须在半径内
+                return (dx*dx + dz*dz) <= limit*limit;
+            }
+        };
+
+        const onNext = isSafe(targetBlock, hero.position.x, hero.position.z);
+        const onCurr = isSafe(currentBlock, hero.position.x, hero.position.z);
+
+        if (onNext) {
+            state = 'waiting'; 
+            // 只要在方块面上就算成功，分数根据是否接近中心判定
+            successLand(targetBlock, distToNextCenter);
             currentBlockIndex++;
-            // ✨ 延迟 200ms 后生成新方块并恢复控制
             setTimeout(() => {
                 spawnNextBlock();
                 state = 'ready';
             }, 200);
         } 
-        else if (distToCurr < 2.8) {
-            state = 'ready'; // 原地跳跃直接恢复
+        else if (onCurr) {
+            state = 'ready'; // 还在当前方块上，允许再次跳跃
         }
         else {
             state = 'ended';
