@@ -13,22 +13,37 @@ class App {
     }
 
     _bindEvents() {
+        // Step button (was missing!)
+        document.getElementById('stepBtn').addEventListener('click', () => {
+            console.log('[stepBtn] clicked');
+            this._advance();
+        });
+
         // Click on the equations area
-        document.getElementById('equationsDisplay').addEventListener('click', () => this._advance());
+        document.getElementById('equationsDisplay').addEventListener('click', () => {
+            console.log('[equationsDisplay] clicked');
+            this._advance();
+        });
 
         // Spacebar
         document.addEventListener('keydown', e => {
-            if (e.code === 'Space') { e.preventDefault(); this._advance(); }
+            if (e.code === 'Space') {
+                e.preventDefault();
+                console.log('[keydown] Space');
+                this._advance();
+            }
         });
 
         // Difficulty buttons
         document.querySelectorAll('.diff-btn').forEach(btn => {
             btn.addEventListener('click', e => {
+                e.stopPropagation(); // prevent bubbling to equationsDisplay
                 const levels = ['easy', 'medium', 'hard'];
                 const action = e.target.dataset.difficulty;
                 const idx = levels.indexOf(this.difficulty);
                 if (action === 'easier') this.difficulty = levels[Math.max(0, idx - 1)];
                 else if (action === 'harder') this.difficulty = levels[Math.min(2, idx + 1)];
+                console.log('[difficulty] changed to', this.difficulty);
                 this._newEquation();
             });
         });
@@ -36,6 +51,7 @@ class App {
 
     _newEquation() {
         const eq = this.generator.generate(this.difficulty);
+        console.log('[newEquation]', eq.original, '| solution:', eq.solution, '| steps:', this.solver.solve(eq).length);
         this.steps = this.solver.solve(eq);
         this.currentStep = 0;
         this.renderer.clearDisplay();
@@ -80,9 +96,14 @@ class App {
     }
 
     _advance() {
-        if (this.currentStep >= this.steps.length) return;
+        console.log('[advance] step', this.currentStep, '/', this.steps.length);
+        if (this.currentStep >= this.steps.length) {
+            console.log('[advance] already at end');
+            return;
+        }
 
         const step = this.steps[this.currentStep];
+        console.log('[advance] rendering html:', step.html.substring(0, 60) + '...');
         this.renderer.addStep(step);
         this.currentStep++;
 
