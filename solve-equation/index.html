@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>一元一次方程求解</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>一元一次方程求解</h1>
+
+        <div class="equations-display" id="equationsDisplay">
+            <!-- Equations will be appended here -->
+        </div>
+
+        <div class="controls">
+            <button id="stepBtn" class="step-btn" style="display:none;">下一步 (点击或按空格)</button>
+            <div id="difficultySelector" class="difficulty-selector" style="display:none;">
+                <button class="diff-btn" data-difficulty="easier">更简单</button>
+                <button class="diff-btn" data-difficulty="same">相同</button>
+                <button class="diff-btn" data-difficulty="harder">更难</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="equations.js"></script>
+    <script src="solver.js"></script>
+    <script src="renderer.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>
