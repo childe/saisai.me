@@ -130,28 +130,36 @@ class Solver {
         const [left, right] = original.split('=');
         const xStr = Number.isInteger(xVal) ? String(xVal) : this._fracStr(xVal);
 
+        // Label step
+        this.steps.push({
+            finalHtml: `<span class="verify-label">── 验证：将 x = ${xStr} 代入原式 ──</span>`,
+            isVerify: true
+        });
+
         // Step 1: substitute x
         const leftSub = left.replace(/x/g, `(${xStr})`);
         const rightSub = right.replace(/x/g, `(${xStr})`);
         this.steps.push({
-            html: `<span class="term verify">${leftSub}</span><span class="equals"> = </span><span class="term verify">${rightSub}</span>`,
+            finalHtml: `<span class="term verify">${leftSub}</span><span class="equals"> = </span><span class="term verify">${rightSub}</span>`,
             isVerify: true
         });
 
         // Step 2: both sides equal
         const lv = this._eval(left, xVal);
         const rv = this._eval(right, xVal);
-        const lvStr = Number.isInteger(lv) ? String(lv) : lv.toFixed(2);
-        const rvStr = Number.isInteger(rv) ? String(rv) : rv.toFixed(2);
+        const lvStr = Number.isInteger(lv) ? String(lv) : parseFloat(lv.toFixed(4)).toString();
+        const rvStr = Number.isInteger(rv) ? String(rv) : parseFloat(rv.toFixed(4)).toString();
         this.steps.push({
-            html: `<span class="term verify-ok">${lvStr}</span><span class="equals"> = </span><span class="term verify-ok">${rvStr}</span> <span class="checkmark">✓</span>`,
+            finalHtml: `<span class="term verify-ok">${lvStr}</span><span class="equals"> = </span><span class="term verify-ok">${rvStr}</span> <span class="checkmark">✓</span>`,
             isVerify: true,
             isFinal: true
         });
     }
 
     _eval(expr, x) {
-        try { return Function(`"use strict";const x=${x};return(${expr});`)(); }
-        catch (e) { return NaN; }
+        // Convert implicit multiplication to explicit: "3x" → "3*x", "2(" → "2*("
+        const jsExpr = expr.replace(/(\d)x/g, '$1*x').replace(/(\d)\(/g, '$1*(');
+        try { return Function(`"use strict";const x=${x};return(${jsExpr});`)(); }
+        catch (e) { console.error('[eval error]', jsExpr, e); return NaN; }
     }
 }

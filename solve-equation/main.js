@@ -114,9 +114,16 @@ class App {
     }
 
     _showComplete() {
+        const levels = ['easy', 'medium', 'hard'];
+        const idx = levels.indexOf(this.difficulty);
+
         document.getElementById('stepBtn').style.display = 'none';
         document.getElementById('verificationInfo').style.display = 'block';
         document.getElementById('difficultySelector').style.display = 'flex';
+
+        // Hide "更简单" if already at easiest, hide "更难" if already at hardest
+        document.querySelector('[data-difficulty="easier"]').style.display = idx === 0 ? 'none' : '';
+        document.querySelector('[data-difficulty="harder"]').style.display = idx === levels.length - 1 ? 'none' : '';
     }
 }
 

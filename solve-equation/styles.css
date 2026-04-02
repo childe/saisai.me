@@ -86,6 +86,13 @@ h1 {
     background: #fffbf0;
 }
 
+.verify-label {
+    color: #888;
+    font-size: 14px;
+    font-family: 'Segoe UI', sans-serif;
+    letter-spacing: 0.5px;
+}
+
 .term.verify {
     color: #8e44ad;
 }
