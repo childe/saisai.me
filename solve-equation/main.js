@@ -7,7 +7,6 @@ class App {
         this.steps = [];
         this.currentStep = 0;
         this.difficulty = 'medium';
-        this.busy = false;  // Prevents double-triggering during animation
 
         this._bindEvents();
         this._newEquation();
@@ -39,8 +38,6 @@ class App {
         const eq = this.generator.generate(this.difficulty);
         this.steps = this.solver.solve(eq);
         this.currentStep = 0;
-        this.busy = false;
-
         this.renderer.clearDisplay();
 
         // Show original equation immediately (no animation for first line)
@@ -82,20 +79,16 @@ class App {
         return parts.join('');
     }
 
-    async _advance() {
-        if (this.busy) return;
+    _advance() {
         if (this.currentStep >= this.steps.length) return;
 
-        this.busy = true;
         const step = this.steps[this.currentStep];
-        await this.renderer.addStep(step);
+        this.renderer.addStep(step);
         this.currentStep++;
 
         if (this.currentStep >= this.steps.length) {
             this._showComplete();
         }
-
-        this.busy = false;
     }
 
     _showComplete() {
