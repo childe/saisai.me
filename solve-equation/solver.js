@@ -271,7 +271,8 @@ class Solver {
         if (Number.isInteger(num)) {
             return num.toString();
         } else {
-            return num.toFixed(2);
+            // Round to 2 decimal places, but remove trailing zeros
+            return parseFloat(num.toFixed(2)).toString();
         }
     }
 

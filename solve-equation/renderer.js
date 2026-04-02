@@ -29,12 +29,22 @@ class Renderer {
     }
 
     formatEquation(equation) {
-        // Simple formatting: replace x with styled version
+        // Format equation with highlighted terms
         let formatted = equation;
-        formatted = formatted.replace(/(\d+)x/g, '<span class="coefficient">$1</span>x');
-        formatted = formatted.replace(/x/g, '<span class="variable">x</span>');
-        formatted = formatted.replace(/([+-])(\d+)(?![\dx])/g, '<span class="constant">$1$2</span>');
+
+        // Replace numbers followed by 'x' with styled coefficients
+        formatted = formatted.replace(/(\d+)x/g, '<span class="coefficient">$1</span><span class="variable">x</span>');
+
+        // Replace standalone 'x' (not preceded by a digit)
+        formatted = formatted.replace(/([^0-9])x/g, '$1<span class="variable">x</span>');
+        // Also handle 'x' at the beginning
+        if (formatted.match(/^x/)) {
+            formatted = formatted.replace(/^x/, '<span class="variable">x</span>');
+        }
+
+        // Replace equals sign
         formatted = formatted.replace(/=/g, ' <span class="equals">=</span> ');
+
         return formatted;
     }
 
