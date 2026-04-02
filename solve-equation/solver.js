@@ -1,319 +1,137 @@
+// Each step has an `html` string with optional `.term-new` spans for fade-in animation
 class Solver {
-    constructor() {
-        this.equation = null;
-        this.steps = [];
-    }
-
     solve(equationObj) {
-        this.equation = equationObj;
         this.steps = [];
+        let { leftX, leftC, rightX, rightC } = equationObj.state;
 
-        // Parse the equation string into components
-        const parsed = this.parseEquation(equationObj.original);
+        // Show expanded form if parentheses (hard difficulty)
+        if (equationObj.hasParens) {
+            this._push(leftX, leftC, rightX, rightC);
+        }
 
-        // Apply solving rules in sequence
-        this.applyDistribution(parsed);
-        this.clearFractions(parsed);
-        this.combineTerms(parsed);
-        this.moveTerms(parsed);
-        this.isolate(parsed);
-        this.addVerification(equationObj.original, equationObj.solution);
+        // Move x to left: add (-rightX)x to both sides
+        if (rightX !== 0) {
+            const dx = -rightX;
+            this._push(leftX, leftC, rightX, rightC, dx, 0, dx, 0);
+            leftX += dx;
+            rightX = 0;
+            this._push(leftX, leftC, rightX, rightC);
+        }
+
+        // Move constant to right: add (-leftC) to both sides
+        if (leftC !== 0) {
+            const dc = -leftC;
+            this._push(leftX, leftC, rightX, rightC, 0, dc, 0, dc);
+            leftC = 0;
+            rightC += dc;
+            this._push(leftX, leftC, rightX, rightC);
+        }
+
+        // Divide by x coefficient
+        if (leftX !== 1) {
+            rightC = rightC / leftX;
+            leftX = 1;
+            this._push(leftX, leftC, rightX, rightC);
+        }
+
+        // Verification
+        this._verify(equationObj.original, rightC);
 
         return this.steps;
     }
 
-    parseEquation(equationString) {
-        // Basic structure: { left: expression, right: expression }
-        const [left, right] = equationString.split('=');
-        return {
-            left: left.trim(),
-            right: right.trim(),
-            original: equationString
-        };
-    }
-
-    addStep(leftExpr, rightExpr, description = '') {
+    // Push a step: current state (leftX, leftC, rightX, rightC) plus optional new terms
+    // newLX/newLC = new term added to left side (x coeff / constant)
+    // newRX/newRC = new term added to right side
+    _push(lx, lc, rx, rc, newLX = 0, newLC = 0, newRX = 0, newRC = 0) {
+        const leftHtml = this._sideHtml(lx, lc, newLX, newLC);
+        const rightHtml = this._sideHtml(rx, rc, newRX, newRC);
         this.steps.push({
-            left: leftExpr,
-            right: rightExpr,
-            full: `${leftExpr} = ${rightExpr}`,
-            description: description,
-            animationMeta: {} // Will populate during rules
+            html: `${leftHtml}<span class="equals"> = </span>${rightHtml}`
         });
     }
 
-    // ===== DISTRIBUTION RULE =====
-    applyDistribution(state) {
-        const leftDist = this.expandDistribution(state.left);
-        const rightDist = this.expandDistribution(state.right);
+    _sideHtml(x, c, newX, newC) {
+        const parts = [];
+        let first = true;
 
-        if (leftDist !== state.left || rightDist !== state.right) {
-            this.addStep(leftDist, rightDist, 'Expand distribution');
-            state.left = leftDist;
-            state.right = rightDist;
+        if (x !== 0) {
+            parts.push(this._span(this._xStr(x, first), 'normal'));
+            first = false;
         }
+        if (c !== 0) {
+            parts.push(this._span(this._cStr(c, first), 'normal'));
+            first = false;
+        }
+        if (newX !== 0) {
+            parts.push(this._span(this._xStr(newX, first), 'new'));
+            first = false;
+        }
+        if (newC !== 0) {
+            parts.push(this._span(this._cStr(newC, first), 'new'));
+        }
+
+        return parts.length ? parts.join('') : this._span('0', 'normal');
     }
 
-    expandDistribution(expr) {
-        // Match pattern: number(expr+term) or number(expr-term)
-        // Example: 2(3+2x) → 6+4x
-        const regex = /(\d+)\(([^)]+)\)/g;
+    _span(text, type) {
+        return type === 'new'
+            ? `<span class="term term-new">${text}</span>`
+            : `<span class="term">${text}</span>`;
+    }
 
-        return expr.replace(regex, (match, coeff, inner) => {
-            const terms = inner.split(/([+-])/);
-            let result = '';
-            let firstTerm = true;
+    _xStr(coeff, isFirst) {
+        if (coeff === 0) return '';
+        if (coeff === 1) return isFirst ? 'x' : '+x';
+        if (coeff === -1) return '-x';
+        return (coeff > 0 && !isFirst ? '+' : '') + coeff + 'x';
+    }
 
-            for (let i = 0; i < terms.length; i++) {
-                const term = terms[i].trim();
-                if (term === '' || term === '+' || term === '-') continue;
+    _cStr(n, isFirst) {
+        if (n === 0) return '';
+        const str = Number.isInteger(n) ? String(n) : this._fracStr(n);
+        return (n > 0 && !isFirst ? '+' : '') + str;
+    }
 
-                const sign = i > 0 && terms[i - 1] === '-' ? '-' : '+';
-                const multiplied = this.multiplyTerm(term, parseInt(coeff));
-
-                if (firstTerm && sign === '+') {
-                    result = multiplied;
-                    firstTerm = false;
-                } else {
-                    result += sign + multiplied;
-                }
+    _fracStr(n) {
+        for (let d = 2; d <= 20; d++) {
+            const num = Math.round(n * d);
+            if (Math.abs(num / d - n) < 1e-9) {
+                const g = this._gcd(Math.abs(num), d);
+                return `${num / g}/${d / g}`;
             }
+        }
+        return n.toFixed(2);
+    }
 
-            return result;
+    _gcd(a, b) { return b === 0 ? a : this._gcd(b, a % b); }
+
+    _verify(original, xVal) {
+        const [left, right] = original.split('=');
+        const xStr = Number.isInteger(xVal) ? String(xVal) : this._fracStr(xVal);
+
+        // Step 1: substitute x
+        const leftSub = left.replace(/x/g, `(${xStr})`);
+        const rightSub = right.replace(/x/g, `(${xStr})`);
+        this.steps.push({
+            html: `<span class="term verify">${leftSub}</span><span class="equals"> = </span><span class="term verify">${rightSub}</span>`,
+            isVerify: true
+        });
+
+        // Step 2: both sides equal
+        const lv = this._eval(left, xVal);
+        const rv = this._eval(right, xVal);
+        const lvStr = Number.isInteger(lv) ? String(lv) : lv.toFixed(2);
+        const rvStr = Number.isInteger(rv) ? String(rv) : rv.toFixed(2);
+        this.steps.push({
+            html: `<span class="term verify-ok">${lvStr}</span><span class="equals"> = </span><span class="term verify-ok">${rvStr}</span> <span class="checkmark">✓</span>`,
+            isVerify: true,
+            isFinal: true
         });
     }
 
-    multiplyTerm(term, factor) {
-        if (term.includes('x')) {
-            const match = term.match(/(\d*)x/);
-            const coeff = match[1] === '' ? 1 : parseInt(match[1]);
-            const product = coeff * factor;
-            return product === 1 ? 'x' : product + 'x';
-        } else {
-            return (parseInt(term) * factor).toString();
-        }
-    }
-
-    // ===== CLEAR FRACTIONS RULE =====
-    clearFractions(state) {
-        const lcm = this.findLCM(state.left, state.right);
-
-        if (lcm > 1) {
-            const leftCleared = this.multiplyExpression(state.left, lcm);
-            const rightCleared = this.multiplyExpression(state.right, lcm);
-
-            this.addStep(leftCleared, rightCleared, 'Clear fractions (multiply by ' + lcm + ')');
-            state.left = leftCleared;
-            state.right = rightCleared;
-        }
-    }
-
-    findLCM(leftExpr, rightExpr) {
-        const leftDenoms = this.extractDenominators(leftExpr);
-        const rightDenoms = this.extractDenominators(rightExpr);
-        const allDenoms = [...new Set([...leftDenoms, ...rightDenoms])];
-
-        if (allDenoms.length === 0) return 1;
-
-        return allDenoms.reduce((a, b) => this.lcmOfTwo(a, b));
-    }
-
-    extractDenominators(expr) {
-        const regex = /\/(\d+)/g;
-        const matches = expr.match(regex) || [];
-        return matches.map(m => parseInt(m.substring(1)));
-    }
-
-    lcmOfTwo(a, b) {
-        return (a * b) / this.gcd(a, b);
-    }
-
-    gcd(a, b) {
-        return b === 0 ? a : this.gcd(b, a % b);
-    }
-
-    multiplyExpression(expr, factor) {
-        // Example: (3+x)/2 * 2 = 3+x
-        let result = expr.replace(/\(([^)]+)\)\/(\d+)/g, (match, numerator, denom) => {
-            const divisor = parseInt(denom);
-            const multiplier = factor / divisor;
-            return `${multiplier}*(${numerator})`;
-        });
-
-        // Expand any distributions that were created
-        result = this.expandDistribution(result);
-        return result;
-    }
-
-    // ===== COMBINE LIKE TERMS RULE =====
-    combineTerms(state) {
-        const leftCombined = this.simplifyExpression(state.left);
-        const rightCombined = this.simplifyExpression(state.right);
-
-        if (leftCombined !== state.left || rightCombined !== state.right) {
-            this.addStep(leftCombined, rightCombined, 'Combine like terms');
-            state.left = leftCombined;
-            state.right = rightCombined;
-        }
-    }
-
-    simplifyExpression(expr) {
-        // Combine x terms and constants separately
-        // Example: 6+4x-3x = 6+x
-        const terms = this.parseTerms(expr);
-        const xTerms = [];
-        let constants = 0;
-
-        for (const term of terms) {
-            if (term.includes('x')) {
-                const match = term.match(/([+-]?\d*)x/);
-                const coeff = this.parseCoefficient(match[1]);
-                xTerms.push(coeff);
-            } else {
-                constants += this.parseNumber(term);
-            }
-        }
-
-        const totalX = xTerms.reduce((a, b) => a + b, 0);
-
-        let result = '';
-        if (totalX > 0) {
-            result += totalX === 1 ? 'x' : totalX + 'x';
-        } else if (totalX < 0) {
-            result += totalX === -1 ? '-x' : totalX + 'x';
-        }
-
-        if (constants > 0) {
-            result += (result ? '+' : '') + constants;
-        } else if (constants < 0) {
-            result += constants;
-        }
-
-        return result || '0';
-    }
-
-    parseTerms(expr) {
-        return expr.split(/(?=[+-])/).filter(t => t.trim());
-    }
-
-    parseCoefficient(str) {
-        if (str === '' || str === '+') return 1;
-        if (str === '-') return -1;
-        return parseInt(str);
-    }
-
-    parseNumber(str) {
-        const num = parseInt(str);
-        return isNaN(num) ? 0 : num;
-    }
-
-    // ===== MOVE TERMS RULE =====
-    moveTerms(state) {
-        // Move all x terms to left, constants to right
-        const leftX = this.extractXCoeff(state.left);
-        const rightX = this.extractXCoeff(state.right);
-        const leftConst = this.extractConstant(state.left);
-        const rightConst = this.extractConstant(state.right);
-
-        if (rightX !== 0 || leftConst !== 0) {
-            const newLeftX = leftX + rightX;
-            const newRightConst = rightConst + leftConst;
-
-            const newLeft = newLeftX === 0 ? '0' : (newLeftX === 1 ? 'x' : newLeftX === -1 ? '-x' : newLeftX + 'x');
-            const newRight = newRightConst.toString();
-
-            this.addStep(newLeft, newRight, 'Move terms');
-            state.left = newLeft;
-            state.right = newRight;
-        }
-    }
-
-    extractXCoeff(expr) {
-        const match = expr.match(/([+-]?\d*)x/);
-        if (!match) return 0;
-        return this.parseCoefficient(match[1]);
-    }
-
-    extractConstant(expr) {
-        // Sum all non-x terms
-        const terms = this.parseTerms(expr);
-        let sum = 0;
-
-        for (const term of terms) {
-            if (!term.includes('x')) {
-                sum += this.parseNumber(term);
-            }
-        }
-
-        return sum;
-    }
-
-    // ===== ISOLATE RULE =====
-    isolate(state) {
-        // Divide both sides by the x coefficient to get x = value
-        const xCoeff = this.extractXCoeff(state.left);
-        const rightValue = parseFloat(state.right);
-
-        if (xCoeff !== 0 && xCoeff !== 1) {
-            const solution = rightValue / xCoeff;
-            const newLeft = 'x';
-            const newRight = this.formatNumber(solution);
-
-            this.addStep(newLeft, newRight, 'Divide both sides by ' + xCoeff);
-            state.left = newLeft;
-            state.right = newRight;
-        } else if (xCoeff === 0) {
-            state.right = rightValue.toString();
-        }
-    }
-
-    formatNumber(num) {
-        if (Number.isInteger(num)) {
-            return num.toString();
-        } else {
-            // Round to 2 decimal places, but remove trailing zeros
-            return parseFloat(num.toFixed(2)).toString();
-        }
-    }
-
-    // ===== VERIFICATION STEP =====
-    addVerification(originalEquation, solution) {
-        const [left, right] = originalEquation.split('=');
-        const leftResult = this.evaluateExpression(left.trim(), solution);
-        const rightResult = this.evaluateExpression(right.trim(), solution);
-
-        // Add steps showing substitution and simplification
-        const leftSub = this.substituteX(left.trim(), solution);
-        const rightSub = this.substituteX(right.trim(), solution);
-
-        this.addStep(
-            leftSub,
-            rightSub,
-            'Verification: Substitute x = ' + this.formatNumber(solution)
-        );
-
-        // Show final values
-        const leftFinal = this.formatNumber(leftResult);
-        const rightFinal = this.formatNumber(rightResult);
-        this.addStep(
-            leftFinal,
-            rightFinal,
-            'Both sides equal ✓'
-        );
-    }
-
-    substituteX(expr, xValue) {
-        // Replace x with the value in parentheses
-        return expr.replace(/x/g, '(' + this.formatNumber(xValue) + ')');
-    }
-
-    evaluateExpression(expr, xValue) {
-        // Simple evaluation: replace x and eval
-        const toEval = expr.replace(/x/g, xValue);
-        try {
-            return Function('"use strict"; return (' + toEval + ')')();
-        } catch (e) {
-            return 0;
-        }
+    _eval(expr, x) {
+        try { return Function(`"use strict";const x=${x};return(${expr});`)(); }
+        catch (e) { return NaN; }
     }
 }

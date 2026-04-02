@@ -5,96 +5,91 @@ class EquationGenerator {
 
     generate(difficulty = 'medium') {
         this.lastDifficulty = difficulty;
-
-        let equation;
-        if (difficulty === 'easy') {
-            equation = this.generateEasy();
-        } else if (difficulty === 'medium') {
-            equation = this.generateMedium();
-        } else if (difficulty === 'hard') {
-            equation = this.generateHard();
-        }
-
-        return equation;
+        if (difficulty === 'easy') return this._easy();
+        if (difficulty === 'hard') return this._hard();
+        return this._medium();
     }
 
-    generateEasy() {
-        // Easy: 2x + 3 = 7  or  3(x + 1) = 9
-        const rand = Math.random();
-
-        if (rand < 0.5) {
-            // Simple linear: ax + b = c
-            const a = this.randomInt(1, 5);
-            const b = this.randomInt(1, 10);
-            const c = this.randomInt(5, 30);
-            const x = (c - b) / a;
-
-            return {
-                original: `${a}x + ${b} = ${c}`,
-                solution: x,
-                difficulty: 'easy',
-                terms: this.parseEasy(a, b, c)
-            };
-        } else {
-            // Distributive: a(x + b) = c
-            const a = this.randomInt(2, 5);
-            const b = this.randomInt(1, 8);
-            const c = a * (this.randomInt(1, 10) + b);
-            const x = (c / a) - b;
-
-            return {
-                original: `${a}(x + ${b}) = ${c}`,
-                solution: x,
-                difficulty: 'easy',
-                terms: { left: { constant: b, coeff: a }, right: { constant: 0, coeff: 0 }, constant: c }
-            };
-        }
+    // ax + b = c  (only left has x, integer solution)
+    _easy() {
+        const a = this._r(2, 5);
+        const b = this._r(1, 9);
+        const xVal = this._r(1, 8);
+        const c = a * xVal + b;
+        return {
+            original: this._fmt(a, b, 0, c),
+            state: { leftX: a, leftC: b, rightX: 0, rightC: c },
+            solution: xVal,
+            difficulty: 'easy'
+        };
     }
 
-    generateMedium() {
-        // Medium: 2*(3+2x)=6-3x
-        const a = this.randomInt(2, 4);
-        const b = this.randomInt(1, 5);
-        const c = this.randomInt(1, 5);
-        const d = this.randomInt(1, 10);
-        const e = this.randomInt(1, 5);
-        const f = this.randomInt(1, 30);
-
-        const x = (f - a * b) / (a * c + e);
+    // ax + b = cx + d  (both sides have x, integer solution)
+    _medium() {
+        let a, c, b, d, xVal;
+        let tries = 0;
+        do {
+            a = this._r(2, 5);
+            c = this._r(1, 3);
+            b = this._r(1, 9);
+            xVal = this._r(1, 6);
+            d = (a - c) * xVal + b;
+            tries++;
+        } while ((a === c || d <= 0 || d > 30) && tries < 100);
 
         return {
-            original: `${a}*(${b}+${c}x)=${f}-${e}x`,
-            solution: x,
+            original: this._fmt(a, b, c, d),
+            state: { leftX: a, leftC: b, rightX: c, rightC: d },
+            solution: xVal,
             difficulty: 'medium'
         };
     }
 
-    generateHard() {
-        // Hard: (3+x)/2=(2x-1)/3
-        // General form: (a+x)/b=(cx-d)/e
-        const a = this.randomInt(2, 6);
-        const b = this.randomInt(2, 4);
-        const c = this.randomInt(2, 4);
-        const d = this.randomInt(1, 3);
-        const e = this.randomInt(2, 4);
-
-        const x = (a * e + d * b) / (c * b - e);
+    // a(bx + c) = dx + e  (parentheses, integer solution)
+    _hard() {
+        let a, b, c, d, e, xVal;
+        let tries = 0;
+        do {
+            a = this._r(2, 3);
+            b = this._r(2, 4);
+            c = this._r(1, 5);
+            d = this._r(1, 3);
+            xVal = this._r(1, 5);
+            e = (a * b - d) * xVal + a * c;
+            tries++;
+        } while ((a * b === d || e <= 0 || e > 40) && tries < 100);
 
         return {
-            original: `(${a}+x)/${b}=(${c}x-${d})/${e}`,
-            solution: x,
+            original: `${a}(${b}x+${c})=${d}x+${e}`,
+            state: { leftX: a * b, leftC: a * c, rightX: d, rightC: e },
+            hasParens: { a, b, c },
+            solution: xVal,
             difficulty: 'hard'
         };
     }
 
-    randomInt(min, max) {
-        return Math.floor(Math.random() * (max - min + 1)) + min;
+    // Format: leftX*x + leftC = rightX*x + rightC as a readable string
+    _fmt(lx, lc, rx, rc) {
+        const left = this._xStr(lx, true) + this._cStr(lc, lx === 0);
+        const right = rx === 0
+            ? this._cStr(rc, true)
+            : this._xStr(rx, true) + this._cStr(rc, false);
+        return `${left}=${right}`;
     }
 
-    parseEasy(a, b, c) {
-        return {
-            left: { x: a, constant: b },
-            right: { constant: c }
-        };
+    _xStr(coeff, isFirst) {
+        if (coeff === 0) return '';
+        if (coeff === 1) return isFirst ? 'x' : '+x';
+        if (coeff === -1) return '-x';
+        return (coeff > 0 && !isFirst ? '+' : '') + coeff + 'x';
+    }
+
+    _cStr(n, isFirst) {
+        if (n === 0) return '';
+        return (n > 0 && !isFirst ? '+' : '') + n;
+    }
+
+    _r(min, max) {
+        return Math.floor(Math.random() * (max - min + 1)) + min;
     }
 }
