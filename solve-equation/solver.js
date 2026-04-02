@@ -6,32 +6,36 @@ class Solver {
 
         // Show expanded form if parentheses (hard difficulty)
         if (equationObj.hasParens) {
-            this._push(leftX, leftC, rightX, rightC);
+            this._pushFinal(leftX, leftC, rightX, rightC);
         }
 
-        // Move x to left: add (-rightX)x to both sides
+        // Move x to left: add (-rightX)x to both sides, then combine (2-phase animation)
         if (rightX !== 0) {
             const dx = -rightX;
-            this._push(leftX, leftC, rightX, rightC, dx, 0, dx, 0);
+            this._pushTwoPhase(
+                leftX, leftC, rightX, rightC,   // current state
+                dx, 0, dx, 0                     // what to add
+            );
             leftX += dx;
             rightX = 0;
-            this._push(leftX, leftC, rightX, rightC);
         }
 
-        // Move constant to right: add (-leftC) to both sides
+        // Move constant to right: add (-leftC) to both sides, then combine
         if (leftC !== 0) {
             const dc = -leftC;
-            this._push(leftX, leftC, rightX, rightC, 0, dc, 0, dc);
+            this._pushTwoPhase(
+                leftX, leftC, rightX, rightC,
+                0, dc, 0, dc
+            );
             leftC = 0;
             rightC += dc;
-            this._push(leftX, leftC, rightX, rightC);
         }
 
         // Divide by x coefficient
         if (leftX !== 1) {
             rightC = rightC / leftX;
             leftX = 1;
-            this._push(leftX, leftC, rightX, rightC);
+            this._pushFinal(leftX, leftC, rightX, rightC);
         }
 
         // Verification
@@ -40,37 +44,53 @@ class Solver {
         return this.steps;
     }
 
-    // Push a step: current state (leftX, leftC, rightX, rightC) plus optional new terms
-    // newLX/newLC = new term added to left side (x coeff / constant)
-    // newRX/newRC = new term added to right side
-    _push(lx, lc, rx, rc, newLX = 0, newLC = 0, newRX = 0, newRC = 0) {
-        const leftHtml = this._sideHtml(lx, lc, newLX, newLC);
-        const rightHtml = this._sideHtml(rx, rc, newRX, newRC);
+    // Simple step: just show the final state (whole line fades in)
+    _pushFinal(lx, lc, rx, rc) {
+        const leftHtml = this._sideHtmlNormal(lx, lc);
+        const rightHtml = this._sideHtmlNormal(rx, rc);
         this.steps.push({
-            html: `${leftHtml}<span class="equals"> = </span>${rightHtml}`
+            finalHtml: `${leftHtml}<span class="equals"> = </span>${rightHtml}`
         });
     }
 
+    // Two-phase step:
+    //   Phase 1 — show intermediate state (new terms fade in)
+    //   Phase 2 — same line transitions to merged result
+    _pushTwoPhase(lx, lc, rx, rc, newLX, newLC, newRX, newRC) {
+        // Phase 1: current terms + new terms (term-new class)
+        const leftInter = this._sideHtml(lx, lc, newLX, newLC);
+        const rightInter = this._sideHtml(rx, rc, newRX, newRC);
+        const intermediateHtml = `${leftInter}<span class="equals"> = </span>${rightInter}`;
+
+        // Phase 2: merged result (plain)
+        const finalLX = lx + newLX, finalLC = lc + newLC;
+        const finalRX = rx + newRX, finalRC = rc + newRC;
+        const leftFinal = this._sideHtmlNormal(finalLX, finalLC);
+        const rightFinal = this._sideHtmlNormal(finalRX, finalRC);
+        const finalHtml = `${leftFinal}<span class="equals"> = </span>${rightFinal}`;
+
+        this.steps.push({ intermediateHtml, finalHtml });
+    }
+
+    // Side HTML with existing terms (normal) + new added terms (term-new)
     _sideHtml(x, c, newX, newC) {
         const parts = [];
         let first = true;
 
-        if (x !== 0) {
-            parts.push(this._span(this._xStr(x, first), 'normal'));
-            first = false;
-        }
-        if (c !== 0) {
-            parts.push(this._span(this._cStr(c, first), 'normal'));
-            first = false;
-        }
-        if (newX !== 0) {
-            parts.push(this._span(this._xStr(newX, first), 'new'));
-            first = false;
-        }
-        if (newC !== 0) {
-            parts.push(this._span(this._cStr(newC, first), 'new'));
-        }
+        if (x !== 0) { parts.push(this._span(this._xStr(x, first), 'normal')); first = false; }
+        if (c !== 0) { parts.push(this._span(this._cStr(c, first), 'normal')); first = false; }
+        if (newX !== 0) { parts.push(this._span(this._xStr(newX, first), 'new')); first = false; }
+        if (newC !== 0) { parts.push(this._span(this._cStr(newC, first), 'new')); }
 
+        return parts.length ? parts.join('') : this._span('0', 'normal');
+    }
+
+    // Side HTML with only existing terms (no animation markers)
+    _sideHtmlNormal(x, c) {
+        const parts = [];
+        let first = true;
+        if (x !== 0) { parts.push(this._span(this._xStr(x, first), 'normal')); first = false; }
+        if (c !== 0) { parts.push(this._span(this._cStr(c, first), 'normal')); }
         return parts.length ? parts.join('') : this._span('0', 'normal');
     }
 
