@@ -29,23 +29,34 @@ class Renderer {
     }
 
     formatEquation(equation) {
-        // Format equation with highlighted terms
-        let formatted = equation;
+        // Tokenize character by character to avoid HTML contamination
+        const parts = [];
+        let i = 0;
 
-        // Replace numbers followed by 'x' with styled coefficients
-        formatted = formatted.replace(/(\d+)x/g, '<span class="coefficient">$1</span><span class="variable">x</span>');
-
-        // Replace standalone 'x' (not preceded by a digit)
-        formatted = formatted.replace(/([^0-9])x/g, '$1<span class="variable">x</span>');
-        // Also handle 'x' at the beginning
-        if (formatted.match(/^x/)) {
-            formatted = formatted.replace(/^x/, '<span class="variable">x</span>');
+        while (i < equation.length) {
+            if (equation[i] === 'x') {
+                parts.push('<span class="variable">x</span>');
+                i++;
+            } else if (/\d/.test(equation[i])) {
+                let num = '';
+                while (i < equation.length && /\d/.test(equation[i])) {
+                    num += equation[i++];
+                }
+                if (i < equation.length && equation[i] === 'x') {
+                    parts.push('<span class="coefficient">' + num + '</span><span class="variable">x</span>');
+                    i++;
+                } else {
+                    parts.push('<span class="number">' + num + '</span>');
+                }
+            } else if (equation[i] === '=') {
+                parts.push(' <span class="equals">=</span> ');
+                i++;
+            } else {
+                parts.push(equation[i++]);
+            }
         }
 
-        // Replace equals sign
-        formatted = formatted.replace(/=/g, ' <span class="equals">=</span> ');
-
-        return formatted;
+        return parts.join('');
     }
 
     getCurrentDisplay() {
@@ -54,24 +65,25 @@ class Renderer {
 
     async animateEquation(oldEquation, newEquation, animationMeta = {}) {
         return new Promise((resolve) => {
-            const line = this.addEquationLine(newEquation, animationMeta);
-
-            // Detect which terms are new vs old
-            const oldTerms = this.extractTerms(oldEquation);
-            const newTerms = this.extractTerms(newEquation);
-
-            // Simple animation: fade in the line
+            // Create element with opacity:0 BEFORE adding to DOM
+            const line = document.createElement('div');
+            line.className = 'equation-line';
+            line.innerHTML = this.formatEquation(newEquation);
             line.style.opacity = '0';
-            line.style.transition = 'opacity 0.5s ease-in';
 
-            setTimeout(() => {
-                line.style.opacity = '1';
-            }, 10);
+            this.container.appendChild(line);
+            this.equations.push({ element: line, equation: newEquation, meta: animationMeta });
+            this.container.scrollTop = this.container.scrollHeight;
 
-            // Resolve after animation completes
-            setTimeout(() => {
-                resolve();
-            }, 600);
+            // requestAnimationFrame ensures browser processes opacity:0 before transitioning
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    line.style.transition = 'opacity 0.7s ease-in';
+                    line.style.opacity = '1';
+                });
+            });
+
+            setTimeout(() => resolve(), 800);
         });
     }
 

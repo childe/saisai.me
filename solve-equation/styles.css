@@ -47,7 +47,6 @@ h1 {
     padding: 12px 0;
     line-height: 1.8;
     border-bottom: 1px solid #eee;
-    animation: slideIn 0.5s ease-out;
 }
 
 .equation-line:last-child {
