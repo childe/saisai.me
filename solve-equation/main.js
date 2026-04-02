@@ -103,7 +103,8 @@ class App {
         }
 
         const step = this.steps[this.currentStep];
-        console.log('[advance] rendering html:', step.html.substring(0, 60) + '...');
+        const preview = (step.intermediateHtml || step.finalHtml || '').replace(/<[^>]+>/g, '');
+        console.log('[advance] step', this.currentStep, ':', preview);
         this.renderer.addStep(step);
         this.currentStep++;
 
