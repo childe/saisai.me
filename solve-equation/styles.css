@@ -31,18 +31,59 @@ h1 {
 }
 
 .equations-display {
-    background: #f8f9fa;
+    background: linear-gradient(135deg, #f5f7fa 0%, #f8f9fa 100%);
+    border: 2px solid #667eea;
     border-radius: 8px;
     padding: 20px;
-    min-height: 200px;
+    min-height: 300px;
     margin-bottom: 20px;
     font-size: 18px;
     font-family: 'Courier New', monospace;
+    overflow-y: auto;
+    max-height: 500px;
 }
 
 .equation-line {
-    padding: 10px 0;
-    line-height: 1.6;
+    padding: 12px 0;
+    line-height: 1.8;
+    border-bottom: 1px solid #eee;
+    animation: slideIn 0.5s ease-out;
+}
+
+.equation-line:last-child {
+    border-bottom: none;
+}
+
+.coefficient {
+    color: #ff6b6b;
+    font-weight: bold;
+}
+
+.variable {
+    color: #4ecdc4;
+    font-weight: bold;
+}
+
+.constant {
+    color: #45b7d1;
+    font-weight: bold;
+}
+
+.equals {
+    color: #333;
+    font-weight: bold;
+    margin: 0 8px;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .controls {
@@ -52,29 +93,49 @@ h1 {
     align-items: center;
 }
 
-.step-btn, .diff-btn {
-    padding: 10px 20px;
+.step-btn {
+    padding: 12px 30px;
     font-size: 16px;
+    font-weight: 600;
     border: none;
-    border-radius: 5px;
-    background: #667eea;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     cursor: pointer;
-    transition: background 0.3s;
+    transition: all 0.3s;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
 }
 
-.step-btn:hover, .diff-btn:hover {
-    background: #764ba2;
+.step-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+}
+
+.step-btn:active {
+    transform: translateY(0);
 }
 
 .difficulty-selector {
     display: flex;
-    gap: 10px;
+    gap: 15px;
+    justify-content: center;
 }
 
 .diff-btn {
-    padding: 8px 16px;
+    padding: 10px 20px;
     font-size: 14px;
+    font-weight: 500;
+    border: 2px solid #667eea;
+    background: white;
+    color: #667eea;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.diff-btn:hover {
+    background: #667eea;
+    color: white;
 }
 
 /* Animation classes */
