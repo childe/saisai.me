@@ -1,0 +1,218 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+
+.container {
+    background: white;
+    border-radius: 10px;
+    padding: 30px;
+    max-width: 600px;
+    width: 100%;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+
+h1 {
+    text-align: center;
+    color: #333;
+    margin-bottom: 30px;
+    font-size: 24px;
+}
+
+.equations-display {
+    background: linear-gradient(135deg, #f5f7fa 0%, #f8f9fa 100%);
+    border: 2px solid #667eea;
+    border-radius: 8px;
+    padding: 20px;
+    min-height: 300px;
+    margin-bottom: 20px;
+    font-size: 18px;
+    font-family: 'Courier New', monospace;
+    overflow-y: auto;
+    max-height: 500px;
+}
+
+.equation-line {
+    padding: 12px 0;
+    line-height: 1.8;
+    border-bottom: 1px solid #eee;
+}
+
+.equation-line:last-child {
+    border-bottom: none;
+}
+
+.coefficient {
+    color: #e74c3c;
+    font-weight: bold;
+}
+
+.variable {
+    color: #2980b9;
+    font-weight: bold;
+}
+
+.term {
+    display: inline;
+}
+
+/* Highlighted (newly added) terms */
+.term-new {
+    color: #e67e22;
+    font-weight: bold;
+    background: rgba(230, 126, 34, 0.12);
+    border-radius: 3px;
+    padding: 0 2px;
+}
+
+.equals {
+    color: #555;
+    font-weight: bold;
+}
+
+/* Verification lines */
+.verify-line {
+    background: #fffbf0;
+}
+
+.verify-label {
+    color: #888;
+    font-size: 14px;
+    font-family: 'Segoe UI', sans-serif;
+    letter-spacing: 0.5px;
+}
+
+.term.verify {
+    color: #8e44ad;
+}
+
+.term.verify-ok {
+    color: #27ae60;
+    font-weight: bold;
+}
+
+.final-line {
+    background: #f0fff4;
+}
+
+.checkmark {
+    color: #27ae60;
+    font-weight: bold;
+    margin-left: 8px;
+}
+
+.first-line {
+    font-weight: bold;
+    font-size: 20px;
+}
+
+.controls {
+    display: flex;
+    gap: 10px;
+    flex-direction: column;
+    align-items: center;
+}
+
+.step-btn {
+    padding: 12px 30px;
+    font-size: 16px;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    cursor: pointer;
+    transition: all 0.3s;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+}
+
+.step-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+}
+
+.step-btn:active {
+    transform: translateY(0);
+}
+
+.skip-btn {
+    background: linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%);
+    box-shadow: 0 4px 15px rgba(149, 165, 166, 0.4);
+    font-size: 14px;
+    padding: 8px 20px;
+}
+
+.skip-btn:hover {
+    box-shadow: 0 6px 20px rgba(149, 165, 166, 0.6);
+}
+
+.difficulty-selector {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+}
+
+.diff-btn {
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 500;
+    border: 2px solid #667eea;
+    background: white;
+    color: #667eea;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.diff-btn:hover {
+    background: #667eea;
+    color: white;
+}
+
+/* Animation classes */
+.fade-in {
+    animation: fadeIn 0.7s ease-in;
+}
+
+.fade-out {
+    animation: fadeOut 0.7s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+@keyframes blinkHighlight {
+    0%   { opacity: 1; }
+    15%  { opacity: 0.1; }
+    30%  { opacity: 1; }
+    45%  { opacity: 0.1; }
+    60%  { opacity: 1; }
+    75%  { opacity: 0.1; }
+    100% { opacity: 1; }
+}
