@@ -146,6 +146,17 @@ h1 {
     transform: translateY(0);
 }
 
+.skip-btn {
+    background: linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%);
+    box-shadow: 0 4px 15px rgba(149, 165, 166, 0.4);
+    font-size: 14px;
+    padding: 8px 20px;
+}
+
+.skip-btn:hover {
+    box-shadow: 0 6px 20px rgba(149, 165, 166, 0.6);
+}
+
 .difficulty-selector {
     display: flex;
     gap: 15px;
@@ -194,4 +205,14 @@ h1 {
     to {
         opacity: 0;
     }
+}
+
+@keyframes blinkHighlight {
+    0%   { opacity: 1; }
+    15%  { opacity: 0.1; }
+    30%  { opacity: 1; }
+    45%  { opacity: 0.1; }
+    60%  { opacity: 1; }
+    75%  { opacity: 0.1; }
+    100% { opacity: 1; }
 }

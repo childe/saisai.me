@@ -34,6 +34,12 @@ class App {
             }
         });
 
+        // Skip button
+        document.getElementById('skipBtn').addEventListener('click', e => {
+            e.stopPropagation();
+            this._newEquation();
+        });
+
         // Difficulty buttons
         document.querySelectorAll('.diff-btn').forEach(btn => {
             btn.addEventListener('click', e => {
@@ -66,6 +72,7 @@ class App {
         document.getElementById('verificationInfo').style.display = 'none';
         document.getElementById('difficultySelector').style.display = 'none';
         document.getElementById('stepBtn').style.display = 'block';
+        document.getElementById('skipBtn').style.display = 'block';
     }
 
     _makeOriginalHtml(original) {
@@ -118,6 +125,7 @@ class App {
         const idx = levels.indexOf(this.difficulty);
 
         document.getElementById('stepBtn').style.display = 'none';
+        document.getElementById('skipBtn').style.display = 'none';
         document.getElementById('verificationInfo').style.display = 'block';
         document.getElementById('difficultySelector').style.display = 'flex';
 

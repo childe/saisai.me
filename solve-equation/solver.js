@@ -69,20 +69,35 @@ class Solver {
         const rightFinal = this._sideHtmlNormal(finalRX, finalRC);
         const finalHtml = `${leftFinal}<span class="equals"> = </span>${rightFinal}`;
 
-        this.steps.push({ intermediateHtml, finalHtml });
+        this.steps.push({ intermediateHtml, finalHtml, finalLeftHtml: leftFinal, finalRightHtml: rightFinal });
     }
 
-    // Side HTML with existing terms (normal) + new added terms (term-new)
+    // Side HTML: existing terms + new added terms (term-new).
+    // Terms that will cancel each other are marked term-cancel.
     _sideHtml(x, c, newX, newC) {
         const parts = [];
         let first = true;
 
-        if (x !== 0) { parts.push(this._span(this._xStr(x, first), 'normal')); first = false; }
-        if (c !== 0) { parts.push(this._span(this._cStr(c, first), 'normal')); first = false; }
-        if (newX !== 0) { parts.push(this._span(this._xStr(newX, first), 'new')); first = false; }
-        if (newC !== 0) { parts.push(this._span(this._cStr(newC, first), 'new')); }
+        if (x !== 0) {
+            // If a new x term is being added, these two will cancel/merge — mark both
+            const cls = newX !== 0 ? 'term term-cancel' : 'term';
+            parts.push(`<span class="${cls}">${this._xStr(x, first)}</span>`);
+            first = false;
+        }
+        if (c !== 0) {
+            const cls = newC !== 0 ? 'term term-cancel' : 'term';
+            parts.push(`<span class="${cls}">${this._cStr(c, first)}</span>`);
+            first = false;
+        }
+        if (newX !== 0) {
+            parts.push(`<span class="term term-new term-cancel">${this._xStr(newX, first)}</span>`);
+            first = false;
+        }
+        if (newC !== 0) {
+            parts.push(`<span class="term term-new term-cancel">${this._cStr(newC, first)}</span>`);
+        }
 
-        return parts.length ? parts.join('') : this._span('0', 'normal');
+        return parts.length ? parts.join('') : '<span class="term">0</span>';
     }
 
     // Side HTML with only existing terms (no animation markers)
