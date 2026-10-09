@@ -47,6 +47,23 @@
 
 ## 本地预览
 
+### 音频的跨域问题（本地自测必读）
+
+本页所有音频都走 `fetch` + `decodeAudioData`（跟读要拿原始 PCM，
+不像 `<audio>` 标签能绕过 CORS）。而 OSS 的跨域规则只放行
+`https://saisai.me`，所以在 `localhost` 或局域网 HTTPS 上打开时，
+**连拼音表都不会出声**。
+
+本地自测时把音频放到同源：
+
+    python pinyin/scripts/tts_aliyun.py --ong-mode trim-dong -o pinyin/audio
+    # 然后开页面时带上 ?audio=local
+
+`pinyin/audio/` 已加入 .gitignore，不会进仓库。
+`?audio=<地址>` 也可以指向任意别的 baseUrl。
+
+### 起服务
+
 `fetch` 在 `file://` 下会被拦截，需要起本地服务：
 
     python3 -m http.server 8777

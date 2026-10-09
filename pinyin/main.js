@@ -1,4 +1,5 @@
 import { AudioBank } from './audio.js';
+import { resolveBaseUrl } from './lib/base-url.js';
 import { mount as mountChart } from './chart.js';
 import { mount as mountQuiz } from './quiz.js';
 import { mount as mountShadow } from './shadow.js';
@@ -20,6 +21,7 @@ export async function loadData() {
   const res = await fetch('data/pinyin.json');
   if (!res.ok) throw new Error('数据 ' + res.status);
   const data = await res.json();
+  data.baseUrl = resolveBaseUrl(data.baseUrl, location.search);
   data.items = data.groups.flatMap((g) =>
     g.items.map((it) => ({ ...it, group: g.id })));
   data.byId = new Map(data.items.map((it) => [it.id, it]));
