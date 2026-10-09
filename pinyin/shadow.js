@@ -140,13 +140,17 @@ export function mount(root, { data, bank }) {
       // 标准音取不到，退回模板判调，仍能给分
     }
 
-    showScore(scorePronunciation({
-      userContour: mine.contour,
-      refContour,
+    const input = {
+      userContour: mine.contour && Array.from(mine.contour),
+      refContour: refContour && Array.from(refContour),
       targetTone: item.tone || 1,
       mfccDistance,
       durationSec: mine.duration,
-    }), refContour, mine.contour);
+    };
+    const score = scorePronunciation(input);
+    // 采校准样本用：控制台里 copy(JSON.stringify(window.__lastShadow))
+    window.__lastShadow = { id: item.id, display: item.display, input, score };
+    showScore(score, refContour, mine.contour);
   }
 
   // —— 事件 ——
