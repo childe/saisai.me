@@ -1,0 +1,98 @@
+:root {
+  --bg: #f5f3ff;
+  --card: #fff;
+  --ink: #2d2a45;
+  --accent: #667eea;
+  --ok: #2fa968;
+  --bad: #e2574c;
+  --muted: #8b86a8;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+/* #status 用 id 选择器设了 display:flex，会盖过 UA 的 [hidden]{display:none} */
+[hidden] { display: none !important; }
+body {
+  margin: 0;
+  font-family: -apple-system, 'PingFang SC', sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  padding-bottom: 24px;
+}
+header { padding: 16px 16px 0; }
+h1 { margin: 0 0 12px; font-size: 1.5rem; text-align: center; }
+#tabs { display: flex; gap: 8px; }
+.tab {
+  flex: 1;
+  min-height: 44px;
+  border: none;
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--muted);
+  font-size: 1rem;
+  font-family: inherit;
+}
+.tab[aria-selected="true"] { background: var(--accent); color: #fff; }
+main { padding: 16px; }
+
+.cell {
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 1.6rem;
+  font-family: inherit;
+  padding: 8px 4px;
+}
+.cell small { font-size: .7rem; color: var(--muted); margin-top: 2px; }
+.cell:disabled { opacity: 0; pointer-events: none; }
+.cell.playing { background: var(--accent); color: #fff; }
+
+#status {
+  position: fixed;
+  left: 16px; right: 16px; bottom: 16px;
+  min-height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--ink); color: #fff;
+  border-radius: 10px; padding: 12px;
+}
+
+.group { margin-bottom: 24px; }
+.group h2 { font-size: 1rem; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+.sm-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.ym-row { display: grid; grid-template-columns: 2.4rem repeat(4, 1fr) 2.6rem; gap: 6px; margin-bottom: 8px; align-items: stretch; }
+.ym-label { display: flex; align-items: center; color: var(--muted); font-size: 1.1rem; }
+.play-all { font-size: 1rem; background: #ece9ff; }
+
+.quiz-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.scope { min-height: 44px; border-radius: 10px; border: none; background: var(--card); color: var(--ink); font-size: 1rem; padding: 0 10px; font-family: inherit; }
+.meter { color: var(--muted); font-size: .85rem; }
+.replay { width: 100%; min-height: 56px; border: none; border-radius: 12px; background: var(--accent); color: #fff; font-size: 1.1rem; font-family: inherit; margin-bottom: 16px; }
+.opt-grid { display: grid; grid-template-columns: repeat(var(--cols, 3), 1fr); gap: 10px; }
+.opt { min-height: 60px; font-size: 1.5rem; }
+.opt.ok { background: var(--ok); color: #fff; }
+.opt.bad { background: var(--bad); color: #fff; }
+.next { width: 100%; min-height: 52px; margin-top: 16px; border: none; border-radius: 12px; background: var(--ink); color: #fff; font-size: 1.05rem; font-family: inherit; }
+
+.tone-plot { width: 100%; height: 140px; background: var(--card); border-radius: 12px; display: block; margin: 12px 0; }
+.plot-legend { display: flex; gap: 16px; font-size: .8rem; color: var(--muted); justify-content: center; }
+.plot-legend i { display: inline-block; width: 18px; height: 3px; vertical-align: middle; margin-right: 5px; }
+.plot-legend .ref i { background: #b8b2d8; }
+.plot-legend .me i { background: #667eea; }
+
+.shadow { text-align: center; }
+.target { font-size: 4rem; margin: 8px 0 16px; }
+.mic { width: 160px; height: 160px; border-radius: 50%; border: none; background: var(--accent); color: #fff; font-size: 1.1rem; font-family: inherit; margin: 8px 0 16px; }
+.mic.recording { background: var(--bad); transform: scale(1.05); }
+.mic:disabled { background: var(--muted); font-size: .9rem; padding: 0 16px; width: auto; min-width: 160px; min-height: 60px; height: auto; border-radius: 12px; }
+.stars { font-size: 1.5rem; color: #f5a623; letter-spacing: 2px; }
+.comment { font-size: 1.1rem; margin: 8px 0; }
+.playback { display: flex; gap: 10px; }
+.playback button { flex: 1; min-height: 48px; border: none; border-radius: 10px; background: var(--card); color: var(--ink); font-size: 1rem; font-family: inherit; }
+.shadow-nav { display: flex; gap: 10px; margin-top: 20px; }
+.shadow-nav button { flex: 1; min-height: 48px; border: none; border-radius: 10px; background: var(--card); color: var(--ink); font-size: 1rem; font-family: inherit; }
+.debug { text-align: left; font-family: ui-monospace, monospace; font-size: .75rem; background: #1e1b33; color: #9ff; padding: 10px; border-radius: 8px; white-space: pre; overflow-x: auto; margin-top: 12px; }

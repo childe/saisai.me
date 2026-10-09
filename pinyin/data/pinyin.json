@@ -1,0 +1,1275 @@
+{
+  "baseUrl": "https://ohsaisai.oss-cn-shanghai.aliyuncs.com/pinyin/",
+  "groups": [
+    {
+      "id": "shengmu",
+      "title": "声母",
+      "items": [
+        {
+          "id": "b",
+          "display": "b",
+          "readAs": "bo",
+          "ssml": "bo1",
+          "key": "sm/b.mp3"
+        },
+        {
+          "id": "p",
+          "display": "p",
+          "readAs": "po",
+          "ssml": "po1",
+          "key": "sm/p.mp3"
+        },
+        {
+          "id": "m",
+          "display": "m",
+          "readAs": "mo",
+          "ssml": "mo1",
+          "key": "sm/m.mp3"
+        },
+        {
+          "id": "f",
+          "display": "f",
+          "readAs": "fo",
+          "ssml": "fo1",
+          "key": "sm/f.mp3"
+        },
+        {
+          "id": "d",
+          "display": "d",
+          "readAs": "de",
+          "ssml": "de1",
+          "key": "sm/d.mp3"
+        },
+        {
+          "id": "t",
+          "display": "t",
+          "readAs": "te",
+          "ssml": "te1",
+          "key": "sm/t.mp3"
+        },
+        {
+          "id": "n",
+          "display": "n",
+          "readAs": "ne",
+          "ssml": "ne1",
+          "key": "sm/n.mp3"
+        },
+        {
+          "id": "l",
+          "display": "l",
+          "readAs": "le",
+          "ssml": "le1",
+          "key": "sm/l.mp3"
+        },
+        {
+          "id": "g",
+          "display": "g",
+          "readAs": "ge",
+          "ssml": "ge1",
+          "key": "sm/g.mp3"
+        },
+        {
+          "id": "k",
+          "display": "k",
+          "readAs": "ke",
+          "ssml": "ke1",
+          "key": "sm/k.mp3"
+        },
+        {
+          "id": "h",
+          "display": "h",
+          "readAs": "he",
+          "ssml": "he1",
+          "key": "sm/h.mp3"
+        },
+        {
+          "id": "j",
+          "display": "j",
+          "readAs": "ji",
+          "ssml": "ji1",
+          "key": "sm/j.mp3"
+        },
+        {
+          "id": "q",
+          "display": "q",
+          "readAs": "qi",
+          "ssml": "qi1",
+          "key": "sm/q.mp3"
+        },
+        {
+          "id": "x",
+          "display": "x",
+          "readAs": "xi",
+          "ssml": "xi1",
+          "key": "sm/x.mp3"
+        },
+        {
+          "id": "zh",
+          "display": "zh",
+          "readAs": "zhi",
+          "ssml": "zhi1",
+          "key": "sm/zh.mp3"
+        },
+        {
+          "id": "ch",
+          "display": "ch",
+          "readAs": "chi",
+          "ssml": "chi1",
+          "key": "sm/ch.mp3"
+        },
+        {
+          "id": "sh",
+          "display": "sh",
+          "readAs": "shi",
+          "ssml": "shi1",
+          "key": "sm/sh.mp3"
+        },
+        {
+          "id": "r",
+          "display": "r",
+          "readAs": "ri",
+          "ssml": "ri1",
+          "key": "sm/r.mp3"
+        },
+        {
+          "id": "z",
+          "display": "z",
+          "readAs": "zi",
+          "ssml": "zi1",
+          "key": "sm/z.mp3"
+        },
+        {
+          "id": "c",
+          "display": "c",
+          "readAs": "ci",
+          "ssml": "ci1",
+          "key": "sm/c.mp3"
+        },
+        {
+          "id": "s",
+          "display": "s",
+          "readAs": "si",
+          "ssml": "si1",
+          "key": "sm/s.mp3"
+        },
+        {
+          "id": "y",
+          "display": "y",
+          "readAs": "yi",
+          "ssml": "yi1",
+          "key": "sm/y.mp3"
+        },
+        {
+          "id": "w",
+          "display": "w",
+          "readAs": "wu",
+          "ssml": "wu1",
+          "key": "sm/w.mp3"
+        }
+      ]
+    },
+    {
+      "id": "danyun",
+      "title": "单韵母",
+      "items": [
+        {
+          "id": "a1",
+          "display": "ā",
+          "baseDisplay": "a",
+          "base": "a",
+          "tone": 1,
+          "ssml": "a1",
+          "key": "ym/a1.mp3"
+        },
+        {
+          "id": "a2",
+          "display": "á",
+          "baseDisplay": "a",
+          "base": "a",
+          "tone": 2,
+          "ssml": "a2",
+          "key": "ym/a2.mp3"
+        },
+        {
+          "id": "a3",
+          "display": "ǎ",
+          "baseDisplay": "a",
+          "base": "a",
+          "tone": 3,
+          "ssml": "a3",
+          "key": "ym/a3.mp3"
+        },
+        {
+          "id": "a4",
+          "display": "à",
+          "baseDisplay": "a",
+          "base": "a",
+          "tone": 4,
+          "ssml": "a4",
+          "key": "ym/a4.mp3"
+        },
+        {
+          "id": "o1",
+          "display": "ō",
+          "baseDisplay": "o",
+          "base": "o",
+          "tone": 1,
+          "ssml": "wo1",
+          "key": "ym/o1.mp3"
+        },
+        {
+          "id": "o2",
+          "display": "ó",
+          "baseDisplay": "o",
+          "base": "o",
+          "tone": 2,
+          "ssml": "wo2",
+          "key": "ym/o2.mp3"
+        },
+        {
+          "id": "o3",
+          "display": "ǒ",
+          "baseDisplay": "o",
+          "base": "o",
+          "tone": 3,
+          "ssml": "wo3",
+          "key": "ym/o3.mp3"
+        },
+        {
+          "id": "o4",
+          "display": "ò",
+          "baseDisplay": "o",
+          "base": "o",
+          "tone": 4,
+          "ssml": "wo4",
+          "key": "ym/o4.mp3"
+        },
+        {
+          "id": "e1",
+          "display": "ē",
+          "baseDisplay": "e",
+          "base": "e",
+          "tone": 1,
+          "ssml": "e1",
+          "key": "ym/e1.mp3"
+        },
+        {
+          "id": "e2",
+          "display": "é",
+          "baseDisplay": "e",
+          "base": "e",
+          "tone": 2,
+          "ssml": "e2",
+          "key": "ym/e2.mp3"
+        },
+        {
+          "id": "e3",
+          "display": "ě",
+          "baseDisplay": "e",
+          "base": "e",
+          "tone": 3,
+          "ssml": "e3",
+          "key": "ym/e3.mp3"
+        },
+        {
+          "id": "e4",
+          "display": "è",
+          "baseDisplay": "e",
+          "base": "e",
+          "tone": 4,
+          "ssml": "e4",
+          "key": "ym/e4.mp3"
+        },
+        {
+          "id": "i1",
+          "display": "ī",
+          "baseDisplay": "i",
+          "base": "i",
+          "tone": 1,
+          "ssml": "yi1",
+          "key": "ym/i1.mp3"
+        },
+        {
+          "id": "i2",
+          "display": "í",
+          "baseDisplay": "i",
+          "base": "i",
+          "tone": 2,
+          "ssml": "yi2",
+          "key": "ym/i2.mp3"
+        },
+        {
+          "id": "i3",
+          "display": "ǐ",
+          "baseDisplay": "i",
+          "base": "i",
+          "tone": 3,
+          "ssml": "yi3",
+          "key": "ym/i3.mp3"
+        },
+        {
+          "id": "i4",
+          "display": "ì",
+          "baseDisplay": "i",
+          "base": "i",
+          "tone": 4,
+          "ssml": "yi4",
+          "key": "ym/i4.mp3"
+        },
+        {
+          "id": "u1",
+          "display": "ū",
+          "baseDisplay": "u",
+          "base": "u",
+          "tone": 1,
+          "ssml": "wu1",
+          "key": "ym/u1.mp3"
+        },
+        {
+          "id": "u2",
+          "display": "ú",
+          "baseDisplay": "u",
+          "base": "u",
+          "tone": 2,
+          "ssml": "wu2",
+          "key": "ym/u2.mp3"
+        },
+        {
+          "id": "u3",
+          "display": "ǔ",
+          "baseDisplay": "u",
+          "base": "u",
+          "tone": 3,
+          "ssml": "wu3",
+          "key": "ym/u3.mp3"
+        },
+        {
+          "id": "u4",
+          "display": "ù",
+          "baseDisplay": "u",
+          "base": "u",
+          "tone": 4,
+          "ssml": "wu4",
+          "key": "ym/u4.mp3"
+        },
+        {
+          "id": "lv1",
+          "display": "ǖ",
+          "baseDisplay": "ü",
+          "base": "lv",
+          "tone": 1,
+          "ssml": "yu1",
+          "key": "ym/lv1.mp3"
+        },
+        {
+          "id": "lv2",
+          "display": "ǘ",
+          "baseDisplay": "ü",
+          "base": "lv",
+          "tone": 2,
+          "ssml": "yu2",
+          "key": "ym/lv2.mp3"
+        },
+        {
+          "id": "lv3",
+          "display": "ǚ",
+          "baseDisplay": "ü",
+          "base": "lv",
+          "tone": 3,
+          "ssml": "yu3",
+          "key": "ym/lv3.mp3"
+        },
+        {
+          "id": "lv4",
+          "display": "ǜ",
+          "baseDisplay": "ü",
+          "base": "lv",
+          "tone": 4,
+          "ssml": "yu4",
+          "key": "ym/lv4.mp3"
+        }
+      ]
+    },
+    {
+      "id": "fuyun",
+      "title": "复韵母",
+      "items": [
+        {
+          "id": "ai1",
+          "display": "āi",
+          "baseDisplay": "ai",
+          "base": "ai",
+          "tone": 1,
+          "ssml": "ai1",
+          "key": "ym/ai1.mp3"
+        },
+        {
+          "id": "ai2",
+          "display": "ái",
+          "baseDisplay": "ai",
+          "base": "ai",
+          "tone": 2,
+          "ssml": "ai2",
+          "key": "ym/ai2.mp3"
+        },
+        {
+          "id": "ai3",
+          "display": "ǎi",
+          "baseDisplay": "ai",
+          "base": "ai",
+          "tone": 3,
+          "ssml": "ai3",
+          "key": "ym/ai3.mp3"
+        },
+        {
+          "id": "ai4",
+          "display": "ài",
+          "baseDisplay": "ai",
+          "base": "ai",
+          "tone": 4,
+          "ssml": "ai4",
+          "key": "ym/ai4.mp3"
+        },
+        {
+          "id": "ei1",
+          "display": "ēi",
+          "baseDisplay": "ei",
+          "base": "ei",
+          "tone": 1,
+          "ssml": "ei1",
+          "key": "ym/ei1.mp3"
+        },
+        {
+          "id": "ei2",
+          "display": "éi",
+          "baseDisplay": "ei",
+          "base": "ei",
+          "tone": 2,
+          "ssml": "ei2",
+          "key": "ym/ei2.mp3"
+        },
+        {
+          "id": "ei3",
+          "display": "ěi",
+          "baseDisplay": "ei",
+          "base": "ei",
+          "tone": 3,
+          "ssml": "ei3",
+          "key": "ym/ei3.mp3"
+        },
+        {
+          "id": "ei4",
+          "display": "èi",
+          "baseDisplay": "ei",
+          "base": "ei",
+          "tone": 4,
+          "ssml": "ei4",
+          "key": "ym/ei4.mp3"
+        },
+        {
+          "id": "ui1",
+          "display": "uī",
+          "baseDisplay": "ui",
+          "base": "ui",
+          "tone": 1,
+          "ssml": "wei1",
+          "key": "ym/ui1.mp3"
+        },
+        {
+          "id": "ui2",
+          "display": "uí",
+          "baseDisplay": "ui",
+          "base": "ui",
+          "tone": 2,
+          "ssml": "wei2",
+          "key": "ym/ui2.mp3"
+        },
+        {
+          "id": "ui3",
+          "display": "uǐ",
+          "baseDisplay": "ui",
+          "base": "ui",
+          "tone": 3,
+          "ssml": "wei3",
+          "key": "ym/ui3.mp3"
+        },
+        {
+          "id": "ui4",
+          "display": "uì",
+          "baseDisplay": "ui",
+          "base": "ui",
+          "tone": 4,
+          "ssml": "wei4",
+          "key": "ym/ui4.mp3"
+        },
+        {
+          "id": "ao1",
+          "display": "āo",
+          "baseDisplay": "ao",
+          "base": "ao",
+          "tone": 1,
+          "ssml": "ao1",
+          "key": "ym/ao1.mp3"
+        },
+        {
+          "id": "ao2",
+          "display": "áo",
+          "baseDisplay": "ao",
+          "base": "ao",
+          "tone": 2,
+          "ssml": "ao2",
+          "key": "ym/ao2.mp3"
+        },
+        {
+          "id": "ao3",
+          "display": "ǎo",
+          "baseDisplay": "ao",
+          "base": "ao",
+          "tone": 3,
+          "ssml": "ao3",
+          "key": "ym/ao3.mp3"
+        },
+        {
+          "id": "ao4",
+          "display": "ào",
+          "baseDisplay": "ao",
+          "base": "ao",
+          "tone": 4,
+          "ssml": "ao4",
+          "key": "ym/ao4.mp3"
+        },
+        {
+          "id": "ou1",
+          "display": "ōu",
+          "baseDisplay": "ou",
+          "base": "ou",
+          "tone": 1,
+          "ssml": "ou1",
+          "key": "ym/ou1.mp3"
+        },
+        {
+          "id": "ou2",
+          "display": "óu",
+          "baseDisplay": "ou",
+          "base": "ou",
+          "tone": 2,
+          "ssml": "ou2",
+          "key": "ym/ou2.mp3"
+        },
+        {
+          "id": "ou3",
+          "display": "ǒu",
+          "baseDisplay": "ou",
+          "base": "ou",
+          "tone": 3,
+          "ssml": "ou3",
+          "key": "ym/ou3.mp3"
+        },
+        {
+          "id": "ou4",
+          "display": "òu",
+          "baseDisplay": "ou",
+          "base": "ou",
+          "tone": 4,
+          "ssml": "ou4",
+          "key": "ym/ou4.mp3"
+        },
+        {
+          "id": "iu1",
+          "display": "iū",
+          "baseDisplay": "iu",
+          "base": "iu",
+          "tone": 1,
+          "ssml": "you1",
+          "key": "ym/iu1.mp3"
+        },
+        {
+          "id": "iu2",
+          "display": "iú",
+          "baseDisplay": "iu",
+          "base": "iu",
+          "tone": 2,
+          "ssml": "you2",
+          "key": "ym/iu2.mp3"
+        },
+        {
+          "id": "iu3",
+          "display": "iǔ",
+          "baseDisplay": "iu",
+          "base": "iu",
+          "tone": 3,
+          "ssml": "you3",
+          "key": "ym/iu3.mp3"
+        },
+        {
+          "id": "iu4",
+          "display": "iù",
+          "baseDisplay": "iu",
+          "base": "iu",
+          "tone": 4,
+          "ssml": "you4",
+          "key": "ym/iu4.mp3"
+        },
+        {
+          "id": "ie1",
+          "display": "iē",
+          "baseDisplay": "ie",
+          "base": "ie",
+          "tone": 1,
+          "ssml": "ye1",
+          "key": "ym/ie1.mp3"
+        },
+        {
+          "id": "ie2",
+          "display": "ié",
+          "baseDisplay": "ie",
+          "base": "ie",
+          "tone": 2,
+          "ssml": "ye2",
+          "key": "ym/ie2.mp3"
+        },
+        {
+          "id": "ie3",
+          "display": "iě",
+          "baseDisplay": "ie",
+          "base": "ie",
+          "tone": 3,
+          "ssml": "ye3",
+          "key": "ym/ie3.mp3"
+        },
+        {
+          "id": "ie4",
+          "display": "iè",
+          "baseDisplay": "ie",
+          "base": "ie",
+          "tone": 4,
+          "ssml": "ye4",
+          "key": "ym/ie4.mp3"
+        },
+        {
+          "id": "ve1",
+          "display": "üē",
+          "baseDisplay": "üe",
+          "base": "ve",
+          "tone": 1,
+          "ssml": "yue1",
+          "key": "ym/ve1.mp3"
+        },
+        {
+          "id": "ve2",
+          "display": "üé",
+          "baseDisplay": "üe",
+          "base": "ve",
+          "tone": 2,
+          "ssml": "yue2",
+          "key": "ym/ve2.mp3"
+        },
+        {
+          "id": "ve3",
+          "display": "üě",
+          "baseDisplay": "üe",
+          "base": "ve",
+          "tone": 3,
+          "ssml": "yue3",
+          "key": "ym/ve3.mp3"
+        },
+        {
+          "id": "ve4",
+          "display": "üè",
+          "baseDisplay": "üe",
+          "base": "ve",
+          "tone": 4,
+          "ssml": "yue4",
+          "key": "ym/ve4.mp3"
+        },
+        {
+          "id": "er2",
+          "display": "ér",
+          "baseDisplay": "er",
+          "base": "er",
+          "tone": 2,
+          "ssml": "er2",
+          "key": "ym/er2.mp3"
+        },
+        {
+          "id": "er3",
+          "display": "ěr",
+          "baseDisplay": "er",
+          "base": "er",
+          "tone": 3,
+          "ssml": "er3",
+          "key": "ym/er3.mp3"
+        },
+        {
+          "id": "er4",
+          "display": "èr",
+          "baseDisplay": "er",
+          "base": "er",
+          "tone": 4,
+          "ssml": "er4",
+          "key": "ym/er4.mp3"
+        }
+      ]
+    },
+    {
+      "id": "biyun",
+      "title": "鼻韵母",
+      "items": [
+        {
+          "id": "an1",
+          "display": "ān",
+          "baseDisplay": "an",
+          "base": "an",
+          "tone": 1,
+          "ssml": "an1",
+          "key": "ym/an1.mp3"
+        },
+        {
+          "id": "an2",
+          "display": "án",
+          "baseDisplay": "an",
+          "base": "an",
+          "tone": 2,
+          "ssml": "an2",
+          "key": "ym/an2.mp3"
+        },
+        {
+          "id": "an3",
+          "display": "ǎn",
+          "baseDisplay": "an",
+          "base": "an",
+          "tone": 3,
+          "ssml": "an3",
+          "key": "ym/an3.mp3"
+        },
+        {
+          "id": "an4",
+          "display": "àn",
+          "baseDisplay": "an",
+          "base": "an",
+          "tone": 4,
+          "ssml": "an4",
+          "key": "ym/an4.mp3"
+        },
+        {
+          "id": "en1",
+          "display": "ēn",
+          "baseDisplay": "en",
+          "base": "en",
+          "tone": 1,
+          "ssml": "en1",
+          "key": "ym/en1.mp3"
+        },
+        {
+          "id": "en2",
+          "display": "én",
+          "baseDisplay": "en",
+          "base": "en",
+          "tone": 2,
+          "ssml": "en2",
+          "key": "ym/en2.mp3"
+        },
+        {
+          "id": "en3",
+          "display": "ěn",
+          "baseDisplay": "en",
+          "base": "en",
+          "tone": 3,
+          "ssml": "en3",
+          "key": "ym/en3.mp3"
+        },
+        {
+          "id": "en4",
+          "display": "èn",
+          "baseDisplay": "en",
+          "base": "en",
+          "tone": 4,
+          "ssml": "en4",
+          "key": "ym/en4.mp3"
+        },
+        {
+          "id": "in1",
+          "display": "īn",
+          "baseDisplay": "in",
+          "base": "in",
+          "tone": 1,
+          "ssml": "yin1",
+          "key": "ym/in1.mp3"
+        },
+        {
+          "id": "in2",
+          "display": "ín",
+          "baseDisplay": "in",
+          "base": "in",
+          "tone": 2,
+          "ssml": "yin2",
+          "key": "ym/in2.mp3"
+        },
+        {
+          "id": "in3",
+          "display": "ǐn",
+          "baseDisplay": "in",
+          "base": "in",
+          "tone": 3,
+          "ssml": "yin3",
+          "key": "ym/in3.mp3"
+        },
+        {
+          "id": "in4",
+          "display": "ìn",
+          "baseDisplay": "in",
+          "base": "in",
+          "tone": 4,
+          "ssml": "yin4",
+          "key": "ym/in4.mp3"
+        },
+        {
+          "id": "un1",
+          "display": "ūn",
+          "baseDisplay": "un",
+          "base": "un",
+          "tone": 1,
+          "ssml": "wen1",
+          "key": "ym/un1.mp3"
+        },
+        {
+          "id": "un2",
+          "display": "ún",
+          "baseDisplay": "un",
+          "base": "un",
+          "tone": 2,
+          "ssml": "wen2",
+          "key": "ym/un2.mp3"
+        },
+        {
+          "id": "un3",
+          "display": "ǔn",
+          "baseDisplay": "un",
+          "base": "un",
+          "tone": 3,
+          "ssml": "wen3",
+          "key": "ym/un3.mp3"
+        },
+        {
+          "id": "un4",
+          "display": "ùn",
+          "baseDisplay": "un",
+          "base": "un",
+          "tone": 4,
+          "ssml": "wen4",
+          "key": "ym/un4.mp3"
+        },
+        {
+          "id": "vn1",
+          "display": "ǖn",
+          "baseDisplay": "ün",
+          "base": "vn",
+          "tone": 1,
+          "ssml": "yun1",
+          "key": "ym/vn1.mp3"
+        },
+        {
+          "id": "vn2",
+          "display": "ǘn",
+          "baseDisplay": "ün",
+          "base": "vn",
+          "tone": 2,
+          "ssml": "yun2",
+          "key": "ym/vn2.mp3"
+        },
+        {
+          "id": "vn3",
+          "display": "ǚn",
+          "baseDisplay": "ün",
+          "base": "vn",
+          "tone": 3,
+          "ssml": "yun3",
+          "key": "ym/vn3.mp3"
+        },
+        {
+          "id": "vn4",
+          "display": "ǜn",
+          "baseDisplay": "ün",
+          "base": "vn",
+          "tone": 4,
+          "ssml": "yun4",
+          "key": "ym/vn4.mp3"
+        },
+        {
+          "id": "ang1",
+          "display": "āng",
+          "baseDisplay": "ang",
+          "base": "ang",
+          "tone": 1,
+          "ssml": "ang1",
+          "key": "ym/ang1.mp3"
+        },
+        {
+          "id": "ang2",
+          "display": "áng",
+          "baseDisplay": "ang",
+          "base": "ang",
+          "tone": 2,
+          "ssml": "ang2",
+          "key": "ym/ang2.mp3"
+        },
+        {
+          "id": "ang3",
+          "display": "ǎng",
+          "baseDisplay": "ang",
+          "base": "ang",
+          "tone": 3,
+          "ssml": "ang3",
+          "key": "ym/ang3.mp3"
+        },
+        {
+          "id": "ang4",
+          "display": "àng",
+          "baseDisplay": "ang",
+          "base": "ang",
+          "tone": 4,
+          "ssml": "ang4",
+          "key": "ym/ang4.mp3"
+        },
+        {
+          "id": "eng1",
+          "display": "ēng",
+          "baseDisplay": "eng",
+          "base": "eng",
+          "tone": 1,
+          "ssml": "eng1",
+          "key": "ym/eng1.mp3",
+          "derive": "beng1"
+        },
+        {
+          "id": "eng2",
+          "display": "éng",
+          "baseDisplay": "eng",
+          "base": "eng",
+          "tone": 2,
+          "ssml": "eng2",
+          "key": "ym/eng2.mp3",
+          "derive": "beng2"
+        },
+        {
+          "id": "eng3",
+          "display": "ěng",
+          "baseDisplay": "eng",
+          "base": "eng",
+          "tone": 3,
+          "ssml": "eng3",
+          "key": "ym/eng3.mp3",
+          "derive": "beng3"
+        },
+        {
+          "id": "eng4",
+          "display": "èng",
+          "baseDisplay": "eng",
+          "base": "eng",
+          "tone": 4,
+          "ssml": "eng4",
+          "key": "ym/eng4.mp3",
+          "derive": "beng4"
+        },
+        {
+          "id": "ing1",
+          "display": "īng",
+          "baseDisplay": "ing",
+          "base": "ing",
+          "tone": 1,
+          "ssml": "ying1",
+          "key": "ym/ing1.mp3"
+        },
+        {
+          "id": "ing2",
+          "display": "íng",
+          "baseDisplay": "ing",
+          "base": "ing",
+          "tone": 2,
+          "ssml": "ying2",
+          "key": "ym/ing2.mp3"
+        },
+        {
+          "id": "ing3",
+          "display": "ǐng",
+          "baseDisplay": "ing",
+          "base": "ing",
+          "tone": 3,
+          "ssml": "ying3",
+          "key": "ym/ing3.mp3"
+        },
+        {
+          "id": "ing4",
+          "display": "ìng",
+          "baseDisplay": "ing",
+          "base": "ing",
+          "tone": 4,
+          "ssml": "ying4",
+          "key": "ym/ing4.mp3"
+        },
+        {
+          "id": "ong1",
+          "display": "ōng",
+          "baseDisplay": "ong",
+          "base": "ong",
+          "tone": 1,
+          "ssml": "weng1",
+          "key": "ym/ong1.mp3"
+        },
+        {
+          "id": "ong2",
+          "display": "óng",
+          "baseDisplay": "ong",
+          "base": "ong",
+          "tone": 2,
+          "ssml": "weng2",
+          "key": "ym/ong2.mp3"
+        },
+        {
+          "id": "ong3",
+          "display": "ǒng",
+          "baseDisplay": "ong",
+          "base": "ong",
+          "tone": 3,
+          "ssml": "weng3",
+          "key": "ym/ong3.mp3"
+        },
+        {
+          "id": "ong4",
+          "display": "òng",
+          "baseDisplay": "ong",
+          "base": "ong",
+          "tone": 4,
+          "ssml": "weng4",
+          "key": "ym/ong4.mp3"
+        }
+      ]
+    }
+  ],
+  "confusions": {
+    "b": [
+      "p",
+      "m",
+      "f",
+      "d"
+    ],
+    "p": [
+      "b",
+      "m",
+      "f",
+      "q"
+    ],
+    "m": [
+      "b",
+      "p",
+      "f",
+      "w"
+    ],
+    "f": [
+      "b",
+      "p",
+      "m"
+    ],
+    "d": [
+      "t",
+      "n",
+      "l",
+      "b",
+      "q"
+    ],
+    "t": [
+      "d",
+      "n",
+      "l"
+    ],
+    "n": [
+      "d",
+      "t",
+      "l"
+    ],
+    "l": [
+      "d",
+      "t",
+      "n"
+    ],
+    "g": [
+      "k",
+      "h"
+    ],
+    "k": [
+      "g",
+      "h"
+    ],
+    "h": [
+      "g",
+      "k"
+    ],
+    "j": [
+      "q",
+      "x"
+    ],
+    "q": [
+      "j",
+      "x",
+      "p",
+      "d"
+    ],
+    "x": [
+      "j",
+      "q",
+      "y"
+    ],
+    "zh": [
+      "ch",
+      "sh",
+      "r",
+      "z"
+    ],
+    "ch": [
+      "zh",
+      "sh",
+      "r",
+      "c"
+    ],
+    "sh": [
+      "zh",
+      "ch",
+      "r",
+      "s"
+    ],
+    "r": [
+      "zh",
+      "ch",
+      "sh"
+    ],
+    "z": [
+      "c",
+      "s",
+      "zh"
+    ],
+    "c": [
+      "z",
+      "s",
+      "ch"
+    ],
+    "s": [
+      "z",
+      "c",
+      "sh"
+    ],
+    "y": [
+      "w",
+      "x"
+    ],
+    "w": [
+      "y",
+      "m"
+    ],
+    "a": [
+      "ai",
+      "ao"
+    ],
+    "o": [
+      "ou",
+      "ong"
+    ],
+    "e": [
+      "ei",
+      "er"
+    ],
+    "i": [
+      "in",
+      "ing"
+    ],
+    "u": [
+      "lv",
+      "un"
+    ],
+    "lv": [
+      "u",
+      "vn",
+      "ve"
+    ],
+    "ai": [
+      "ei",
+      "a",
+      "ao"
+    ],
+    "ei": [
+      "ui",
+      "ie",
+      "ai",
+      "e",
+      "er"
+    ],
+    "ui": [
+      "iu",
+      "ei"
+    ],
+    "ao": [
+      "ou",
+      "a",
+      "ai"
+    ],
+    "ou": [
+      "iu",
+      "ao",
+      "o",
+      "ong"
+    ],
+    "iu": [
+      "ui",
+      "ou"
+    ],
+    "ie": [
+      "ve",
+      "ei"
+    ],
+    "ve": [
+      "ie",
+      "lv",
+      "vn"
+    ],
+    "er": [
+      "e",
+      "ei"
+    ],
+    "an": [
+      "ang",
+      "en"
+    ],
+    "en": [
+      "eng",
+      "an"
+    ],
+    "in": [
+      "ing",
+      "i"
+    ],
+    "un": [
+      "vn",
+      "u"
+    ],
+    "vn": [
+      "un",
+      "lv",
+      "ve"
+    ],
+    "ang": [
+      "an",
+      "eng"
+    ],
+    "eng": [
+      "en",
+      "ang"
+    ],
+    "ing": [
+      "in",
+      "i"
+    ],
+    "ong": [
+      "o",
+      "ou"
+    ]
+  }
+}
