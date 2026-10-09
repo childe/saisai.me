@@ -15,7 +15,10 @@ from dotenv import load_dotenv
 from smoke_tts import get_token
 
 HOST = "https://nls-gateway-cn-shanghai.aliyuncs.com/stream/v1/tts"
-VOICE = "xiaoyun"
+# aitong（儿童音）。实测 xiaoyun 把孤立音节当整句读，在词汇声调之上叠了
+# 句末降调：一声从 264 掉到 206Hz（降 4 个半音），三声被读成下降调，
+# 四条里只有四声的形状是对的。aitong 的四声形状基本正确。见 README。
+DEFAULT_VOICE = "aitong"
 MIN_BYTES = 1000  # 比这还小基本是失败或静音
 
 
@@ -79,7 +82,7 @@ def trim_initial(mp3_path):
     return int(onset * 1000 / sr)
 
 
-def synth_to(token, appkey, ssml, out_path):
+def synth_to(token, appkey, ssml, out_path, voice=DEFAULT_VOICE):
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     payload = {
         "appkey": appkey,
@@ -87,7 +90,7 @@ def synth_to(token, appkey, ssml, out_path):
         "text": build_ssml(ssml),
         "format": "mp3",
         "sample_rate": 16000,
-        "voice": VOICE,
+        "voice": voice,
     }
     r = requests.post(HOST, json=payload, timeout=20)
     if "audio" not in r.headers.get("Content-Type", ""):
@@ -101,6 +104,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("-d", "--data", default="pinyin/data/pinyin.json")
     p.add_argument("-o", "--out", default="/tmp/pinyin-audio")
+    p.add_argument("--voice", default=DEFAULT_VOICE)
     p.add_argument(
         "--ong-mode",
         choices=["direct", "trim-dong"],
@@ -126,7 +130,7 @@ def main():
         if needs_trim:
             ssml = "d" + ssml
         path = os.path.join(args.out, it["key"])
-        size = synth_to(token, appkey, ssml, path)
+        size = synth_to(token, appkey, ssml, path, args.voice)
         note = ""
         if needs_trim:
             note = "，裁掉声母 %dms" % trim_initial(path)
@@ -135,7 +139,7 @@ def main():
             % (i, len(todo), it["key"], ssml, size, note)
         )
 
-    print("完成，音频在 %s" % args.out)
+    print("完成，音频在 %s（发音人 %s）" % (args.out, args.voice))
     return 0
 
 

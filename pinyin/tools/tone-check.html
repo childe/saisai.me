@@ -1,0 +1,64 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>标准音声调自检</title><style>
+body{font-family:-apple-system,'PingFang SC',sans-serif;background:#f5f3ff;color:#2d2a45;margin:0;padding:16px}
+h1{font-size:1.1rem}
+p.note{color:#6b6690;font-size:.85rem;line-height:1.6;background:#fff;padding:12px;border-radius:10px}
+#sum{font-size:1rem;margin:12px 0;padding:12px;background:#fff;border-radius:10px}
+table{width:100%;border-collapse:collapse;font-size:.85rem;background:#fff;border-radius:10px;overflow:hidden}
+td,th{padding:6px 8px;text-align:left;border-bottom:1px solid #eee}
+tr.bad{background:#fdeceb}
+.ok{color:#2fa968}.bad td:nth-child(3){color:#e2574c;font-weight:600}
+button{min-height:44px;padding:0 18px;border:none;border-radius:10px;background:#667eea;color:#fff;font-size:1rem;font-family:inherit}
+</style></head><body>
+<h1>标准音声调自检</h1>
+<p class="note">把每条韵母音频喂进跟读用的同一条管线（端点检测 → F0 → 归一化 → 四声分类），
+看它判出来的声调是不是这条音频本该有的那个。<br>
+<b>这是对音频素材的验收，不是对分类器的验收</b> —— 素材的调不对，跟读打分必然跟着错。
+声母不参与（呼读音统一按一声合成）。</p>
+<button id="go">开始检查</button>
+<div id="sum"></div>
+<table id="t"></table>
+<script type="module">
+import { f0Track } from '../f0.js';
+import { trimSilence } from '../lib/endpoint.js';
+import { normalizeContour, classifyTone } from '../lib/pitch.js';
+import { resolveBaseUrl } from '../lib/base-url.js';
+
+const NAMES = { 0: '测不出', 1: '一声', 2: '二声', 3: '三声', 4: '四声' };
+
+document.getElementById('go').onclick = async () => {
+  const data = await (await fetch('../data/pinyin.json')).json();
+  const base = resolveBaseUrl(data.baseUrl, location.search) === data.baseUrl
+    ? '../audio/' : resolveBaseUrl(data.baseUrl, location.search);
+  const items = data.groups.flatMap(g => g.items).filter(i => i.tone);
+  const ctx = new OfflineAudioContext(1, 1, 16000);
+  const t = document.getElementById('t');
+  t.innerHTML = '<tr><th>拼音</th><th>应为</th><th>判为</th><th>可用帧</th></tr>';
+  let ok = 0;
+  for (const it of items) {
+    let got = 0, frames = 0;
+    try {
+      const buf = await ctx.decodeAudioData(await (await fetch(base + it.key)).arrayBuffer());
+      const seg = trimSilence(buf.getChannelData(0), buf.sampleRate);
+      if (seg) {
+        const track = f0Track(seg.samples, buf.sampleRate);
+        frames = track.filter(p => p.clarity >= 0.6 && p.f0 >= 60 && p.f0 <= 1000).length;
+        const c = normalizeContour(track);
+        if (c) got = classifyTone(c).tone;
+      }
+    } catch (e) { /* 取不到就记 0 */ }
+    const good = got === it.tone;
+    if (good) ok++;
+    const tr = document.createElement('tr');
+    if (!good) tr.className = 'bad';
+    tr.innerHTML = `<td>${it.display}</td><td>${NAMES[it.tone]}</td>`
+      + `<td>${good ? '<span class=ok>✓</span> ' : ''}${NAMES[got]}</td><td>${frames}</td>`;
+    t.appendChild(tr);
+    document.getElementById('sum').textContent =
+      `${ok} / ${t.rows.length - 1} 判对（共 ${items.length} 条）`;
+  }
+  document.getElementById('sum').textContent =
+    `判对 ${ok} / ${items.length}　(${(100 * ok / items.length).toFixed(0)}%)`;
+};
+</script></body></html>

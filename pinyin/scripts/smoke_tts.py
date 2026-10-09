@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 
 HOST = "https://nls-gateway-cn-shanghai.aliyuncs.com/stream/v1/tts"
 RISKY = ["ong1", "ong2", "ong3", "ong4", "eng1", "er2", "yu1", "you1"]
+VOICE = "aitong"
 
 # 接口对不认识的音节会返回 200 + 一个空 MP3 帧（实测 288 字节），
 # 不报错。光看状态码会把静音当成功，所以按字节数判。
@@ -45,7 +46,7 @@ def synth(token, appkey, ssml, out_path):
         "text": text,
         "format": "mp3",
         "sample_rate": 16000,
-        "voice": "xiaoyun",
+        "voice": VOICE,
     }
     r = requests.post(HOST, json=payload, timeout=20)
     ctype = r.headers.get("Content-Type", "")
