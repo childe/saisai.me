@@ -37,7 +37,9 @@ function template(fn) {
 /** 四声的典型形状，单位是相对中位数的半音。 */
 export const TONE_TEMPLATES = {
   1: template(() => 0),
-  2: template((t) => -4 + 9 * t),
+  // 真实二声是凹型升：先微沉约半个半音再陡升。用直线模板的话，
+  // 真人录音的二声有一多半会被判成三声。
+  2: template((t) => (t < 0.25 ? -2.4 * t : -0.6 + 4.6 * ((t - 0.25) / 0.75) ** 1.4)),
   3: template((t) => -2 - 6 * Math.sin(Math.PI * t) + 8 * t * t),
   4: template((t) => 5 - 12 * t),
 };

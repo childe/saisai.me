@@ -215,7 +215,8 @@
           "base": "o",
           "tone": 1,
           "ssml": "o1",
-          "key": "ym/o1.mp3"
+          "key": "ym/o1.mp3",
+          "derive": "bo1"
         },
         {
           "id": "o2",
@@ -224,7 +225,8 @@
           "base": "o",
           "tone": 2,
           "ssml": "o2",
-          "key": "ym/o2.mp3"
+          "key": "ym/o2.mp3",
+          "derive": "bo2"
         },
         {
           "id": "o3",
@@ -233,7 +235,8 @@
           "base": "o",
           "tone": 3,
           "ssml": "o3",
-          "key": "ym/o3.mp3"
+          "key": "ym/o3.mp3",
+          "derive": "bo3"
         },
         {
           "id": "o4",
@@ -242,7 +245,8 @@
           "base": "o",
           "tone": 4,
           "ssml": "o4",
-          "key": "ym/o4.mp3"
+          "key": "ym/o4.mp3",
+          "derive": "bo4"
         },
         {
           "id": "e1",
@@ -938,7 +942,8 @@
           "base": "eng",
           "tone": 1,
           "ssml": "eng1",
-          "key": "ym/eng1.mp3"
+          "key": "ym/eng1.mp3",
+          "derive": "beng1"
         },
         {
           "id": "eng2",
@@ -947,7 +952,8 @@
           "base": "eng",
           "tone": 2,
           "ssml": "eng2",
-          "key": "ym/eng2.mp3"
+          "key": "ym/eng2.mp3",
+          "derive": "beng2"
         },
         {
           "id": "eng3",
@@ -956,7 +962,8 @@
           "base": "eng",
           "tone": 3,
           "ssml": "eng3",
-          "key": "ym/eng3.mp3"
+          "key": "ym/eng3.mp3",
+          "derive": "beng3"
         },
         {
           "id": "eng4",
@@ -965,7 +972,8 @@
           "base": "eng",
           "tone": 4,
           "ssml": "eng4",
-          "key": "ym/eng4.mp3"
+          "key": "ym/eng4.mp3",
+          "derive": "beng4"
         },
         {
           "id": "ing1",
@@ -1010,7 +1018,8 @@
           "base": "ong",
           "tone": 1,
           "ssml": "ong1",
-          "key": "ym/ong1.mp3"
+          "key": "ym/ong1.mp3",
+          "derive": "dong1"
         },
         {
           "id": "ong2",
@@ -1019,7 +1028,8 @@
           "base": "ong",
           "tone": 2,
           "ssml": "ong2",
-          "key": "ym/ong2.mp3"
+          "key": "ym/ong2.mp3",
+          "derive": "dong2"
         },
         {
           "id": "ong3",
@@ -1028,7 +1038,8 @@
           "base": "ong",
           "tone": 3,
           "ssml": "ong3",
-          "key": "ym/ong3.mp3"
+          "key": "ym/ong3.mp3",
+          "derive": "dong3"
         },
         {
           "id": "ong4",
@@ -1037,7 +1048,8 @@
           "base": "ong",
           "tone": 4,
           "ssml": "ong4",
-          "key": "ym/ong4.mp3"
+          "key": "ym/ong4.mp3",
+          "derive": "dong4"
         }
       ]
     }

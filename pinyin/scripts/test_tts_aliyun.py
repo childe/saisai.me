@@ -132,3 +132,17 @@ def test_fade_does_not_eat_the_syllable(tmp_path):
     trim_initial(path)
     out, out_sr = sf.read(path)
     assert abs(len(out) / out_sr - 0.30) < 0.06, "剩下 %.3fs" % (len(out) / out_sr)
+
+
+def test_plain_item_is_synthesized_as_is():
+    from tts_aliyun import synthesis_plan
+
+    assert synthesis_plan({"ssml": "ang3"}) == ("ang3", False)
+
+
+def test_derived_item_uses_the_carrier_and_gets_trimmed():
+    from tts_aliyun import synthesis_plan
+
+    assert synthesis_plan({"ssml": "ong1", "derive": "dong1"}) == ("dong1", True)
+    assert synthesis_plan({"ssml": "o4", "derive": "bo4"}) == ("bo4", True)
+    assert synthesis_plan({"ssml": "eng2", "derive": "beng2"}) == ("beng2", True)

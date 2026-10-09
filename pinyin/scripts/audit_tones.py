@@ -28,7 +28,11 @@ MIN_FRAMES = 4
 FRAME_MS = 10.0
 ABS_FLOOR = 0.005  # 低于这个绝对电平一律当静音，挡住真人录音的底噪
 REL_RATIO = 0.15
-EDGE_FRAMES = 3  # 丢掉有声段两端的帧：浊音起止处的音高估计本来就不可靠
+# 丢掉有声段两端的比例。嗓音起振和收尾是生理过程，不是声调特征：
+# 实测 1.1 秒的真人录音里，起振段能占到前 20%，固定帧数根本兜不住
+# （一声会被读成"先低后平"的二声，二声被读成三声）。按比例才对。
+EDGE_HEAD = 0.15
+EDGE_TAIL = 0.05
 
 
 def _unwrap_octaves(semitones):
@@ -95,11 +99,13 @@ def contour_of(path):
     semis = semis[keep]
     idx = idx[keep]
 
-    # 再丢掉两端的帧。浊音起止处音高估计不可靠，实测连完全平直的一声
-    # 都会在第一个点冒出 -1.4 甚至 -6.5 个半音，被拟合成"先低后平"的二声。
-    if len(semis) > 2 * EDGE_FRAMES + MIN_FRAMES:
-        semis = semis[EDGE_FRAMES:-EDGE_FRAMES]
-        idx = idx[EDGE_FRAMES:-EDGE_FRAMES]
+    # 再按比例丢掉两端。浊音起止处音高估计不可靠，而且嗓音起振本身
+    # 就是从低往上爬的，不剔掉会把平直的一声拟合成上升的二声。
+    n = len(semis)
+    head, tail = int(n * EDGE_HEAD), int(n * EDGE_TAIL)
+    if n - head - tail >= MIN_FRAMES:
+        semis = semis[head : n - tail]
+        idx = idx[head : n - tail]
 
     # 按真实时间轴重采样，再减中位数 —— 顺序不能反，有声帧的分布本就不均匀
     t = (idx - idx[0]) / max(1, idx[-1] - idx[0])

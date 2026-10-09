@@ -25,10 +25,27 @@ def test_every_tone_is_zero_mean():
         assert abs(m) < 0.3, "声调 %d 的调型均值 %.2f，不该有直流偏移" % (t, m)
 
 
-def test_second_tone_rises_monotonically():
+def test_second_tone_is_a_concave_rise():
+    """真实的二声不是一条直线：先微微下沉，再陡升。
+
+    实测 hanyupinyin.cn 和公有领域两套真人录音的二声都是这个形状，
+    用直线模板去拟合，会有一多半被判成三声。
+    """
     c = tone_contour(2, 20)
-    assert np.all(np.diff(c) >= -1e-9), "二声不该有下降段"
-    assert c[-1] - c[0] >= 3, "升得太少：%.2f 个半音" % (c[-1] - c[0])
+    low = int(np.argmin(c))
+    assert 1 <= low <= 6, "下沉的低点落在第 %d 点，应在前段" % low
+    assert 0.3 <= c[0] - c[low] <= 1.5, "下沉 %.2f 个半音，过深就和三声混了" % (
+        c[0] - c[low]
+    )
+    assert c[-1] - c[low] >= 3.5, "后段升得太少：%.2f 个半音" % (c[-1] - c[low])
+    assert np.all(np.diff(c[low:]) >= -1e-9), "低点之后不该再下降"
+
+
+def test_second_tone_dips_much_less_than_the_third():
+    """二者都是先降后升，靠下沉的深浅和时机区分。"""
+    c2, c3 = tone_contour(2, 20), tone_contour(3, 20)
+    assert (c2[0] - c2.min()) * 2 < (c3[0] - c3.min()), "二声的下沉该浅得多"
+    assert int(np.argmin(c2)) < int(np.argmin(c3)), "二声的低点该更靠前"
 
 
 def test_third_tone_dips_then_rises():

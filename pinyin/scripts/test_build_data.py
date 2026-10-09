@@ -136,3 +136,35 @@ def test_shengmu_has_no_base_display():
     data = build()
     sm = [g for g in data["groups"] if g["id"] == "shengmu"][0]
     assert all("baseDisplay" not in i for i in sm["items"])
+
+
+def test_problem_finals_are_derived_from_a_carrier_syllable():
+    """o / eng / ong 没有能用的零声母音节。
+
+    普通话里 ong 根本不存在；o（喔）和 eng（鞥）极其罕见，连收录 413 个
+    音节的公有领域真人音库都没有它们。TTS 引擎同样没有，只能瞎凑：
+    实测 ph="ong1" 返回静音，ph="o1" 读成了「欧」。
+    所以改为从含该韵母的音节里裁掉声母，和教学上的示范方式一致。
+    """
+    by_id = {i["id"]: i for i in items(build())}
+    assert by_id["o1"]["derive"] == "bo1"
+    assert by_id["eng2"]["derive"] == "beng2"
+    assert by_id["ong3"]["derive"] == "dong3"
+
+
+def test_only_the_three_problem_finals_are_derived():
+    derived = {i["base"] for i in items(build()) if i.get("derive")}
+    assert derived == {"o", "eng", "ong"}
+
+
+def test_derive_carries_the_same_tone_as_the_item():
+    for it in items(build()):
+        if it.get("derive"):
+            assert it["derive"].endswith(str(it["tone"])), it["id"]
+
+
+def test_carrier_initials_are_stops_so_they_cut_cleanly():
+    """载体的声母要是塞音：爆破之后有明确的除阻段，切点找得准。"""
+    for it in items(build()):
+        if it.get("derive"):
+            assert it["derive"][0] in "bpdtgk", it["derive"]

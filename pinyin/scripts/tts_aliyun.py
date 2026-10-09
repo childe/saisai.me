@@ -1,6 +1,7 @@
 """按 data/pinyin.json 合成 118 条标准音。幂等：已存在且大小合理则跳过。
 
-ong 的处理取决于冒烟测试的结论，见 --ong-mode 参数。
+带 derive 字段的条目（o / eng / ong）没有能用的零声母音节，改为合成
+载体音节再裁掉声母 —— 原因见 build_data.py 里 DERIVED_FROM 的注释。
 """
 
 import argparse
@@ -20,6 +21,16 @@ HOST = "https://nls-gateway-cn-shanghai.aliyuncs.com/stream/v1/tts"
 # 四条里只有四声的形状是对的。aitong 的四声形状基本正确。见 README。
 DEFAULT_VOICE = "aitong"
 MIN_BYTES = 1000  # 比这还小基本是失败或静音
+
+
+def synthesis_plan(item):
+    """返回 (要合成的音节, 是否需要裁掉声母)。
+
+    带 derive 的条目没有能用的零声母音节，只能从载体音节裁出来。
+    """
+    if item.get("derive"):
+        return item["derive"], True
+    return item["ssml"], False
 
 
 def build_ssml(ssml):
@@ -122,12 +133,6 @@ def main():
     p.add_argument("-d", "--data", default="pinyin/data/pinyin.json")
     p.add_argument("-o", "--out", default="/tmp/pinyin-audio")
     p.add_argument("--voice", default=DEFAULT_VOICE)
-    p.add_argument(
-        "--ong-mode",
-        choices=["direct", "trim-dong"],
-        default="direct",
-        help="冒烟测试的结论：direct 直接合成 ong，" "trim-dong 合成 dong 再裁掉声母",
-    )
     args = p.parse_args()
 
     load_dotenv()
@@ -142,10 +147,7 @@ def main():
     print("共 %d 条，待合成 %d 条" % (len(items), len(todo)))
 
     for i, it in enumerate(todo, 1):
-        ssml = it["ssml"]
-        needs_trim = args.ong_mode == "trim-dong" and ssml.startswith("ong")
-        if needs_trim:
-            ssml = "d" + ssml
+        ssml, needs_trim = synthesis_plan(it)
         path = os.path.join(args.out, it["key"])
         size = synth_to(token, appkey, ssml, path, args.voice)
         note = ""

@@ -83,6 +83,16 @@ YUNMU = [
     ),
 ]
 
+# 没有能用的零声母音节的韵母 → 从哪个音节裁出来（声母会被切掉）。
+#
+# 普通话里 ong 根本不存在；o（喔）和 eng（鞥）极其罕见 —— 连收录 413 个
+# 音节的公有领域真人音库都没有这三个。TTS 引擎同样没有，只能瞎凑：
+# 实测 ph="ong1" 返回 288 字节的静音，ph="o1" 被读成了「欧」。
+#
+# 载体一律挑塞音声母（b/d）：爆破之后有明确的除阻段，切点找得准。
+# 教学上示范 ong 本来就是「dōng 去掉 d」。
+DERIVED_FROM = {"o": "bo", "eng": "beng", "ong": "dong"}
+
 # 声调符号，按《汉语拼音方案》标在主元音上。
 TONE_MARKS = {
     "a": "āáǎà",
@@ -194,17 +204,18 @@ def build():
             for tone in (1, 2, 3, 4):
                 if fid == "er" and tone == 1:
                     continue  # 现代汉语没有 ēr
-                items.append(
-                    {
-                        "id": "%s%d" % (fid, tone),
-                        "display": with_tone(display, tone),
-                        "baseDisplay": display,
-                        "base": fid,
-                        "tone": tone,
-                        "ssml": "%s%d" % (syllable, tone),
-                        "key": "ym/%s%d.mp3" % (fid, tone),
-                    }
-                )
+                item = {
+                    "id": "%s%d" % (fid, tone),
+                    "display": with_tone(display, tone),
+                    "baseDisplay": display,
+                    "base": fid,
+                    "tone": tone,
+                    "ssml": "%s%d" % (syllable, tone),
+                    "key": "ym/%s%d.mp3" % (fid, tone),
+                }
+                if fid in DERIVED_FROM:
+                    item["derive"] = "%s%d" % (DERIVED_FROM[fid], tone)
+                items.append(item)
         groups.append({"id": gid, "title": title, "items": items})
 
     bases = [s[0] for s in SHENGMU]
