@@ -37,3 +37,40 @@ un→wen、ün→yun、ing→ying。数据里 `display` 和 `ssml` 因此是两�
 
 它只合成 8 条高风险音节（ong 四声、eng1、er2、yu1、you1）到 `/tmp/pinyin-smoke`，
 **必须人耳逐条确认**，不能只看接口返回 200。
+
+## 重新生成音频
+
+前置：在阿里云控制台开通「智能语音交互」，建项目拿 appkey；
+OSS 复用 english-audio 那套凭证。项目根 `.env` 需要：
+
+    OSS_ACCESS_KEY_ID=...
+    OSS_ACCESS_KEY_SECRET=...
+    OSS_ENDPOINT=oss-cn-shanghai.aliyuncs.com
+    OSS_BUCKET=ohsaisai
+    NLS_APPKEY=...
+
+依赖（用 uv，不要用 pip）：
+
+    uv pip install --python ~/tmp/fuck/c/.venv/bin/python \
+        --index-url https://mirrors.aliyun.com/pypi/simple/ \
+        requests aliyun-python-sdk-core python-dotenv numpy oss2 pydub
+
+流程：
+
+    python pinyin/scripts/build_data.py          # 生成 data/pinyin.json
+    python pinyin/scripts/smoke_tts.py           # 先验高风险音节，人耳确认
+    python pinyin/scripts/tts_aliyun.py --ong-mode direct
+    python pinyin/scripts/upload_oss.py
+
+后两步都幂等：已合成/已上传且大小一致则跳过。
+
+Bucket 需对 `pinyin/*` 开公共读，跨域规则沿用现有的
+（允许来源 `https://saisai.me` 的 GET / HEAD）。验证：
+
+    curl -sI https://ohsaisai.oss-cn-shanghai.aliyuncs.com/pinyin/ym/a1.mp3 | head -3
+    curl -sI -H 'Origin: https://saisai.me' \
+      https://ohsaisai.oss-cn-shanghai.aliyuncs.com/pinyin/ym/a1.mp3 \
+      | grep -i access-control-allow-origin
+
+**跨域头是必须的** —— 跟读要用 `fetch` + `decodeAudioData` 读标准音，
+不像 `<audio>` 标签那样能绕过 CORS。
