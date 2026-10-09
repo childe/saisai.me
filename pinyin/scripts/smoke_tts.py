@@ -79,7 +79,7 @@ def main():
     if failures:
         print("合成不出来：%s" % ", ".join(failures))
         if any(f.startswith("ong") for f in failures):
-            print("=> ong 走不通 direct，tts_aliyun.py 要用 --ong-mode trim-dong")
+            print("=> ong 合成不出来。见 build_data.py 里 YUNMU / DERIVED_FROM 的注释")
         return 1
     return 0
 

@@ -71,6 +71,10 @@ def test_ssml_uses_zero_initial_form():
     assert by_id["ve1"]["ssml"] == "yue1"
     assert by_id["in1"]["ssml"] == "yin1"
     assert by_id["a1"]["ssml"] == "a1"
+    # o 和 ong 没有自己的零声母音节，借用最接近的真实音节：
+    # 直接合成 ph="o1" 会被引擎读成「欧」，ph="ong1"/"wong1" 直接返回静音。
+    assert by_id["o1"]["ssml"] == "wo1"
+    assert by_id["ong1"]["ssml"] == "weng1"
 
 
 def test_ids_and_keys_are_ascii_safe():
@@ -147,14 +151,23 @@ def test_problem_finals_are_derived_from_a_carrier_syllable():
     所以改为从含该韵母的音节里裁掉声母，和教学上的示范方式一致。
     """
     by_id = {i["id"]: i for i in items(build())}
-    assert by_id["o1"]["derive"] == "bo1"
     assert by_id["eng2"]["derive"] == "beng2"
-    assert by_id["ong3"]["derive"] == "dong3"
 
 
-def test_only_the_three_problem_finals_are_derived():
+def test_only_eng_still_needs_trimming():
+    """o 和 ong 改为借用真实音节（wo / weng），不再裁切。
+
+    eng 没有合适的借用对象：weng 已经给了 ong，直接合成 ph="eng1"
+    听感存疑，所以仍从 beng 裁出来。
+    """
     derived = {i["base"] for i in items(build()) if i.get("derive")}
-    assert derived == {"o", "eng", "ong"}
+    assert derived == {"eng"}
+
+
+def test_borrowed_finals_are_not_also_trimmed():
+    by_id = {i["id"]: i for i in items(build())}
+    for pid in ("o1", "o4", "ong1", "ong4"):
+        assert "derive" not in by_id[pid], pid
 
 
 def test_derive_carries_the_same_tone_as_the_item():

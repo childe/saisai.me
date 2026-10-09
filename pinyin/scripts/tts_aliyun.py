@@ -93,8 +93,8 @@ def fade_in(y, sample_rate, ms=FADE_MS):
 def trim_initial(mp3_path):
     """就地把 mp3 的声母段裁掉，返回裁掉的毫秒数。
 
-    只在 --ong-mode trim-dong 下用到：普通话没有单独的 ong 音节，
-    只能合成 dōng 再把 d 裁掉（教学上示范 ong 本来就是这么做的）。
+    只对带 derive 字段的条目用到（目前只有 eng，从 beng 裁出来）。
+    这类韵母没有可借的真实音节，只能从载体音节裁掉声母。
 
     用 soundfile（libsndfile ≥ 1.1 直接读写 MP3），不走 pydub ——
     后者解 mp3 要系统装 ffmpeg，多一个装不上就全线卡住的依赖。

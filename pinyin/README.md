@@ -56,7 +56,7 @@
 
 本地自测时把音频放到同源：
 
-    python pinyin/scripts/tts_aliyun.py --ong-mode trim-dong -o pinyin/audio
+    python pinyin/scripts/tts_aliyun.py -o pinyin/audio
     # 然后开页面时带上 ?audio=local
 
 `pinyin/audio/` 已加入 .gitignore，不会进仓库。
@@ -114,31 +114,23 @@ id 和 key 里 ü 一律写作 `v`（`lv`=ü、`ve`=üe、`vn`=ün），避开 U
 
 `ph` 必须是合法音节，所以韵母单独呼读时的写法和屏幕字形不同：
 i→yi、u→wu、ü→yu、ui→wei、iu→you、ie→ye、üe→yue、in→yin、
-un→wen、ün→yun、ing→ying。
+un→wen、ün→yun、ing→ying，以及 **o→wo、ong→weng**（见下）。
 
-### ong 的特殊处理
+### o / eng / ong 另有处理
 
-**普通话没有单独的 `ong` 音节**（`weng` 是韵母 ueng，音不同，不能顶替），
-它是唯一需要特判的一条。两条路：
+这三个没有自己的零声母音节，见下面「o / eng / ong」一节。
 
-1. `direct` —— 引擎若按拼音直接映射音素、能正确读出 ong，就照常合成
-2. `trim-dong` —— 否则合成 `dong1`–`dong4`，再用能量起点检测裁掉声母 `d`。
-   教学上示范 ong 本来就是「dōng 去掉 d」
+### 合成之后必须验一遍
 
-**结论：`direct` 走不通，用 `trim-dong`。** 2026-10-09 实测，`ph="ong1"`~`ong4`
-接口都返回 200，但合成出来的 mp3 只有 288 字节 —— 一个空 MP3 帧，完全静音。
-同批的 eng1 / er2 / yu1 / you1 都是 1800–2000 字节且发音正常。引擎不认 `ong`
-这个音节，又不报错。
-
-所以合成时必须带上 `--ong-mode trim-dong`。
-
-冒烟脚本已经会按字节数判静音（接口返回 200 不等于合成成功）：
+接口返回 200 **不等于**合成成功：引擎遇到不认识的音节会返回一个 288 字节的
+空 MP3 帧，状态码照样是 200。冒烟脚本因此按字节数判静音：
 
     python pinyin/scripts/smoke_tts.py
     afplay /tmp/pinyin-smoke/ong1.mp3
 
-它只合成 8 条高风险音节（ong 四声、eng1、er2、yu1、you1）到 `/tmp/pinyin-smoke`，
-**仍然要人耳逐条确认声调对不对** —— 字节数只能排除静音，排除不了读错调。
+它只合成 8 条高风险音节到 `/tmp/pinyin-smoke`，**仍然要人耳逐条确认声调**
+—— 字节数只能排除静音，排除不了读错调（`ph="o1"` 就被读成过「欧」）。
+整批合成完之后再跑一次 `audit_tones.py` 做调型验收。
 
 ## 发音人与声调质量
 
@@ -210,7 +202,6 @@ OSS 复用 english-audio 那套凭证。项目根 `.env` 需要：
     python pinyin/scripts/smoke_tts.py        # 先验高风险音节，人耳确认
     python pinyin/scripts/tts_aliyun.py       # -> /tmp/pinyin-audio
     python pinyin/scripts/retone.py           # -> /tmp/pinyin-retoned
-    python pinyin/scripts/fetch_external.py   # 覆盖 ong 四条，见「外部素材」
     python pinyin/scripts/upload_oss.py -s /tmp/pinyin-retoned
 
     # 验收：调型对不对
@@ -219,49 +210,32 @@ OSS 复用 english-audio 那套凭证。项目根 `.env` 需要：
 合成与上传都幂等：已存在且大小一致则跳过。换调纯本地计算。
 
 **顺序不能换**：带 `derive` 的条目是先合成载体音节再裁掉声母，
-必须裁完再换调，否则换调会把声母那一段也算进调型里；
-外部覆盖必须在换调之后，否则刚换好的调又被盖掉。
+必须裁完再换调，否则换调会把声母那一段也算进调型里。
 
-## 外部素材
+## o / eng / ong：三个没有零声母音节的韵母
 
-### ⚠️ `ong` 四条来自 hanyupinyin.cn，授权未取得
+这三个是整套素材里唯一的难点，坑踩了好几轮，记在这里免得重走：
 
-`ong` 在普通话里不是独立音节，TTS 合成不出来，从 `dōng` 裁出来的那版
-听感不自然。[du.hanyupinyin.cn](http://du.hanyupinyin.cn/dubymsd.html)
-有真人直接念的 `ōng óng ǒng òng`，`scripts/fetch_external.py` 取的就是它们
-（掐静音 + 响度对齐到我们这套，音高一个字节不动）。
+- **`ong` 在普通话里根本不是一个独立音节**，`o`（喔）和 `eng`（鞥）极其罕见。
+  连收录 413 个音节的公有领域真人音库都缺这三个 —— 它收的是实际成词的音节。
+- **TTS 引擎同样没有，但它不报错，只会瞎凑**：实测 `ph="ong1"` 和
+  `ph="wong1"` 都返回 288 字节的空 MP3 帧（接口仍是 200）；`ph="o1"`
+  被读成了「欧」。冒烟脚本因此改成按字节数判静音。
+- `wong` 是粤语拼音，普通话没有这个音节，引擎不认。
 
-**那个站点页脚写着 `© du.hanyupinyin.cn`，没有任何开放授权声明。**
-现在这样用只适合本地自测。**传到 saisai.me 对外提供之前，必须先向站长
-取得书面许可**；拿不到的话有两条退路：
+现在的做法：
 
-- 回到 `dōng` 裁切版（`fetch_external.py` 不跑即可，`retone.py` 的产物本就完整）
-- 自己录这四条
+| 韵母 | 来源 | 为什么 |
+|---|---|---|
+| `o` | 合成 **`wo`**（窝） | 真实音节；韵母 [uɔ] 前面只多一个介音 |
+| `ong` | 合成 **`weng`**（翁） | 真实音节；是最接近的后鼻韵母 |
+| `eng` | 合成 `beng` 再**裁掉声母** | 没有可借的真实音节（weng 已经给了 ong） |
 
-### 其他考察过的来源
+前两个不需要裁切，只是换个音节合成，所以只有 `eng` 还带 `derive` 字段。
 
-| 来源 | 授权 | 覆盖 | 结论 |
-|---|---|---|---|
-| [davinfifield/mp3-chinese-pinyin-sound](https://github.com/davinfifield/mp3-chinese-pinyin-sound) | Unlicense（公有领域） | 1632 音节，缺 o / eng / ong | 授权干净，但缺的正是难点；且仓库无来源说明 |
-| [Shtooka](http://shtooka.net/) | CC-BY | 以词为主 | 不成音节表 |
-| chinese-lessons.com | CC BY-NC-**ND** | 全 | ND 禁止改动，我们要裁切/换调，用不了 |
-| 普通话学习网 | 未声明 | 全 | 按保留所有权利处理 |
-
-公有领域那套缺 `o` / `eng` / `ong`，不是疏漏 —— 它收的是实际成词的音节，
-而这三个要么极罕见要么不存在。**这恰好印证了 TTS 在这三个上也只能瞎凑。**
-
-
-
-Bucket 需对 `pinyin/*` 开公共读，跨域规则沿用现有的
-（允许来源 `https://saisai.me` 的 GET / HEAD）。验证：
-
-    curl -sI https://ohsaisai.oss-cn-shanghai.aliyuncs.com/pinyin/ym/a1.mp3 | head -3
-    curl -sI -H 'Origin: https://saisai.me' \
-      https://ohsaisai.oss-cn-shanghai.aliyuncs.com/pinyin/ym/a1.mp3 \
-      | grep -i access-control-allow-origin
-
-**跨域头是必须的** —— 跟读要用 `fetch` + `decodeAudioData` 读标准音，
-不像 `<audio>` 标签那样能绕过 CORS。
+**整套音频不含任何第三方素材**，全部由我们自己合成，没有授权问题。
+考察过的外部来源（公有领域音库、Shtooka、hanyupinyin.cn 等）都只用于
+对比试听，没有进入产物。
 
 ## 测试
 
@@ -306,8 +280,7 @@ jsDelivr 的 `+esm` 构建里，pitchy 对 fft.js 的 import 写的是 CDN 绝�
 
 1. **开通阿里云「智能语音交互」**，拿 appkey，在项目根建 `.env`
    （见上面「重新生成音频」一节的变量清单）。
-2. ~~跑 `smoke_tts.py` 确认 `ong`~~ —— 已完成，结论是 `trim-dong`，
-   见上面「ong 的特殊处理」。
+2. ~~跑 `smoke_tts.py` 确认 `ong`~~ —— 已完成，见「o / eng / ong」一节。
 3. **合成并上传 118 条音频**，验证公共读和 CORS 头。在此之前页面上所有
    音频都是 404，只有降级提示能看。
 4. **真机过一遍跟读**（必须 HTTPS）。重点确认 AudioWorklet 真的采到了声音 ——
