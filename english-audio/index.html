@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>英语听力 - 一年级上册</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="topbar">
+        <h1>🎧 英语 一年级上册</h1>
+    </header>
+
+    <main class="layout">
+        <nav class="units" id="units"></nav>
+        <section class="tracks" id="tracks"></section>
+    </main>
+
+    <footer class="playbar" id="playbar" hidden>
+        <div class="playbar-main">
+            <button class="btn-play" id="btn-play" aria-label="播放">▶</button>
+            <div class="now">
+                <div class="now-title" id="now-title"></div>
+                <div class="seek">
+                    <input type="range" id="seek" min="0" max="1000" value="0" aria-label="播放进度">
+                    <span class="time" id="time">0:00 / 0:00</span>
+                </div>
+            </div>
+        </div>
+        <div class="playbar-tools">
+            <span class="rate-group">
+                🐢
+                <button class="rate" data-rate="0.6">0.6x</button>
+                <button class="rate" data-rate="0.8">0.8x</button>
+                <button class="rate is-on" data-rate="1">1.0x</button>
+            </span>
+            <button id="btn-back">⏪5</button>
+            <button id="btn-fwd">⏩5</button>
+            <button id="btn-loop">🔁 单曲循环</button>
+        </div>
+    </footer>
+
+    <div class="status" id="status" hidden></div>
+
+    <audio id="audio" preload="none"></audio>
+
+    <script src="player.js"></script>
+    <script src="ui.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>
