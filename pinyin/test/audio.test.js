@@ -5,15 +5,27 @@ import { AudioBank } from '../audio.js';
 /** 够用的 Web Audio 替身。state 模拟 iOS 的 suspended 行为。 */
 function fakeEnv({ startSuspended = true } = {}) {
   const log = [];
+  const chain = [];
+  const node = (name) => ({
+    __name: name,
+    gain: { value: 1 },
+    threshold: { value: 0 }, knee: { value: 0 }, ratio: { value: 1 },
+    attack: { value: 0 }, release: { value: 0 },
+    connect(dest) { chain.push(name + '→' + dest.__name); return dest; },
+    disconnect() {},
+  });
   const ctx = {
     state: startSuspended ? 'suspended' : 'running',
     sampleRate: 16000,
     destination: { __name: 'destination' },
     resume() { log.push('resume'); this.state = 'running'; return Promise.resolve(); },
     createBuffer: (ch, len) => ({ length: len, copyToChannel() {} }),
+    createGain: () => node('gain'),
+    createDynamicsCompressor: () => node('compressor'),
     createBufferSource: () => {
       const src = {
-        buffer: null, onended: null, connect() {}, stop() {},
+        buffer: null, onended: null, stop() {},
+        connect(dest) { chain.push('source→' + dest.__name); return dest; },
         // 真实的 BufferSource 播完会回调 onended，play() 等的就是它
         start() { log.push('start'); setTimeout(() => src.onended?.(), 0); },
       };
@@ -27,7 +39,7 @@ function fakeEnv({ startSuspended = true } = {}) {
     log.push('fetch');
     return { ok: true, arrayBuffer: async () => new ArrayBuffer(8) };
   };
-  return { ctx, log };
+  return { ctx, log, chain };
 }
 
 /** node 里 globalThis.navigator 是只读 getter，得用 defineProperty。 */
@@ -86,4 +98,37 @@ test('playSamples 也先确保上下文就绪', () => {
   const bank = new AudioBank('https://cdn/');
   bank.playSamples(new Float32Array(100), 16000);
   assert.equal(env.ctx.state, 'running');
+});
+
+test('播放链路里有增益级，而且比 1 大', () => {
+  // iPhone 上 Web Audio 的输出比预期轻，而音节又短，听着就更小了
+  const env = fakeEnv();
+  const bank = new AudioBank('https://cdn/');
+  bank.unlock();
+  assert.ok(bank.gain > 1, '增益是 ' + bank.gain + '，起不到提升作用');
+  assert.ok(bank.gain <= 6, '增益 ' + bank.gain + ' 太大，会削顶失真');
+});
+
+test('增益级接在压缩器前，压缩器再接 destination', () => {
+  // 直接加增益会削顶，必须有压缩器兜住峰值
+  const env = fakeEnv();
+  new AudioBank('https://cdn/').unlock();
+  assert.ok(env.chain.includes('gain→compressor'), '实际接线: ' + JSON.stringify(env.chain));
+  assert.ok(env.chain.includes('compressor→destination'), '实际接线: ' + JSON.stringify(env.chain));
+  assert.ok(!env.chain.includes('source→destination'),
+    '音源不该直连 destination，会绕过增益和压缩器: ' + JSON.stringify(env.chain));
+});
+
+test('播放的音源接到增益级，不是直接接 destination', async () => {
+  const env = fakeEnv();
+  const bank = new AudioBank('https://cdn/');
+  await bank.play(ITEM);
+  assert.ok(env.chain.includes('source→gain'), '实际: ' + JSON.stringify(env.chain));
+});
+
+test('自己的录音回放也走同一条链路', () => {
+  const env = fakeEnv();
+  const bank = new AudioBank('https://cdn/');
+  bank.playSamples(new Float32Array(100), 16000);
+  assert.ok(env.chain.includes('source→gain'));
 });

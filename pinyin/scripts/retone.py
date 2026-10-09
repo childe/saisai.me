@@ -20,6 +20,12 @@ import sys
 
 import numpy as np
 
+# 目标发声时长（秒）。TTS 合成的音节只有 0.25 秒，真人范读约 0.49 秒 ——
+# 太短小朋友来不及听清调型，而且响度感知是随时长累积的，短音会显得"声音小"。
+TARGET_VOICED = 0.50
+# 拉伸上限。拉得太狠 WORLD 会出现金属声和回声感。
+MAX_STRETCH = 2.5
+
 # 赵元任五度标调法 → 半音偏移，t 为 0..1 的归一化时间。
 # 一度约 2 个半音：55 高平、35 中升、214 低降升、51 全降。
 _SHAPES = {
@@ -34,6 +40,34 @@ _SHAPES = {
     ),
     4: lambda t: 4.0 - 8.0 * t,  # 51  全降
 }
+
+
+def stretch_factor(voiced_seconds, target=TARGET_VOICED):
+    """把发声段拉到 target 秒需要的倍数。只拉长，不压缩，并设上限。"""
+    if voiced_seconds <= 0:
+        return 1.0
+    return float(min(MAX_STRETCH, max(1.0, target / voiced_seconds)))
+
+
+def resample_frames(frames, n):
+    """把 WORLD 的参数沿时间轴重采样到 n 帧。
+
+    F0 要特殊处理：0 表示清音，直接线性插值会在清音和浊音之间糊出一个
+    假的音高。所以 F0 用最近邻，频谱包络和非周期性成分用线性插值。
+    """
+    src = np.asarray(frames, dtype=np.float64)
+    m = src.shape[0]
+    if m == n or m == 0:
+        return src
+    pos = np.linspace(0.0, m - 1, n)
+
+    if src.ndim == 1:  # F0：最近邻，保住清音的 0
+        return src[np.rint(pos).astype(int)]
+
+    lo = np.floor(pos).astype(int)
+    hi = np.minimum(lo + 1, m - 1)
+    w = (pos - lo)[:, None]
+    return src[lo] * (1 - w) + src[hi] * w
 
 
 def tone_contour(tone, n):
@@ -76,13 +110,23 @@ def retone_file(src, dst, tone):
     shape = np.interp(t, np.linspace(0.0, 1.0, 256), full)
     new_f0[idx] = base * 2.0 ** (shape / 12.0)
 
+    # 拉长到接近真人范读的时长。音高曲线已经按归一化时间 t 算好，
+    # 三组参数一起重采样，调型不会变形。
+    voiced_sec = len(idx) * 5.0 / 1000.0
+    k = stretch_factor(voiced_sec)
+    if k > 1.0:
+        n2 = int(round(len(new_f0) * k))
+        new_f0 = resample_frames(new_f0, n2)
+        sp = resample_frames(sp, n2)
+        ap = resample_frames(ap, n2)
+
     y = pw.synthesize(new_f0, sp, ap, sr, frame_period=5.0)
     peak = float(np.abs(y).max())
     if peak > 0:
         y = y / peak * 0.9
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     sf.write(dst, y, sr, format="MP3")
-    return base, len(idx)
+    return base, len(idx), k
 
 
 def main():
@@ -114,8 +158,8 @@ def main():
             continue
         done += 1
         print(
-            "[%d/%d] %s  %d声  中心 %.0fHz  %d 有声帧"
-            % (i, len(items), it["key"], tone, res[0], res[1])
+            "[%d/%d] %s  %d声  中心 %.0fHz  %d 有声帧  拉伸 %.2fx"
+            % (i, len(items), it["key"], tone, res[0], res[1], res[2])
         )
 
     print("完成：换调 %d，跳过 %d，输出在 %s" % (done, skipped, args.out))
