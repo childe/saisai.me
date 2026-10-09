@@ -61,19 +61,22 @@ def vowel_onset(samples, sample_rate, frame_ms=5):
 
 
 def trim_initial(mp3_path):
-    """就地把 mp3 的声母段裁掉。只在 --ong-mode trim-dong 下用到。"""
-    from pydub import AudioSegment
+    """就地把 mp3 的声母段裁掉，返回裁掉的毫秒数。
 
-    seg = AudioSegment.from_mp3(mp3_path)
-    raw = np.array(seg.get_array_of_samples()).astype(np.float64)
-    raw /= float(1 << (8 * seg.sample_width - 1))
-    if seg.channels > 1:
-        raw = raw.reshape(-1, seg.channels).mean(axis=1)
+    只在 --ong-mode trim-dong 下用到：普通话没有单独的 ong 音节，
+    只能合成 dōng 再把 d 裁掉（教学上示范 ong 本来就是这么做的）。
 
-    onset = vowel_onset(raw, seg.frame_rate)
-    ms = int(onset * 1000 / seg.frame_rate)
-    seg[ms:].export(mp3_path, format="mp3")
-    return ms
+    用 soundfile（libsndfile ≥ 1.1 直接读写 MP3），不走 pydub ——
+    后者解 mp3 要系统装 ffmpeg，多一个装不上就全线卡住的依赖。
+    """
+    import soundfile as sf
+
+    data, sr = sf.read(mp3_path, always_2d=True)
+    mono = data.mean(axis=1)
+
+    onset = vowel_onset(mono, sr)
+    sf.write(mp3_path, data[onset:], sr, format="MP3")
+    return int(onset * 1000 / sr)
 
 
 def synth_to(token, appkey, ssml, out_path):

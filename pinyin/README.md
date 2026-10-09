@@ -108,14 +108,20 @@ un→wen、ün→yun、ing→ying。
 2. `trim-dong` —— 否则合成 `dong1`–`dong4`，再用能量起点检测裁掉声母 `d`。
    教学上示范 ong 本来就是「dōng 去掉 d」
 
-**当前结论：尚未验证。** 冒烟测试还没跑过（需要先开通服务拿 appkey），
-`tts_aliyun.py` 的 `--ong-mode` 默认是 `direct`。跑完冒烟测试后回来更新这一节。
+**结论：`direct` 走不通，用 `trim-dong`。** 2026-10-09 实测，`ph="ong1"`~`ong4`
+接口都返回 200，但合成出来的 mp3 只有 288 字节 —— 一个空 MP3 帧，完全静音。
+同批的 eng1 / er2 / yu1 / you1 都是 1800–2000 字节且发音正常。引擎不认 `ong`
+这个音节，又不报错。
+
+所以合成时必须带上 `--ong-mode trim-dong`。
+
+冒烟脚本已经会按字节数判静音（接口返回 200 不等于合成成功）：
 
     python pinyin/scripts/smoke_tts.py
     afplay /tmp/pinyin-smoke/ong1.mp3
 
 它只合成 8 条高风险音节（ong 四声、eng1、er2、yu1、you1）到 `/tmp/pinyin-smoke`，
-**必须人耳逐条确认**，不能只看接口返回 200。
+**仍然要人耳逐条确认声调对不对** —— 字节数只能排除静音，排除不了读错调。
 
 ## 重新生成音频
 
@@ -132,13 +138,13 @@ OSS 复用 english-audio 那套凭证。项目根 `.env` 需要：
 
     uv pip install --python ~/tmp/fuck/c/.venv/bin/python \
         --index-url https://mirrors.aliyun.com/pypi/simple/ \
-        requests aliyun-python-sdk-core python-dotenv numpy oss2 pydub
+        requests aliyun-python-sdk-core python-dotenv numpy oss2 soundfile
 
 流程：
 
     python pinyin/scripts/build_data.py          # 生成 data/pinyin.json
     python pinyin/scripts/smoke_tts.py           # 先验高风险音节，人耳确认
-    python pinyin/scripts/tts_aliyun.py --ong-mode direct
+    python pinyin/scripts/tts_aliyun.py --ong-mode trim-dong
     python pinyin/scripts/upload_oss.py
 
 后两步都幂等：已合成/已上传且大小一致则跳过。
@@ -197,8 +203,8 @@ jsDelivr 的 `+esm` 构建里，pitchy 对 fft.js 的 import 写的是 CDN 绝�
 
 1. **开通阿里云「智能语音交互」**，拿 appkey，在项目根建 `.env`
    （见上面「重新生成音频」一节的变量清单）。
-2. **跑 `smoke_tts.py` 并人耳确认 `ong` 四声** —— 决定 `--ong-mode` 走
-   `direct` 还是 `trim-dong`，然后回来更新上面「ong 的特殊处理」一节。
+2. ~~跑 `smoke_tts.py` 确认 `ong`~~ —— 已完成，结论是 `trim-dong`，
+   见上面「ong 的特殊处理」。
 3. **合成并上传 118 条音频**，验证公共读和 CORS 头。在此之前页面上所有
    音频都是 404，只有降级提示能看。
 4. **真机过一遍跟读**（必须 HTTPS）。重点确认 AudioWorklet 真的采到了声音 ——

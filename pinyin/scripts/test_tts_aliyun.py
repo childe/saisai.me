@@ -46,3 +46,50 @@ def test_vowel_onset_on_pure_vowel_is_near_zero():
     sr = 16000
     sig = np.sin(np.linspace(0, 200 * np.pi, int(0.3 * sr))) * 0.8
     assert vowel_onset(sig, sr) < int(0.02 * sr)
+
+
+def _dong_like(sr=16000):
+    """塞音爆破 + 除阻低能量段 + 元音，模拟 dōng 的开头。"""
+    burst = np.zeros(int(0.01 * sr))
+    burst[0:40] = 1.0
+    gap = np.zeros(int(0.02 * sr))
+    t = np.arange(int(0.3 * sr)) / sr
+    vowel = 0.8 * (np.sin(2 * np.pi * 200 * t) + 0.3 * np.sin(2 * np.pi * 400 * t))
+    return np.concatenate([burst, gap, vowel]), sr
+
+
+def test_trim_initial_cuts_the_initial_off_a_real_mp3(tmp_path):
+    """ong 走的是这条路：合成 dōng 再裁掉声母。整条链路要真能跑。"""
+    import soundfile as sf
+
+    from tts_aliyun import trim_initial
+
+    sig, sr = _dong_like()
+    path = str(tmp_path / "dong1.mp3")
+    sf.write(path, sig, sr)
+
+    cut_ms = trim_initial(path)
+    assert 15 <= cut_ms <= 70, "裁掉了 %dms" % cut_ms
+
+    out, out_sr = sf.read(path)
+    assert abs(len(out) / out_sr - 0.30) < 0.06, "剩下 %.3fs" % (len(out) / out_sr)
+
+    # 开头应当是持续发声的元音。没裁干净的话，头 30ms 是"爆破尖峰 + 静音"，
+    # 峰值很高但 RMS 很低；裁干净了则 RMS 接近整段的水平。
+    head = out[: int(0.03 * out_sr)]
+    head_rms = float(np.sqrt(np.mean(head**2)))
+    whole_rms = float(np.sqrt(np.mean(out**2)))
+    assert head_rms > whole_rms * 0.7, (
+        "开头还不是元音：head_rms=%.3f whole_rms=%.3f" % (head_rms, whole_rms)
+    )
+
+
+def test_trim_initial_leaves_a_pure_vowel_almost_untouched(tmp_path):
+    import soundfile as sf
+
+    from tts_aliyun import trim_initial
+
+    sr = 16000
+    t = np.arange(int(0.3 * sr)) / sr
+    sf.write(str(tmp_path / "a1.mp3"), 0.8 * np.sin(2 * np.pi * 200 * t), sr)
+    assert trim_initial(str(tmp_path / "a1.mp3")) < 20

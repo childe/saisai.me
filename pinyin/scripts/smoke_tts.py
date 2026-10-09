@@ -20,6 +20,10 @@ from dotenv import load_dotenv
 HOST = "https://nls-gateway-cn-shanghai.aliyuncs.com/stream/v1/tts"
 RISKY = ["ong1", "ong2", "ong3", "ong4", "eng1", "er2", "yu1", "you1"]
 
+# 接口对不认识的音节会返回 200 + 一个空 MP3 帧（实测 288 字节），
+# 不报错。光看状态码会把静音当成功，所以按字节数判。
+MIN_BYTES = 1000
+
 
 def get_token(key_id, key_secret):
     client = AcsClient(key_id, key_secret, "cn-shanghai")
@@ -49,6 +53,8 @@ def synth(token, appkey, ssml, out_path):
         return False, r.text[:300]
     with open(out_path, "wb") as f:
         f.write(r.content)
+    if len(r.content) < MIN_BYTES:
+        return False, "%d bytes —— 静音，引擎不认这个音节" % len(r.content)
     return True, "%d bytes" % len(r.content)
 
 
@@ -70,7 +76,10 @@ def main():
 
     print("\n音频在 %s，请逐个试听确认声调正确。" % out_dir)
     if failures:
-        print("接口失败：%s" % ", ".join(failures))
+        print("合成不出来：%s" % ", ".join(failures))
+        if any(f.startswith("ong") for f in failures):
+            print("=> ong 走不通 direct，tts_aliyun.py 要用 --ong-mode trim-dong")
+        return 1
     return 0
 
 
