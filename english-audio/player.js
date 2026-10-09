@@ -5,8 +5,20 @@ class Player {
         this.endedHandler = null;
         this.stateHandler = null;
 
+        // 待定的起播位置。用一个常驻处理器消费它，而不是每次 load 挂一个
+        // once 监听器 —— 那种写法在 metadata 永不到达时（preload="none"
+        // 或加载失败）会残留下来，等下一条曲目的 metadata 一到就把它拖到
+        // 上一条的位置。
+        this.pendingSeek = 0;
+
         this.audio.addEventListener('timeupdate', () => this.emitTime());
-        this.audio.addEventListener('loadedmetadata', () => this.emitTime());
+        this.audio.addEventListener('loadedmetadata', () => {
+            if (this.pendingSeek) {
+                this.audio.currentTime = this.pendingSeek;
+                this.pendingSeek = 0;
+            }
+            this.emitTime();
+        });
         this.audio.addEventListener('play', () => this.emitState());
         this.audio.addEventListener('pause', () => this.emitState());
         this.audio.addEventListener('ended', () => {
@@ -66,23 +78,31 @@ class Player {
     load(url, options) {
         const opts = options || {};
         this.clearStallTimer();
+        this.pendingSeek = opts.startAt || 0;
         this.audio.src = url;
         this.audio.load();
-        if (opts.startAt) {
-            this.audio.addEventListener('loadedmetadata', () => {
-                this.audio.currentTime = opts.startAt;
-            }, { once: true });
-        }
-        if (opts.autoplay) return this.audio.play();
+        if (opts.autoplay) return this.play();
+        return Promise.resolve();
+    }
+
+    // 恢复进度时元数据还没到，此时 currentTime 仍是 0，
+    // 真正的续播位置在 pendingSeek 里。
+    get resumeTime() {
+        return this.pendingSeek || this.audio.currentTime;
+    }
+
+    play() {
+        const p = this.audio.play();
+        return p && p.catch ? p : Promise.resolve();
+    }
+
+    pause() {
+        this.audio.pause();
         return Promise.resolve();
     }
 
     toggle() {
-        if (this.playing) {
-            this.audio.pause();
-            return Promise.resolve();
-        }
-        return this.audio.play();
+        return this.playing ? this.pause() : this.play();
     }
 
     seekTo(seconds) {

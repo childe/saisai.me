@@ -15,6 +15,8 @@ class App {
         this.timeEl = document.getElementById('time');
         this.seeking = false;
 
+        this.btnPrev = document.getElementById('btn-prev');
+        this.btnNext = document.getElementById('btn-next');
         this.btnBack = document.getElementById('btn-back');
         this.btnFwd = document.getElementById('btn-fwd');
         this.btnLoop = document.getElementById('btn-loop');
@@ -40,7 +42,11 @@ class App {
         this.ui.onUnitClick((id) => this.selectUnit(id));
         this.ui.onTrackClick((no) => this.playTrack(no, true));
 
-        this.btnPlay.addEventListener('click', () => this.player.toggle());
+        this.btnPlay.addEventListener('click', () => {
+            this.player.toggle().catch((e) => this.handlePlayRejection(e));
+        });
+        this.btnPrev.addEventListener('click', () => this.playPrev());
+        this.btnNext.addEventListener('click', () => this.playNext());
         this.seek.addEventListener('input', () => { this.seeking = true; });
         this.seek.addEventListener('change', () => {
             this.seeking = false;
@@ -82,9 +88,27 @@ class App {
             this.playTrack(prefs.no, false, prefs.time || 0);
         }
 
+        this.watchPlaybarHeight();
+
         this.ready = true;
         setInterval(() => this.savePrefs(), 3000);
         window.addEventListener('pagehide', () => this.savePrefs());
+    }
+
+    // 播放条高度随屏宽变化（窄屏时工具行会换行），实测后写回 --bar-h，
+    // 否则最后一张卡片会被压在播放条底下点不到。
+    watchPlaybarHeight() {
+        const apply = () => {
+            const h = this.playbar.hidden
+                ? 0
+                : this.playbar.getBoundingClientRect().height;
+            document.documentElement.style.setProperty('--bar-h', Math.ceil(h) + 'px');
+        };
+        if (typeof ResizeObserver === 'function') {
+            new ResizeObserver(apply).observe(this.playbar);
+        }
+        window.addEventListener('resize', apply);
+        apply();
     }
 
     showStatus(text, onClick) {
@@ -110,10 +134,14 @@ class App {
 
     savePrefs() {
         if (!this.ready) return;
+        // 单元必须取「正在播的那一条所属的单元」。取 this.unit（小朋友正在
+        // 翻看的单元）会存成 {unit07, no:18} 这种解不开的组合，下次打开
+        // 找不到曲目，续播直接失效。
+        const playingUnit = this.track ? this.unitOf(this.track) : this.unit;
         const p = {
-            unitId: this.unit ? this.unit.id : null,
+            unitId: playingUnit ? playingUnit.id : null,
             no: this.track ? this.track.no : null,
-            time: this.player.currentTime,
+            time: this.player.resumeTime,
             rate: this.rate,
             loop: this.loop
         };
@@ -146,9 +174,30 @@ class App {
         this.player.load(this.manifest.baseUrl + track.key, {
             autoplay: autoplay,
             startAt: startAt || 0
-        });
+        }).catch((err) => this.handlePlayRejection(err));
         this.player.setRate(this.rate);
         this.updateMediaSession();
+        this.renderTime(0, NaN);
+    }
+
+    // play() 被浏览器拒绝时不会触发 audio 的 error 事件：不处理的话
+    // 小朋友点了卡片，图标不变、没声音、也没有任何提示。
+    handlePlayRejection(err) {
+        // 连点两张卡片时上一条的 play() 会被 abort，这是正常的，不要吓唬人
+        if (err && err.name === 'AbortError') return;
+        this.showStatus('👆 点我开始播放', () => {
+            this.ui.setStatus('');
+            this.player.play().catch((e) => this.handlePlayRejection(e));
+        });
+    }
+
+    playPrev() {
+        if (!this.track) return;
+        const unit = this.unitOf(this.track);
+        const i = unit.tracks.indexOf(this.track);
+        if (i <= 0) return;
+        if (unit.id !== this.unit.id) this.selectUnit(unit.id);
+        this.playTrack(unit.tracks[i - 1].no, true);
     }
 
     playNext() {
@@ -183,19 +232,32 @@ class App {
             artist: this.unit.title,
             album: this.manifest.title
         });
-        navigator.mediaSession.setActionHandler('play', () => this.player.toggle());
-        navigator.mediaSession.setActionHandler('pause', () => this.player.toggle());
+        // play / pause 必须各做各的：都用 toggle 的话，系统在中断（来电、
+        // 通知）后补发一个 play，反而会把正在响的音频暂停掉。
+        navigator.mediaSession.setActionHandler('play', () => {
+            this.player.play().catch((e) => this.handlePlayRejection(e));
+        });
+        navigator.mediaSession.setActionHandler('pause', () => this.player.pause());
         navigator.mediaSession.setActionHandler('nexttrack', () => this.playNext());
+        navigator.mediaSession.setActionHandler('previoustrack', () => this.playPrev());
         navigator.mediaSession.setActionHandler('seekbackward', () => this.player.nudge(-5));
         navigator.mediaSession.setActionHandler('seekforward', () => this.player.nudge(5));
     }
 
     renderTime(t, d) {
-        if (!this.seeking && isFinite(d) && d > 0) {
-            this.seek.value = Math.round((t / d) * 1000);
+        // 元数据还没到时，用 manifest 里的时长先顶上，别让播放条干巴巴
+        // 显示 0:00 / 0:00
+        const total = isFinite(d) && d > 0 ? d : (this.track && this.track.duration) || 0;
+        const at = t || this.player.pendingSeek || 0;
+        if (!this.seeking && total > 0) {
+            this.seek.value = Math.round((at / total) * 1000);
         }
-        this.timeEl.textContent = UI.formatTime(t) + ' / ' + UI.formatTime(d);
+        this.timeEl.textContent = UI.formatTime(at) + ' / ' + UI.formatTime(total);
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => new App().start());
+document.addEventListener('DOMContentLoaded', () => {
+    // 挂到 window 上，便于在浏览器里直接检查与验证状态
+    window.app = new App();
+    window.app.start();
+});

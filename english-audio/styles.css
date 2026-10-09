@@ -4,7 +4,9 @@
     --ink: #2d3142;
     --muted: #6c757d;
     --accent: #667eea;
-    --bar-h: 112px;
+    /* 兜底值；真实高度由 JS 实测后写进这个变量 —— 播放条在窄屏会换行，
+       写死数字会把最后一张卡片压在底下点不到 */
+    --bar-h: 190px;
 }
 
 * { box-sizing: border-box; }
@@ -82,7 +84,8 @@ body {
 .track-icon { font-size: 1.8em; }
 .track-text { flex: 1; }
 .track-title { display: block; font-weight: 600; }
-.track-sub { display: block; font-size: 0.85em; opacity: 0.75; }
+/* 中文副标题是不认识英文的小朋友用来认卡片的那行，不能比正文小 */
+.track-sub { display: block; font-size: 16px; opacity: 0.8; }
 .track-dur { font-variant-numeric: tabular-nums; opacity: 0.75; }
 
 /* display:flex 会盖掉 hidden 属性的默认 display:none，必须显式还原 */
@@ -108,10 +111,46 @@ body {
     font-size: 24px; cursor: pointer;
 }
 
+.btn-step {
+    width: 48px; height: 48px;
+    border: 1px solid #d7dbe8; border-radius: 50%;
+    background: #f8f9fa; color: var(--ink);
+    font-size: 20px; cursor: pointer;
+}
+
 .now { flex: 1; min-width: 0; }
 .now-title { font-weight: 600; margin-bottom: 4px; }
 .seek { display: flex; align-items: center; gap: 12px; }
-#seek { flex: 1; height: 32px; }
+
+/* 进度条：小朋友用手指拖，滑块必须够大 */
+#seek {
+    flex: 1;
+    height: 44px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+}
+#seek::-webkit-slider-runnable-track {
+    height: 10px; border-radius: 5px; background: #d7dbe8;
+}
+#seek::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 44px; height: 44px; margin-top: -17px;
+    border: none; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    cursor: pointer;
+}
+#seek::-moz-range-track {
+    height: 10px; border-radius: 5px; background: #d7dbe8;
+}
+#seek::-moz-range-thumb {
+    width: 44px; height: 44px;
+    border: none; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    cursor: pointer;
+}
 .time { font-variant-numeric: tabular-nums; color: var(--muted); }
 
 .playbar-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -138,4 +177,14 @@ body {
     .layout { grid-template-columns: 1fr; }
     .units { flex-direction: row; overflow-x: auto; }
     .unit-btn { flex: 0 0 auto; padding: 0 16px; }
+
+    /* 窄屏下让工具行横向滚动，而不是换行成两三行 ——
+       换行会让播放条吃掉三分之一个手机屏幕 */
+    .playbar-tools {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    .playbar-tools button, .rate { flex: 0 0 auto; }
+    .playbar { padding: 8px 12px; }
 }
