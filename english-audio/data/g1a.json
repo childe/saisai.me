@@ -1,0 +1,739 @@
+{
+  "id": "g1a",
+  "title": "英语 一年级上册",
+  "baseUrl": "https://ohsaisai.oss-cn-shanghai.aliyuncs.com/english-audio/g1a/",
+  "units": [
+    {
+      "id": "starter",
+      "title": "Starter",
+      "subtitle": "",
+      "tracks": [
+        {
+          "no": 1,
+          "kind": "starter",
+          "title": "Starter",
+          "subtitle": "开始啦",
+          "key": "01-starter.mp3",
+          "duration": 61.9
+        }
+      ]
+    },
+    {
+      "id": "unit01",
+      "title": "Unit 1",
+      "subtitle": "",
+      "tracks": [
+        {
+          "no": 2,
+          "kind": "task",
+          "title": "Small task",
+          "subtitle": "小任务",
+          "key": "unit01/02-small-task.mp3",
+          "duration": 10.0
+        },
+        {
+          "no": 3,
+          "kind": "words",
+          "title": "Topic words",
+          "subtitle": "单词",
+          "key": "unit01/03-topic-words.mp3",
+          "duration": 11.7
+        },
+        {
+          "no": 4,
+          "kind": "song",
+          "title": "Song time",
+          "subtitle": "唱一唱",
+          "key": "unit01/04-song-time.mp3",
+          "duration": 37.7
+        },
+        {
+          "no": 5,
+          "kind": "song",
+          "title": "Song time A",
+          "subtitle": "唱一唱",
+          "key": "unit01/05-song-time-a.mp3",
+          "duration": 38.8
+        },
+        {
+          "no": 6,
+          "kind": "song",
+          "title": "Song time B",
+          "subtitle": "唱一唱",
+          "key": "unit01/06-song-time-b.mp3",
+          "duration": 31.0
+        },
+        {
+          "no": 7,
+          "kind": "talking",
+          "title": "Talking time",
+          "subtitle": "对话",
+          "key": "unit01/07-talking-time.mp3",
+          "duration": 57.8
+        },
+        {
+          "no": 8,
+          "kind": "talking",
+          "title": "Talking time A",
+          "subtitle": "对话",
+          "key": "unit01/08-talking-time-a.mp3",
+          "duration": 63.2
+        }
+      ]
+    },
+    {
+      "id": "unit02",
+      "title": "Unit 2",
+      "subtitle": "",
+      "tracks": [
+        {
+          "no": 9,
+          "kind": "task",
+          "title": "Small task",
+          "subtitle": "小任务",
+          "key": "unit02/09-small-task.mp3",
+          "duration": 9.3
+        },
+        {
+          "no": 10,
+          "kind": "words",
+          "title": "Topic words",
+          "subtitle": "单词",
+          "key": "unit02/10-topic-words.mp3",
+          "duration": 20.0
+        },
+        {
+          "no": 11,
+          "kind": "song",
+          "title": "Song time",
+          "subtitle": "唱一唱",
+          "key": "unit02/11-song-time.mp3",
+          "duration": 35.9
+        },
+        {
+          "no": 12,
+          "kind": "song",
+          "title": "Song time A",
+          "subtitle": "唱一唱",
+          "key": "unit02/12-song-time-a.mp3",
+          "duration": 36.5
+        },
+        {
+          "no": 13,
+          "kind": "song",
+          "title": "Song time B",
+          "subtitle": "唱一唱",
+          "key": "unit02/13-song-time-b.mp3",
+          "duration": 20.0
+        },
+        {
+          "no": 14,
+          "kind": "talking",
+          "title": "Talking time",
+          "subtitle": "对话",
+          "key": "unit02/14-talking-time.mp3",
+          "duration": 31.0
+        },
+        {
+          "no": 15,
+          "kind": "talking",
+          "title": "Talking time A",
+          "subtitle": "对话",
+          "key": "unit02/15-talking-time-a.mp3",
+          "duration": 38.2
+        }
+      ]
+    },
+    {
+      "id": "unit03",
+      "title": "Unit 3",
+      "subtitle": "",
+      "tracks": [
+        {
+          "no": 16,
+          "kind": "task",
+          "title": "Small task",
+          "subtitle": "小任务",
+          "key": "unit03/16-small-task.mp3",
+          "duration": 8.9
+        },
+        {
+          "no": 17,
+          "kind": "words",
+          "title": "Topic words",
+          "subtitle": "单词",
+          "key": "unit03/17-topic-words.mp3",
+          "duration": 29.1
+        },
+        {
+          "no": 18,
+          "kind": "rhyme",
+          "title": "Rhyme time",
+          "subtitle": "童谣",
+          "key": "unit03/18-rhyme-time.mp3",
+          "duration": 21.4
+        },
+        {
+          "no": 19,
+          "kind": "rhyme",
+          "title": "Rhyme time A",
+          "subtitle": "童谣",
+          "key": "unit03/19-rhyme-time-a.mp3",
+          "duration": 24.6
+        },
+        {
+          "no": 20,
+          "kind": "rhyme",
+          "title": "Rhyme time B",
+          "subtitle": "童谣",
+          "key": "unit03/20-rhyme-time-b.mp3",
+          "duration": 32.3
+        },
+        {
+          "no": 21,
+          "kind": "talking",
+          "title": "Talking time",
+          "subtitle": "对话",
+          "key": "unit03/21-talking-time.mp3",
+          "duration": 31.5
+        },
+        {
+          "no": 22,
+          "kind": "talking",
+          "title": "Talking time A",
+          "subtitle": "对话",
+          "key": "unit03/22-talking-time-a.mp3",
+          "duration": 38.2
+        }
+      ]
+    },
+    {
+      "id": "unit04",
+      "title": "Unit 4",
+      "subtitle": "",
+      "tracks": [
+        {
+          "no": 23,
+          "kind": "task",
+          "title": "Small task",
+          "subtitle": "小任务",
+          "key": "unit04/23-small-task.mp3",
+          "duration": 10.0
+        },
+        {
+          "no": 24,
+          "kind": "words",
+          "title": "Topic words",
+          "subtitle": "单词",
+          "key": "unit04/24-topic-words.mp3",
+          "duration": 28.1
+        },
+        {
+          "no": 25,
+          "kind": "chant",
+          "title": "Chant time",
+          "subtitle": "说唱",
+          "key": "unit04/25-chant-time.mp3",
+          "duration": 27.0
+        },
+        {
+          "no": 26,
+          "kind": "chant",
+          "title": "Chant time A",
+          "subtitle": "说唱",
+          "key": "unit04/26-chant-time-a.mp3",
+          "duration": 25.9
+        },
+        {
+          "no": 27,
+          "kind": "chant",
+          "title": "Chant time B",
+          "subtitle": "说唱",
+          "key": "unit04/27-chant-time-b.mp3",
+          "duration": 33.3
+        },
+        {
+          "no": 28,
+          "kind": "talking",
+          "title": "Talking time",
+          "subtitle": "对话",
+          "key": "unit04/28-talking-time.mp3",
+          "duration": 37.4
+        },
+        {
+          "no": 29,
+          "kind": "talking",
+          "title": "Talking time A",
+          "subtitle": "对话",
+          "key": "unit04/29-talking-time-a.mp3",
+          "duration": 44.5
+        }
+      ]
+    },
+    {
+      "id": "unit05",
+      "title": "Unit 5",
+      "subtitle": "",
+      "tracks": [
+        {
+          "no": 30,
+          "kind": "task",
+          "title": "Small task",
+          "subtitle": "小任务",
+          "key": "unit05/30-small-task.mp3",
+          "duration": 10.0
+        },
+        {
+          "no": 31,
+          "kind": "words",
+          "title": "Topic words",
+          "subtitle": "单词",
+          "key": "unit05/31-topic-words.mp3",
+          "duration": 16.6
+        },
+        {
+          "no": 32,
+          "kind": "song",
+          "title": "Song time",
+          "subtitle": "唱一唱",
+          "key": "unit05/32-song-time.mp3",
+          "duration": 52.5
+        },
+        {
+          "no": 33,
+          "kind": "song",
+          "title": "Song time A",
+          "subtitle": "唱一唱",
+          "key": "unit05/33-song-time-a.mp3",
+          "duration": 51.4
+        },
+        {
+          "no": 34,
+          "kind": "song",
+          "title": "Song time B",
+          "subtitle": "唱一唱",
+          "key": "unit05/34-song-time-b.mp3",
+          "duration": 38.8
+        },
+        {
+          "no": 35,
+          "kind": "talking",
+          "title": "Talking time",
+          "subtitle": "对话",
+          "key": "unit05/35-talking-time.mp3",
+          "duration": 40.6
+        },
+        {
+          "no": 36,
+          "kind": "talking",
+          "title": "Talking time A",
+          "subtitle": "对话",
+          "key": "unit05/36-talking-time-a.mp3",
+          "duration": 47.3
+        }
+      ]
+    },
+    {
+      "id": "unit06",
+      "title": "Unit 6",
+      "subtitle": "",
+      "tracks": [
+        {
+          "no": 37,
+          "kind": "task",
+          "title": "Small task",
+          "subtitle": "小任务",
+          "key": "unit06/37-small-task.mp3",
+          "duration": 9.7
+        },
+        {
+          "no": 38,
+          "kind": "words",
+          "title": "Topic words",
+          "subtitle": "单词",
+          "key": "unit06/38-topic-words.mp3",
+          "duration": 30.7
+        },
+        {
+          "no": 39,
+          "kind": "song",
+          "title": "Song time",
+          "subtitle": "唱一唱",
+          "key": "unit06/39-song-time.mp3",
+          "duration": 47.2
+        },
+        {
+          "no": 40,
+          "kind": "song",
+          "title": "Song time A",
+          "subtitle": "唱一唱",
+          "key": "unit06/40-song-time-a.mp3",
+          "duration": 47.6
+        },
+        {
+          "no": 41,
+          "kind": "song",
+          "title": "Song time B",
+          "subtitle": "唱一唱",
+          "key": "unit06/41-song-time-b.mp3",
+          "duration": 35.8
+        },
+        {
+          "no": 42,
+          "kind": "talking",
+          "title": "Talking time",
+          "subtitle": "对话",
+          "key": "unit06/42-talking-time.mp3",
+          "duration": 42.3
+        },
+        {
+          "no": 43,
+          "kind": "talking",
+          "title": "Talking time A",
+          "subtitle": "对话",
+          "key": "unit06/43-talking-time-a.mp3",
+          "duration": 48.5
+        }
+      ]
+    },
+    {
+      "id": "unit07",
+      "title": "Unit 7",
+      "subtitle": "",
+      "tracks": [
+        {
+          "no": 44,
+          "kind": "task",
+          "title": "Small task",
+          "subtitle": "小任务",
+          "key": "unit07/44-small-task.mp3",
+          "duration": 10.0
+        },
+        {
+          "no": 45,
+          "kind": "words",
+          "title": "Topic words",
+          "subtitle": "单词",
+          "key": "unit07/45-topic-words.mp3",
+          "duration": 22.6
+        },
+        {
+          "no": 46,
+          "kind": "rhyme",
+          "title": "Rhyme time",
+          "subtitle": "童谣",
+          "key": "unit07/46-rhyme-time.mp3",
+          "duration": 41.0
+        },
+        {
+          "no": 47,
+          "kind": "rhyme",
+          "title": "Rhyme time A",
+          "subtitle": "童谣",
+          "key": "unit07/47-rhyme-time-a.mp3",
+          "duration": 41.7
+        },
+        {
+          "no": 48,
+          "kind": "rhyme",
+          "title": "Rhyme time B",
+          "subtitle": "童谣",
+          "key": "unit07/48-rhyme-time-b.mp3",
+          "duration": 30.0
+        },
+        {
+          "no": 49,
+          "kind": "talking",
+          "title": "Talking time",
+          "subtitle": "对话",
+          "key": "unit07/49-talking-time.mp3",
+          "duration": 43.1
+        },
+        {
+          "no": 50,
+          "kind": "talking",
+          "title": "Talking time A",
+          "subtitle": "对话",
+          "key": "unit07/50-talking-time-a.mp3",
+          "duration": 49.9
+        }
+      ]
+    },
+    {
+      "id": "unit08",
+      "title": "Unit 8",
+      "subtitle": "",
+      "tracks": [
+        {
+          "no": 51,
+          "kind": "task",
+          "title": "Small task",
+          "subtitle": "小任务",
+          "key": "unit08/51-small-task.mp3",
+          "duration": 8.3
+        },
+        {
+          "no": 52,
+          "kind": "words",
+          "title": "Topic words",
+          "subtitle": "单词",
+          "key": "unit08/52-topic-words.mp3",
+          "duration": 20.0
+        },
+        {
+          "no": 53,
+          "kind": "song",
+          "title": "Song time",
+          "subtitle": "唱一唱",
+          "key": "unit08/53-song-time.mp3",
+          "duration": 41.5
+        },
+        {
+          "no": 54,
+          "kind": "song",
+          "title": "Song time A",
+          "subtitle": "唱一唱",
+          "key": "unit08/54-song-time-a.mp3",
+          "duration": 41.7
+        },
+        {
+          "no": 55,
+          "kind": "song",
+          "title": "Song time B",
+          "subtitle": "唱一唱",
+          "key": "unit08/55-song-time-b.mp3",
+          "duration": 32.6
+        },
+        {
+          "no": 56,
+          "kind": "story",
+          "title": "Story time",
+          "subtitle": "故事",
+          "key": "unit08/56-story-time.mp3",
+          "duration": 61.8
+        },
+        {
+          "no": 57,
+          "kind": "story",
+          "title": "Story time A",
+          "subtitle": "故事",
+          "key": "unit08/57-story-time-a.mp3",
+          "duration": 69.7
+        }
+      ]
+    },
+    {
+      "id": "unit09",
+      "title": "Unit 9",
+      "subtitle": "",
+      "tracks": [
+        {
+          "no": 58,
+          "kind": "task",
+          "title": "Small task",
+          "subtitle": "小任务",
+          "key": "unit09/58-small-task.mp3",
+          "duration": 9.1
+        },
+        {
+          "no": 59,
+          "kind": "words",
+          "title": "Topic words",
+          "subtitle": "单词",
+          "key": "unit09/59-topic-words.mp3",
+          "duration": 13.7
+        },
+        {
+          "no": 60,
+          "kind": "chant",
+          "title": "Chant time",
+          "subtitle": "说唱",
+          "key": "unit09/60-chant-time.mp3",
+          "duration": 36.6
+        },
+        {
+          "no": 61,
+          "kind": "chant",
+          "title": "Chant time A",
+          "subtitle": "说唱",
+          "key": "unit09/61-chant-time-a.mp3",
+          "duration": 37.6
+        },
+        {
+          "no": 62,
+          "kind": "chant",
+          "title": "Chant time B",
+          "subtitle": "说唱",
+          "key": "unit09/62-chant-time-b.mp3",
+          "duration": 30.0
+        },
+        {
+          "no": 63,
+          "kind": "talking",
+          "title": "Talking time",
+          "subtitle": "对话",
+          "key": "unit09/63-talking-time.mp3",
+          "duration": 50.0
+        },
+        {
+          "no": 64,
+          "kind": "talking",
+          "title": "Talking time A",
+          "subtitle": "对话",
+          "key": "unit09/64-talking-time-a.mp3",
+          "duration": 55.6
+        }
+      ]
+    },
+    {
+      "id": "unit10",
+      "title": "Unit 10",
+      "subtitle": "",
+      "tracks": [
+        {
+          "no": 65,
+          "kind": "task",
+          "title": "Small task",
+          "subtitle": "小任务",
+          "key": "unit10/65-small-task.mp3",
+          "duration": 9.4
+        },
+        {
+          "no": 66,
+          "kind": "words",
+          "title": "Topic words",
+          "subtitle": "单词",
+          "key": "unit10/66-topic-words.mp3",
+          "duration": 20.4
+        },
+        {
+          "no": 67,
+          "kind": "chant",
+          "title": "Chant time",
+          "subtitle": "说唱",
+          "key": "unit10/67-chant-time.mp3",
+          "duration": 26.0
+        },
+        {
+          "no": 68,
+          "kind": "chant",
+          "title": "Chant time A",
+          "subtitle": "说唱",
+          "key": "unit10/68-chant-time-a.mp3",
+          "duration": 28.5
+        },
+        {
+          "no": 69,
+          "kind": "chant",
+          "title": "Chant time B",
+          "subtitle": "说唱",
+          "key": "unit10/69-chant-time-b.mp3",
+          "duration": 35.3
+        },
+        {
+          "no": 70,
+          "kind": "talking",
+          "title": "Talking time",
+          "subtitle": "对话",
+          "key": "unit10/70-talking-time.mp3",
+          "duration": 50.6
+        },
+        {
+          "no": 71,
+          "kind": "talking",
+          "title": "Talking time A",
+          "subtitle": "对话",
+          "key": "unit10/71-talking-time-a.mp3",
+          "duration": 56.7
+        }
+      ]
+    },
+    {
+      "id": "wordbank",
+      "title": "Word bank",
+      "subtitle": "单词表",
+      "tracks": [
+        {
+          "no": 72,
+          "kind": "wordbank",
+          "title": "Unit 1",
+          "subtitle": "单词表",
+          "key": "wordbank/72-unit-01.mp3",
+          "duration": 16.7
+        },
+        {
+          "no": 73,
+          "kind": "wordbank",
+          "title": "Unit 2",
+          "subtitle": "单词表",
+          "key": "wordbank/73-unit-02.mp3",
+          "duration": 20.0
+        },
+        {
+          "no": 74,
+          "kind": "wordbank",
+          "title": "Unit 3",
+          "subtitle": "单词表",
+          "key": "wordbank/74-unit-03.mp3",
+          "duration": 32.4
+        },
+        {
+          "no": 75,
+          "kind": "wordbank",
+          "title": "Unit 4",
+          "subtitle": "单词表",
+          "key": "wordbank/75-unit-04.mp3",
+          "duration": 29.2
+        },
+        {
+          "no": 76,
+          "kind": "wordbank",
+          "title": "Unit 5",
+          "subtitle": "单词表",
+          "key": "wordbank/76-unit-05.mp3",
+          "duration": 19.1
+        },
+        {
+          "no": 77,
+          "kind": "wordbank",
+          "title": "Unit 6",
+          "subtitle": "单词表",
+          "key": "wordbank/77-unit-06.mp3",
+          "duration": 31.5
+        },
+        {
+          "no": 78,
+          "kind": "wordbank",
+          "title": "Unit 7",
+          "subtitle": "单词表",
+          "key": "wordbank/78-unit-07.mp3",
+          "duration": 26.1
+        },
+        {
+          "no": 79,
+          "kind": "wordbank",
+          "title": "Unit 8",
+          "subtitle": "单词表",
+          "key": "wordbank/79-unit-08.mp3",
+          "duration": 21.3
+        },
+        {
+          "no": 80,
+          "kind": "wordbank",
+          "title": "Unit 9",
+          "subtitle": "单词表",
+          "key": "wordbank/80-unit-09.mp3",
+          "duration": 16.1
+        },
+        {
+          "no": 81,
+          "kind": "wordbank",
+          "title": "Unit 10",
+          "subtitle": "单词表",
+          "key": "wordbank/81-unit-10.mp3",
+          "duration": 36.8
+        }
+      ]
+    }
+  ]
+}
