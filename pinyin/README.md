@@ -168,11 +168,17 @@ F0 / 频谱包络 / 非周期性成分，**只改写 F0**，音色、音长、�
 
 效果（`tools/tone-check.html`，95 条韵母）：
 
-| | 判对 |
+| 素材 | 判对 |
 |---|---|
 | xiaoyun 原始 | 约 1/4 的形状正确 |
-| aitong 原始 | 50 / 95（53%） |
-| **aitong + 换调** | **95 / 95（100%）** |
+| aitong 原始 | 65 / 95（68%） |
+| 公有领域真人 | 69 / 83（83%） |
+| hanyupinyin.cn | 83 / 95（87%） |
+| **aitong + 换调（上线用的）** | **90 / 95（95%）** |
+
+还判错的 5 条：4 条是我们自己合成的三声被判成二声，1 条是 hanyupinyin
+的 `óng`。二声和三声都是「先降后升」，而归一化去掉了「二声偏高、三声偏低」
+这个信息，只靠形状区分有物理上限 —— 试过三版模板，这是最好的平衡。
 
 重跑验收：起本地服务后打开
 `pinyin/tools/tone-check.html?dir=audio/retoned`（不带 `?dir=` 查 `audio/`）。
@@ -200,16 +206,51 @@ OSS 复用 english-audio 那套凭证。项目根 `.env` 需要：
 
 流程：
 
-    python pinyin/scripts/build_data.py          # 生成 data/pinyin.json
-    python pinyin/scripts/smoke_tts.py           # 先验高风险音节，人耳确认
-    python pinyin/scripts/tts_aliyun.py --ong-mode trim-dong      # -> /tmp/pinyin-audio
-    python pinyin/scripts/retone.py                               # -> /tmp/pinyin-retoned
+    python pinyin/scripts/build_data.py       # 生成 data/pinyin.json
+    python pinyin/scripts/smoke_tts.py        # 先验高风险音节，人耳确认
+    python pinyin/scripts/tts_aliyun.py       # -> /tmp/pinyin-audio
+    python pinyin/scripts/retone.py           # -> /tmp/pinyin-retoned
+    python pinyin/scripts/fetch_external.py   # 覆盖 ong 四条，见「外部素材」
     python pinyin/scripts/upload_oss.py -s /tmp/pinyin-retoned
 
-合成与上传都幂等：已存在且大小一致则跳过。换调不走网络，纯本地计算。
+    # 验收：调型对不对
+    python pinyin/scripts/audit_tones.py /tmp/pinyin-retoned
 
-**顺序不能换**：`ong` 是先合成 `dōng` 再裁掉声母，必须裁完再换调，
-否则换调会把声母那一段也算进调型里。
+合成与上传都幂等：已存在且大小一致则跳过。换调纯本地计算。
+
+**顺序不能换**：带 `derive` 的条目是先合成载体音节再裁掉声母，
+必须裁完再换调，否则换调会把声母那一段也算进调型里；
+外部覆盖必须在换调之后，否则刚换好的调又被盖掉。
+
+## 外部素材
+
+### ⚠️ `ong` 四条来自 hanyupinyin.cn，授权未取得
+
+`ong` 在普通话里不是独立音节，TTS 合成不出来，从 `dōng` 裁出来的那版
+听感不自然。[du.hanyupinyin.cn](http://du.hanyupinyin.cn/dubymsd.html)
+有真人直接念的 `ōng óng ǒng òng`，`scripts/fetch_external.py` 取的就是它们
+（掐静音 + 响度对齐到我们这套，音高一个字节不动）。
+
+**那个站点页脚写着 `© du.hanyupinyin.cn`，没有任何开放授权声明。**
+现在这样用只适合本地自测。**传到 saisai.me 对外提供之前，必须先向站长
+取得书面许可**；拿不到的话有两条退路：
+
+- 回到 `dōng` 裁切版（`fetch_external.py` 不跑即可，`retone.py` 的产物本就完整）
+- 自己录这四条
+
+### 其他考察过的来源
+
+| 来源 | 授权 | 覆盖 | 结论 |
+|---|---|---|---|
+| [davinfifield/mp3-chinese-pinyin-sound](https://github.com/davinfifield/mp3-chinese-pinyin-sound) | Unlicense（公有领域） | 1632 音节，缺 o / eng / ong | 授权干净，但缺的正是难点；且仓库无来源说明 |
+| [Shtooka](http://shtooka.net/) | CC-BY | 以词为主 | 不成音节表 |
+| chinese-lessons.com | CC BY-NC-**ND** | 全 | ND 禁止改动，我们要裁切/换调，用不了 |
+| 普通话学习网 | 未声明 | 全 | 按保留所有权利处理 |
+
+公有领域那套缺 `o` / `eng` / `ong`，不是疏漏 —— 它收的是实际成词的音节，
+而这三个要么极罕见要么不存在。**这恰好印证了 TTS 在这三个上也只能瞎凑。**
+
+
 
 Bucket 需对 `pinyin/*` 开公共读，跨域规则沿用现有的
 （允许来源 `https://saisai.me` 的 GET / HEAD）。验证：
