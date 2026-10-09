@@ -67,3 +67,13 @@ main { padding: 16px; }
 .ym-row { display: grid; grid-template-columns: 2.4rem repeat(4, 1fr) 2.6rem; gap: 6px; margin-bottom: 8px; align-items: stretch; }
 .ym-label { display: flex; align-items: center; color: var(--muted); font-size: 1.1rem; }
 .play-all { font-size: 1rem; background: #ece9ff; }
+
+.quiz-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.scope { min-height: 44px; border-radius: 10px; border: none; background: var(--card); color: var(--ink); font-size: 1rem; padding: 0 10px; font-family: inherit; }
+.meter { color: var(--muted); font-size: .85rem; }
+.replay { width: 100%; min-height: 56px; border: none; border-radius: 12px; background: var(--accent); color: #fff; font-size: 1.1rem; font-family: inherit; margin-bottom: 16px; }
+.opt-grid { display: grid; grid-template-columns: repeat(var(--cols, 3), 1fr); gap: 10px; }
+.opt { min-height: 60px; font-size: 1.5rem; }
+.opt.ok { background: var(--ok); color: #fff; }
+.opt.bad { background: var(--bad); color: #fff; }
+.next { width: 100%; min-height: 52px; margin-top: 16px; border: none; border-radius: 12px; background: var(--ink); color: #fff; font-size: 1.05rem; font-family: inherit; }
