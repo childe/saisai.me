@@ -98,3 +98,62 @@ def test_unknown_tone_is_rejected():
 
     with pytest.raises(ValueError):
         tone_contour(5, 20)
+
+
+def test_stretch_factor_lengthens_short_syllables():
+    """TTS 合成的音节只有 0.25 秒，真人范读是 0.49 秒。
+    太短小朋友来不及听清调型，要拉长。"""
+    from retone import stretch_factor
+
+    assert stretch_factor(0.25, target=0.50) == 2.0
+    assert stretch_factor(0.40, target=0.50) == 1.25
+
+
+def test_stretch_factor_never_shortens():
+    from retone import stretch_factor
+
+    assert stretch_factor(0.80, target=0.50) == 1.0
+    assert stretch_factor(0.50, target=0.50) == 1.0
+
+
+def test_stretch_factor_is_capped():
+    """拉得太狠会出现金属声和回声感。"""
+    from retone import stretch_factor, MAX_STRETCH
+
+    assert stretch_factor(0.05, target=0.50) == MAX_STRETCH
+    assert MAX_STRETCH <= 3.0
+
+
+def test_stretch_factor_handles_zero():
+    from retone import stretch_factor
+
+    assert stretch_factor(0.0, target=0.50) == 1.0
+
+
+def test_resample_frames_lengthens_the_time_axis():
+    """WORLD 的三组参数都要按同一条时间轴重采样，否则对不上。"""
+    import numpy as np
+
+    from retone import resample_frames
+
+    f0 = np.array([100.0, 110.0, 120.0, 130.0])
+    sp = np.arange(4 * 5, dtype=float).reshape(4, 5)
+    out_f0, out_sp = resample_frames(f0, 10), resample_frames(sp, 10)
+    assert len(out_f0) == 10
+    assert out_sp.shape == (10, 5)
+    # 端点保持
+    assert abs(out_f0[0] - 100.0) < 1e-9
+    assert abs(out_f0[-1] - 130.0) < 1e-9
+    assert abs(out_sp[0, 0] - 0.0) < 1e-9
+
+
+def test_resample_frames_keeps_unvoiced_frames_unvoiced():
+    """F0 为 0 表示清音段，插值不能把它糊成一个假的音高。"""
+    import numpy as np
+
+    from retone import resample_frames
+
+    f0 = np.array([0.0, 0.0, 200.0, 210.0, 0.0, 0.0])
+    out = resample_frames(f0, 20)
+    assert out[0] == 0.0 and out[-1] == 0.0
+    assert not np.any((out > 0) & (out < 150)), "清音和浊音之间不该插出中间值"

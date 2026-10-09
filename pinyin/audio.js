@@ -1,10 +1,38 @@
+// 播放增益。iPhone 上 Web Audio 的输出本来就比 <audio> 轻，而拼音音节又短
+// （响度感知随时长累积），叠起来就显得"声音很小"。后面接压缩器兜住峰值，
+// 所以这里可以放心提。
+const PLAYBACK_GAIN = 3;
+
 /** 标准音的播放与解码缓存。解码后的 AudioBuffer 跟读打分要复用。 */
 export class AudioBank {
   constructor(baseUrl) {
     this.baseUrl = baseUrl;
     this.buffers = new Map();
     this._ctx = null;
+    this._out = null;
+    this.gain = PLAYBACK_GAIN;
     this.current = null;
+  }
+
+  /**
+   * 所有音源都接这里，而不是直接接 destination。
+   * 增益 → 压缩器 → destination：提音量，同时不削顶。
+   */
+  get out() {
+    if (!this._out) {
+      const ctx = this.ctx;
+      const gain = ctx.createGain();
+      gain.gain.value = this.gain;
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -12;
+      comp.knee.value = 12;
+      comp.ratio.value = 6;
+      comp.attack.value = 0.003;
+      comp.release.value = 0.12;
+      gain.connect(comp).connect(ctx.destination);
+      this._out = gain;
+    }
+    return this._out;
   }
 
   /**
@@ -39,7 +67,7 @@ export class AudioBank {
     try {
       const src = ctx.createBufferSource();
       src.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
-      src.connect(ctx.destination);
+      src.connect(this.out);
       src.start();
     } catch (_) { /* 解锁失败不该拖垮调用方 */ }
     return ctx;
@@ -60,13 +88,13 @@ export class AudioBank {
 
   /** 播一条，返回播完的 Promise。重复点击会掐掉上一条。 */
   async play(item) {
-    this.ctx;                       // 同上：必须在手势窗口内建上下文
+    this.out;                       // 同上：必须在手势窗口内建上下文和输出链路
     const buf = await this.buffer(item);
     this.stop();
     return new Promise((resolve) => {
       const src = this.ctx.createBufferSource();
       src.buffer = buf;
-      src.connect(this.ctx.destination);
+      src.connect(this.out);
       src.onended = () => { if (this.current === src) this.current = null; resolve(); };
       this.current = src;
       src.start();
@@ -81,7 +109,7 @@ export class AudioBank {
     this.stop();
     const src = ctx.createBufferSource();
     src.buffer = buf;
-    src.connect(ctx.destination);
+    src.connect(this.out);
     this.current = src;
     src.start();
   }
