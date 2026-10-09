@@ -1,0 +1,140 @@
+"""按 data/pinyin.json 合成 118 条标准音。幂等：已存在且大小合理则跳过。
+
+ong 的处理取决于冒烟测试的结论，见 --ong-mode 参数。
+"""
+
+import argparse
+import json
+import os
+import sys
+
+import numpy as np
+import requests
+from dotenv import load_dotenv
+
+from smoke_tts import get_token
+
+HOST = "https://nls-gateway-cn-shanghai.aliyuncs.com/stream/v1/tts"
+VOICE = "xiaoyun"
+MIN_BYTES = 1000  # 比这还小基本是失败或静音
+
+
+def build_ssml(ssml):
+    """汉字只是载体，发音完全由 ph 决定。"""
+    return '<speak><phoneme alphabet="py" ph="%s">啊</phoneme></speak>' % ssml
+
+
+def pending_items(items, out_dir):
+    out = []
+    for it in items:
+        path = os.path.join(out_dir, it["key"])
+        if os.path.exists(path) and os.path.getsize(path) >= MIN_BYTES:
+            continue
+        out.append(it)
+    return out
+
+
+def vowel_onset(samples, sample_rate, frame_ms=5):
+    """找元音起始点，用来从 dōng 里裁掉声母 d。
+
+    算短时能量，找到能量首次超过峰值 25% 并在之后连续 30ms 保持的位置。
+    塞音爆破是个孤立尖峰，撑不过 30ms，因此会被跳过。
+    """
+    hop = max(1, int(sample_rate * frame_ms / 1000))
+    n = len(samples) // hop
+    if n == 0:
+        return 0
+    energy = np.array(
+        [
+            float(np.sqrt(np.mean(samples[i * hop : (i + 1) * hop] ** 2)))
+            for i in range(n)
+        ]
+    )
+    if energy.max() <= 0:
+        return 0
+    thresh = energy.max() * 0.25
+    hold = max(1, int(30 / frame_ms))
+    for i in range(n - hold):
+        if np.all(energy[i : i + hold] >= thresh):
+            return i * hop
+    return 0
+
+
+def trim_initial(mp3_path):
+    """就地把 mp3 的声母段裁掉。只在 --ong-mode trim-dong 下用到。"""
+    from pydub import AudioSegment
+
+    seg = AudioSegment.from_mp3(mp3_path)
+    raw = np.array(seg.get_array_of_samples()).astype(np.float64)
+    raw /= float(1 << (8 * seg.sample_width - 1))
+    if seg.channels > 1:
+        raw = raw.reshape(-1, seg.channels).mean(axis=1)
+
+    onset = vowel_onset(raw, seg.frame_rate)
+    ms = int(onset * 1000 / seg.frame_rate)
+    seg[ms:].export(mp3_path, format="mp3")
+    return ms
+
+
+def synth_to(token, appkey, ssml, out_path):
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    payload = {
+        "appkey": appkey,
+        "token": token,
+        "text": build_ssml(ssml),
+        "format": "mp3",
+        "sample_rate": 16000,
+        "voice": VOICE,
+    }
+    r = requests.post(HOST, json=payload, timeout=20)
+    if "audio" not in r.headers.get("Content-Type", ""):
+        raise RuntimeError("合成失败 %s: %s" % (ssml, r.text[:200]))
+    with open(out_path, "wb") as f:
+        f.write(r.content)
+    return len(r.content)
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("-d", "--data", default="pinyin/data/pinyin.json")
+    p.add_argument("-o", "--out", default="/tmp/pinyin-audio")
+    p.add_argument(
+        "--ong-mode",
+        choices=["direct", "trim-dong"],
+        default="direct",
+        help="冒烟测试的结论：direct 直接合成 ong，" "trim-dong 合成 dong 再裁掉声母",
+    )
+    args = p.parse_args()
+
+    load_dotenv()
+    token = get_token(
+        os.environ["OSS_ACCESS_KEY_ID"], os.environ["OSS_ACCESS_KEY_SECRET"]
+    )
+    appkey = os.environ["NLS_APPKEY"]
+
+    data = json.load(open(args.data, encoding="utf-8"))
+    items = [it for g in data["groups"] for it in g["items"]]
+    todo = pending_items(items, args.out)
+    print("共 %d 条，待合成 %d 条" % (len(items), len(todo)))
+
+    for i, it in enumerate(todo, 1):
+        ssml = it["ssml"]
+        needs_trim = args.ong_mode == "trim-dong" and ssml.startswith("ong")
+        if needs_trim:
+            ssml = "d" + ssml
+        path = os.path.join(args.out, it["key"])
+        size = synth_to(token, appkey, ssml, path)
+        note = ""
+        if needs_trim:
+            note = "，裁掉声母 %dms" % trim_initial(path)
+        print(
+            "[%d/%d] %s <- %s (%d bytes)%s"
+            % (i, len(todo), it["key"], ssml, size, note)
+        )
+
+    print("完成，音频在 %s" % args.out)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
