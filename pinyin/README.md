@@ -74,3 +74,16 @@ Bucket 需对 `pinyin/*` 开公共读，跨域规则沿用现有的
 
 **跨域头是必须的** —— 跟读要用 `fetch` + `decodeAudioData` 读标准音，
 不像 `<audio>` 标签那样能绕过 CORS。
+
+## 第三方代码
+
+`vendor/` 下的文件是手工下载的 ESM，无构建步骤，来源可追溯：
+
+| 文件 | 来源 | 版本 |
+|---|---|---|
+| `vendor/pitchy.mjs` | `https://cdn.jsdelivr.net/npm/pitchy@4.1.0/+esm` | pitchy 4.1.0 |
+| `vendor/fft.mjs` | `https://cdn.jsdelivr.net/npm/fft.js@4.0.4/+esm` | fft.js 4.0.4 |
+
+jsDelivr 的 `+esm` 构建里，pitchy 对 fft.js 的 import 写的是 CDN 绝对路径
+`/npm/fft.js@4.0.4/+esm`，离线解析不了。下载后把那一处改成了 `"./fft.mjs"`，
+这是对 vendored 文件的唯一改动。升级版本时记得重做这一步。
