@@ -15,6 +15,10 @@ const F0_MAX = 1000;
 // 偏离中位数这么多个半音就算野点。必须严格小于一个八度（12）：
 // 整数倍频/分频正是音高检测最典型的失败，差值恰好是 12。
 const OUTLIER_SEMITONES = 9;
+// 和局部中位数比的门限。真实的声调起伏（三声的低谷最大，约 6 个半音）
+// 是渐变的，局部中位数跟得住；倍频/分频错误和起音毛刺是突变，跟不住。
+const LOCAL_WINDOW = 7;
+const LOCAL_OUTLIER_SEMITONES = 4;
 
 function median(values) {
   const a = Array.from(values).sort((x, y) => x - y);
@@ -62,6 +66,43 @@ function resampleByTime(points, n) {
   return out;
 }
 
+// 相邻帧之间跳变超过这么多半音，才考虑是不是差了一个八度。
+// 必须大于真实声调相邻帧之间可能的变化（声调曲线是连续的，一帧 10ms
+// 之内变不了这么多），又要能接住 12 个半音的倍频跳变。
+const OCTAVE_JUMP_SEMITONES = 8;
+// 跳变要离 12 的整数倍足够近，才算倍频错误。否则是别的毛病，交给剔点处理。
+const OCTAVE_TOLERANCE_SEMITONES = 3;
+
+/**
+ * 校正倍频/分频错误。
+ *
+ * 这是音高检测最典型的失败：基频弱的时候报成二次谐波，**整段**差一个八度。
+ * 实测标准音里出现过连续 11 帧被翻倍 —— 这么宽的一段，孤立看每一帧都落在
+ * 正常音域内，靠剔点盖不住。
+ *
+ * 但相邻帧之间的跳变是明确的：声调曲线是连续的，10ms 之内变不了 12 个半音。
+ * 所以按跳变解缠绕 —— 遇到接近 ±12 的台阶就把后面整段平移回来，
+ * 直到下一个台阶把它移回去。
+ */
+function correctOctaves(values) {
+  if (values.length === 0) return values;
+  const out = [values[0]];
+  let offset = 0;
+  for (let i = 1; i < values.length; i++) {
+    const jump = values[i] + offset - out[i - 1];
+    const octaves = Math.round(jump / 12);
+    if (
+      Math.abs(jump) > OCTAVE_JUMP_SEMITONES &&
+      octaves !== 0 &&
+      Math.abs(jump - 12 * octaves) < OCTAVE_TOLERANCE_SEMITONES
+    ) {
+      offset -= 12 * octaves;
+    }
+    out.push(values[i] + offset);
+  }
+  return out;
+}
+
 /**
  * track: [{ f0, clarity }]
  * 返回归一化曲线，或 null（可用帧不足）。
@@ -77,9 +118,25 @@ export function normalizeContour(track, n = CONTOUR_POINTS) {
   }
   if (usable.length < MIN_FRAMES) return null;
 
+  // 先校正倍频/分频错误，再剔点 —— 否则整段差一个八度的数据会被当成野点丢光
+  const corrected = correctOctaves(usable.map((p) => p.v));
+  for (let i = 0; i < usable.length; i++) usable[i].v = corrected[i];
+
   const med = median(usable.map((p) => p.v));
 
-  const kept = usable.filter((p) => Math.abs(p.v - med) < OUTLIER_SEMITONES);
+  // 两道剔点。全局那道挡住离谱的值；局部那道挡住突变 ——
+  // 实测标准音里出现过中段 +8.6 半音的倍频错误和起音处 -8.3 的毛刺，
+  // 两者都没越过全局门限，却足以把曲线形状带歪、把声调判错。
+  const rough = usable.filter((p) => Math.abs(p.v - med) < OUTLIER_SEMITONES);
+  if (rough.length < MIN_FRAMES) return null;
+
+  const half = LOCAL_WINDOW >> 1;
+  const kept = rough.filter((p, i) => {
+    const lo = Math.max(0, i - half);
+    const hi = Math.min(rough.length, i + half + 1);
+    const local = median(rough.slice(lo, hi).map((q) => q.v));
+    return Math.abs(p.v - local) < LOCAL_OUTLIER_SEMITONES;
+  });
   if (kept.length < MIN_FRAMES) return null;
 
   // 先按时间轴重采样到均匀网格，再取中位数归零。

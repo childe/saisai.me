@@ -63,6 +63,22 @@ def vowel_onset(samples, sample_rate, frame_ms=5):
     return 0
 
 
+FADE_MS = 25  # 切口处的淡入时长
+
+
+def fade_in(y, sample_rate, ms=FADE_MS):
+    """就地加升余弦淡入。
+
+    从音节中间硬切会让声音没有起音过程，听感是"咔"一下蹦出来：实测未加
+    淡入的 ong 在 12.6ms 就冲到半峰，其他韵母都要 ~87ms。
+    """
+    n = min(len(y), int(sample_rate * ms / 1000))
+    if n > 1:
+        ramp = 0.5 * (1.0 - np.cos(np.linspace(0.0, np.pi, n)))
+        y[:n] *= ramp.reshape(-1, *([1] * (y.ndim - 1)))
+    return y
+
+
 def trim_initial(mp3_path):
     """就地把 mp3 的声母段裁掉，返回裁掉的毫秒数。
 
@@ -78,7 +94,8 @@ def trim_initial(mp3_path):
     mono = data.mean(axis=1)
 
     onset = vowel_onset(mono, sr)
-    sf.write(mp3_path, data[onset:], sr, format="MP3")
+    cut = np.array(data[onset:], dtype=np.float64)
+    sf.write(mp3_path, fade_in(cut, sr), sr, format="MP3")
     return int(onset * 1000 / sr)
 
 

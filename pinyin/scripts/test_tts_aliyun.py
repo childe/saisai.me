@@ -79,9 +79,9 @@ def test_trim_initial_cuts_the_initial_off_a_real_mp3(tmp_path):
     head = out[: int(0.03 * out_sr)]
     head_rms = float(np.sqrt(np.mean(head**2)))
     whole_rms = float(np.sqrt(np.mean(out**2)))
-    assert head_rms > whole_rms * 0.7, (
-        "开头还不是元音：head_rms=%.3f whole_rms=%.3f" % (head_rms, whole_rms)
-    )
+    assert (
+        head_rms > whole_rms * 0.7
+    ), "开头还不是元音：head_rms=%.3f whole_rms=%.3f" % (head_rms, whole_rms)
 
 
 def test_trim_initial_leaves_a_pure_vowel_almost_untouched(tmp_path):
@@ -93,3 +93,42 @@ def test_trim_initial_leaves_a_pure_vowel_almost_untouched(tmp_path):
     t = np.arange(int(0.3 * sr)) / sr
     sf.write(str(tmp_path / "a1.mp3"), 0.8 * np.sin(2 * np.pi * 200 * t), sr)
     assert trim_initial(str(tmp_path / "a1.mp3")) < 20
+
+
+def _time_to_half_peak_ms(y, sr):
+    peak = float(abs(y).max())
+    i = int((abs(y) >= peak * 0.5).argmax())
+    return i / sr * 1000.0
+
+
+def test_trim_initial_fades_in_so_the_cut_is_not_abrupt(tmp_path):
+    """从音节中间硬切会让声音没有起音过程，听感是"咔"一下蹦出来。
+
+    实测未加淡入时，ong 在 12.6ms 就冲到半峰，而其他韵母都要 ~87ms。
+    """
+    import soundfile as sf
+
+    from tts_aliyun import trim_initial
+
+    sig, sr = _dong_like()
+    path = str(tmp_path / "dong1.mp3")
+    sf.write(path, sig, sr)
+    trim_initial(path)
+
+    out, out_sr = sf.read(path)
+    rise = _time_to_half_peak_ms(out, out_sr)
+    assert rise >= 8, "起音只用了 %.1fms，太突兀" % rise
+    assert rise <= 45, "淡入太慢（%.1fms），起音被削了" % rise
+
+
+def test_fade_does_not_eat_the_syllable(tmp_path):
+    import soundfile as sf
+
+    from tts_aliyun import trim_initial
+
+    sig, sr = _dong_like()
+    path = str(tmp_path / "dong1.mp3")
+    sf.write(path, sig, sr)
+    trim_initial(path)
+    out, out_sr = sf.read(path)
+    assert abs(len(out) / out_sr - 0.30) < 0.06, "剩下 %.3fs" % (len(out) / out_sr)

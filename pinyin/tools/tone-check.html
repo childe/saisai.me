@@ -20,9 +20,11 @@ button{min-height:44px;padding:0 18px;border:none;border-radius:10px;background:
 <div id="sum"></div>
 <table id="t"></table>
 <script type="module">
-import { f0Track } from '../f0.js';
-import { trimSilence } from '../lib/endpoint.js';
-import { normalizeContour, classifyTone } from '../lib/pitch.js';
+// 开发工具，永远用最新的模块：浏览器会缓存 ESM，改完代码不击穿就看不到效果
+const v = '?v=' + Date.now();
+const { f0Track } = await import('../f0.js' + v);
+const { trimSilence } = await import('../lib/endpoint.js' + v);
+const { normalizeContour, classifyTone } = await import('../lib/pitch.js' + v);
 
 const NAMES = { 0: '测不出', 1: '一声', 2: '二声', 3: '三声', 4: '四声' };
 

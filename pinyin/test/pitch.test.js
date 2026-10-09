@@ -166,3 +166,63 @@ test('丢帧后相邻点之间不出现断崖', () => {
   assert.ok(holed < full * 1.15,
     '丢帧后最大跳变 ' + holed.toFixed(2) + '，完整曲线是 ' + full.toFixed(2));
 });
+
+test('中段的倍频错误被局部中位数挡住', () => {
+  // 实测 ǔ 的标准音在中段蹦出 +8.6 半音（约一个八度），全局中位数判不出来：
+  // 它离全局中位数不到 9 个半音，却把曲线形状彻底带歪。
+  const clean = normalizeContour(track(DIP, 250));
+  const spiked = track(DIP, 250);
+  // 实测偏离全局中位数约 8.6 个半音 —— 正好卡在 9 半音门限的内侧
+  for (const i of [18, 19, 20]) spiked[i] = { f0: spiked[i].f0 * 1.64, clarity: 0.95 };
+  const got = normalizeContour(spiked);
+  const d = contourDistance(clean, got);
+  assert.ok(d < 0.8, '倍频点带歪了曲线，和干净曲线差 ' + d.toFixed(2) + ' 个半音');
+  assert.equal(classifyTone(got).tone, 3);
+});
+
+test('起音处的毛刺被挡住', () => {
+  // 实测 ìng 的标准音开头是 -8.3 半音的毛刺，让四声被判成一声
+  const clean = normalizeContour(track(FALL, 250));
+  const spiked = track(FALL, 250);
+  for (const i of [0, 1]) spiked[i] = { f0: spiked[i].f0 / 1.9, clarity: 0.9 };
+  const got = normalizeContour(spiked);
+  assert.equal(classifyTone(got).tone, 4,
+    '起音毛刺把四声带成了 ' + classifyTone(got).tone + ' 声');
+  assert.ok(contourDistance(clean, got) < 0.8);
+});
+
+test('真正的三声低谷不会被当成野点剔掉', () => {
+  // 三声本来就要降下去再回升，局部中位数不能把这个正常起伏当成错误
+  const c = normalizeContour(track(DIP, 250));
+  assert.equal(classifyTone(c).tone, 3);
+  const span = Math.max(...c) - Math.min(...c);
+  assert.ok(span > 3, '三声的起伏被压平了：' + span.toFixed(2));
+});
+
+test('连成一片的倍频错误被校正回来，而不是被丢掉', () => {
+  // 实测 ǔ 的标准音里有连续 11 帧被翻倍（243Hz 报成 486Hz）。
+  // 这么宽的一段，局部中位数盖不住；但它正好差一个八度，可以校正。
+  const clean = normalizeContour(track(DIP, 250));
+  const doubled = track(DIP, 250);
+  for (let i = 14; i < 25; i++) doubled[i] = { f0: doubled[i].f0 * 2, clarity: 0.95 };
+  const got = normalizeContour(doubled);
+  const d = contourDistance(clean, got);
+  assert.ok(d < 0.8, '倍频段没校正回来，和干净曲线差 ' + d.toFixed(2) + ' 个半音');
+  assert.equal(classifyTone(got).tone, 3);
+});
+
+test('分频错误（整段减半）同样被校正', () => {
+  const clean = normalizeContour(track(FALL, 300));
+  const halved = track(FALL, 300);
+  for (let i = 5; i < 16; i++) halved[i] = { f0: halved[i].f0 / 2, clarity: 0.95 };
+  assert.ok(contourDistance(clean, normalizeContour(halved)) < 0.8);
+  assert.equal(classifyTone(normalizeContour(halved)).tone, 4);
+});
+
+test('校正不会把真实的声调起伏当成倍频错误', () => {
+  // 四声跨 8 个半音、三声跨 6 个，都远小于一个八度，不该被动
+  for (const [shape, want] of [[FLAT, 1], [RISE, 2], [DIP, 3], [FALL, 4]]) {
+    const c = normalizeContour(track(shape, 250));
+    assert.equal(classifyTone(c).tone, want, '干净的 ' + want + ' 声被校正逻辑改坏了');
+  }
+});

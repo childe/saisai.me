@@ -20,24 +20,33 @@ import sys
 
 import numpy as np
 
-# 赵元任五度标调法 → 相对说话人音高中心的半音偏移，t 为 0..1 的归一化时间。
-# 五度之间约 2 个半音：5 度 ≈ +4，3 度 ≈ 0，1 度 ≈ -4。
+# 赵元任五度标调法 → 半音偏移，t 为 0..1 的归一化时间。
+# 一度约 2 个半音：55 高平、35 中升、214 低降升、51 全降。
 _SHAPES = {
-    1: lambda t: np.full_like(t, 4.0),  # 55  高平
+    1: lambda t: np.full_like(t, 0.0),  # 55  高平
     2: lambda t: 0.0 + 4.0 * t,  # 35  中升
     3: lambda t: np.where(  # 214 低降升
         t < 0.55, -2.0 - 2.0 * (t / 0.55), -4.0 + 6.0 * ((t - 0.55) / 0.45)
     ),
-    4: lambda t: 4.0 - 10.0 * t,  # 51  全降
+    4: lambda t: 4.0 - 8.0 * t,  # 51  全降
 }
 
 
 def tone_contour(tone, n):
-    """长度为 n 的标准调型，单位是相对音高中心的半音。"""
+    """长度为 n 的标准调型，单位是半音，**已去均值**。
+
+    去均值是关键：调型只决定形状，不决定调高。每条音频的音高中心取它
+    自己 F0 的中位数，若调型带直流偏移，换调就等于凭空升降整条音 ——
+    一声带 +4 半音会把 445Hz 的童声推到 560Hz，发尖。
+
+    各声调之间的相对高低（一声高、三声低）来自原始合成音本身，不该由
+    调型二次施加：每条音节是独立的一段音频，不是一串连读。
+    """
     if tone not in _SHAPES:
         raise ValueError("没有第 %r 声" % (tone,))
     t = np.linspace(0.0, 1.0, n) if n > 1 else np.zeros(1)
-    return np.asarray(_SHAPES[tone](t), dtype=np.float64)
+    c = np.asarray(_SHAPES[tone](t), dtype=np.float64)
+    return c - c.mean()
 
 
 def retone_file(src, dst, tone):
@@ -58,7 +67,9 @@ def retone_file(src, dst, tone):
     t = (idx - idx[0]) / span
 
     new_f0 = f0.copy()
-    shape = np.asarray(_SHAPES[tone](t), dtype=np.float64)
+    # 按真实时间位置取调型，有声帧不连续时也不会把时间轴揉变形
+    full = tone_contour(tone, 256)
+    shape = np.interp(t, np.linspace(0.0, 1.0, 256), full)
     new_f0[idx] = base * 2.0 ** (shape / 12.0)
 
     y = pw.synthesize(new_f0, sp, ap, sr, frame_period=5.0)
