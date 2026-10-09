@@ -7,7 +7,13 @@ export class AudioBank {
     this.current = null;
   }
 
-  /** AudioContext 必须在用户手势里创建，iOS 才允许出声。 */
+  /**
+   * AudioContext。**必须在用户手势同步执行的那一小段里首次访问。**
+   *
+   * iOS 上在手势之外创建的上下文会一直是 suspended，之后再调 resume()
+   * 也不生效 —— 表现就是"电脑有声、iPhone 没声"。所以每个入口都要在
+   * 第一个 await 之前先碰一下它。
+   */
   get ctx() {
     if (!this._ctx) {
       this._ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -16,19 +22,45 @@ export class AudioBank {
     return this._ctx;
   }
 
+  /**
+   * 在用户手势里解锁音频输出。第一次触碰页面时调一次即可。
+   *
+   * 做两件 iOS 特有的事：
+   *   1. 建上下文并 resume —— 必须在手势里，否则后面怎么调都没用
+   *   2. 播一个一帧的静音片段 —— iOS 认这个动作才真正放开输出
+   * 另外把 audioSession 设成 playback：否则 Web Audio 会被侧边静音键
+   * 静掉，手机调成静音就什么都听不见（iOS 16.4+ 支持）。
+   */
+  unlock() {
+    const ctx = this.ctx;
+    try {
+      if (navigator.audioSession) navigator.audioSession.type = 'playback';
+    } catch (_) { /* 不支持就算了 */ }
+    try {
+      const src = ctx.createBufferSource();
+      src.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+      src.connect(ctx.destination);
+      src.start();
+    } catch (_) { /* 解锁失败不该拖垮调用方 */ }
+    return ctx;
+  }
+
   url(item) { return this.baseUrl + item.key; }
 
   async buffer(item) {
     if (this.buffers.has(item.id)) return this.buffers.get(item.id);
+    // 先碰一下 ctx：这一行还在用户手势的同步窗口里，fetch 之后就不是了
+    const ctx = this.ctx;
     const res = await fetch(this.url(item));
     if (!res.ok) throw new Error('音频 ' + res.status);
-    const buf = await this.ctx.decodeAudioData(await res.arrayBuffer());
+    const buf = await ctx.decodeAudioData(await res.arrayBuffer());
     this.buffers.set(item.id, buf);
     return buf;
   }
 
   /** 播一条，返回播完的 Promise。重复点击会掐掉上一条。 */
   async play(item) {
+    this.ctx;                       // 同上：必须在手势窗口内建上下文
     const buf = await this.buffer(item);
     this.stop();
     return new Promise((resolve) => {
@@ -43,12 +75,13 @@ export class AudioBank {
 
   /** 播一段自己录的 PCM。 */
   playSamples(samples, sampleRate) {
-    const buf = this.ctx.createBuffer(1, samples.length, sampleRate);
+    const ctx = this.ctx;           // 同样要在手势窗口内
+    const buf = ctx.createBuffer(1, samples.length, sampleRate);
     buf.copyToChannel(Float32Array.from(samples), 0);
     this.stop();
-    const src = this.ctx.createBufferSource();
+    const src = ctx.createBufferSource();
     src.buffer = buf;
-    src.connect(this.ctx.destination);
+    src.connect(ctx.destination);
     this.current = src;
     src.start();
   }
