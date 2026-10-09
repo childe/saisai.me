@@ -64,6 +64,31 @@ LPC + 多项式求根。考虑到上限本来就不够下判决，没有继续�
 音素级的准确度，得接 Azure 或讯飞的发音评测 API，那需要一个藏密钥的服务端
 代理，不在本项目范围内。
 
+## iOS 上的音频解锁（踩过的坑）
+
+**症状：电脑上有声，iPhone 上一点声音都没有。**
+
+iOS 只认用户手势**同步执行**的那一小段。在它之外创建的 AudioContext 会一直
+是 `suspended`，之后再调 `resume()` 也不生效。原来的 `buffer()` 是这样写的：
+
+    const res = await fetch(this.url(item));        // ← 第一个 await
+    const buf = await this.ctx.decodeAudioData(...); // ← 到这儿才建上下文
+
+上下文在两个 await 之后才创建，早就离开手势窗口了。桌面 Chrome 宽松，照样出声；
+iPhone 上就是全哑。
+
+现在的做法：
+
+1. `play()` 和 `buffer()` 都在**第一个 await 之前**先碰一下 `this.ctx`
+2. `AudioBank.unlock()`：建上下文 + `resume()` + 播一帧静音片段（iOS 认这个
+   动作才真正放开输出），由 `main.js` 挂在第一次 `pointerdown/touchstart/click`
+   上（capture 阶段，保证比任何按钮的处理器先跑）
+3. `unlock()` 顺便把 `navigator.audioSession.type` 设成 `playback` ——
+   否则 Web Audio 会被侧边静音键静掉，手机调成静音就什么都听不见（iOS 16.4+）
+
+`test/audio.test.js` 用 Web Audio 替身锁住了这几条，其中最关键的一条是
+"play 在第一个 await 之前就把 AudioContext 建起来"。
+
 ## 本地预览
 
 ### 音频的跨域问题（本地自测必读）

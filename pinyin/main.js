@@ -24,6 +24,25 @@ function writeVoice(id) {
 }
 
 /** 音色选择器。换音色只换音频地址前缀，当前视图原地重建。 */
+/**
+ * 第一次触碰页面时解锁音频输出。
+ *
+ * iOS 只认用户手势同步执行的那一小段：在它之外创建的 AudioContext 会一直
+ * suspended，之后再 resume() 也不生效，表现就是"电脑有声、iPhone 没声"。
+ * 用 capture + once，保证比任何按钮的处理器都先跑到。
+ */
+function installAudioUnlock(ctx) {
+  const once = () => {
+    ctx.bank.unlock();
+    for (const ev of ['pointerdown', 'touchstart', 'click']) {
+      document.removeEventListener(ev, once, true);
+    }
+  };
+  for (const ev of ['pointerdown', 'touchstart', 'click']) {
+    document.addEventListener(ev, once, true);
+  }
+}
+
 function mountVoicePicker(data, ctx, show) {
   const sel = document.getElementById('voice');
   if (!sel || !Array.isArray(data.voices) || data.voices.length < 2) {
@@ -42,6 +61,7 @@ function mountVoicePicker(data, ctx, show) {
     writeVoice(sel.value);
     ctx.bank.stop();
     ctx.bank = new AudioBank(voiceBaseUrl(data.baseUrl, sel.value));
+    ctx.bank.unlock();              // 换音色是用户手势，顺手把新上下文解锁
     show(document.querySelector('.tab[aria-selected="true"]').dataset.view);
   });
 }
@@ -103,6 +123,7 @@ async function start() {
   }
 
   mountVoicePicker(data, ctx, show);
+  installAudioUnlock(ctx);
   show('chart');
 }
 
