@@ -12,7 +12,40 @@ class Player {
         this.audio.addEventListener('ended', () => {
             if (this.endedHandler) this.endedHandler();
         });
+
+        this.errorHandler = null;
+        this.stallTimer = null;
+        this.audio.addEventListener('error', () => this.reportError());
+        // stalled/waiting 在普通缓冲时也会触发，立刻报错会误伤；
+        // 卡住超过 STALL_GRACE_MS 且仍然没有可播数据，才当作失败。
+        this.audio.addEventListener('stalled', () => this.armStallTimer());
+        this.audio.addEventListener('waiting', () => this.armStallTimer());
+        ['playing', 'canplay', 'loadeddata'].forEach((n) => {
+            this.audio.addEventListener(n, () => this.clearStallTimer());
+        });
     }
+
+    armStallTimer() {
+        if (this.stallTimer) return;
+        this.stallTimer = setTimeout(() => {
+            this.stallTimer = null;
+            if (this.audio.readyState < 2) this.reportError();
+        }, Player.STALL_GRACE_MS);
+    }
+
+    clearStallTimer() {
+        if (this.stallTimer) {
+            clearTimeout(this.stallTimer);
+            this.stallTimer = null;
+        }
+    }
+
+    reportError() {
+        this.clearStallTimer();
+        if (this.errorHandler) this.errorHandler();
+    }
+
+    onError(fn) { this.errorHandler = fn; }
 
     get playing() { return !this.audio.paused; }
     get currentTime() { return this.audio.currentTime; }
@@ -32,6 +65,7 @@ class Player {
 
     load(url, options) {
         const opts = options || {};
+        this.clearStallTimer();
         this.audio.src = url;
         this.audio.load();
         if (opts.startAt) {
@@ -68,3 +102,5 @@ class Player {
 
     setLoop(on) { this.audio.loop = on; }
 }
+
+Player.STALL_GRACE_MS = 8000;

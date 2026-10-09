@@ -23,11 +23,18 @@ class App {
         this.loop = false;
         // 恢复上次状态完成前不许写 localStorage，否则会把上次的曲目覆盖成空
         this.ready = false;
+        this.statusClick = null;
     }
 
     async start() {
-        const res = await fetch('data/g1a.json');
-        this.manifest = await res.json();
+        try {
+            const res = await fetch('data/g1a.json');
+            if (!res.ok) throw new Error(res.status);
+            this.manifest = await res.json();
+        } catch (e) {
+            this.showStatus('😟 没有加载到内容，点我重试', () => location.reload());
+            return;
+        }
         this.unit = this.manifest.units[0];
 
         this.ui.onUnitClick((id) => this.selectUnit(id));
@@ -54,6 +61,12 @@ class App {
             this.btnPlay.setAttribute('aria-label', playing ? '暂停' : '播放');
         });
         this.player.onEnded(() => this.playNext());
+        this.player.onError(() => {
+            this.showStatus('😟 没连上网络，点我重试', () => {
+                this.ui.setStatus('');
+                if (this.track) this.playTrack(this.track.no, true);
+            });
+        });
 
         const prefs = this.loadPrefs();
         this.setRate(prefs.rate || 1);
@@ -72,6 +85,19 @@ class App {
         this.ready = true;
         setInterval(() => this.savePrefs(), 3000);
         window.addEventListener('pagehide', () => this.savePrefs());
+    }
+
+    showStatus(text, onClick) {
+        this.ui.setStatus(text);
+        const el = document.getElementById('status');
+        // 每次只挂一个一次性处理器，避免反复报错时叠加出多份点击逻辑
+        if (this.statusClick) el.removeEventListener('click', this.statusClick);
+        this.statusClick = () => {
+            el.removeEventListener('click', this.statusClick);
+            this.statusClick = null;
+            onClick();
+        };
+        el.addEventListener('click', this.statusClick);
     }
 
     loadPrefs() {
@@ -112,6 +138,7 @@ class App {
     playTrack(no, autoplay, startAt) {
         const track = this.unit.tracks.find((t) => t.no === no);
         if (!track) return;
+        this.ui.setStatus('');
         this.track = track;
         this.playbar.hidden = false;
         this.nowTitle.textContent = this.unit.title + ' · ' + track.title;
