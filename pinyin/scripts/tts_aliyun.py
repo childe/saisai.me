@@ -145,6 +145,7 @@ def main():
     items = [it for g in data["groups"] for it in g["items"]]
     todo = pending_items(items, args.out)
     print("共 %d 条，待合成 %d 条" % (len(items), len(todo)))
+    trimmed = {}
 
     for i, it in enumerate(todo, 1):
         ssml, needs_trim = synthesis_plan(it)
@@ -152,11 +153,20 @@ def main():
         size = synth_to(token, appkey, ssml, path, args.voice)
         note = ""
         if needs_trim:
-            note = "，裁掉声母 %dms" % trim_initial(path)
+            cut_ms = trim_initial(path)
+            trimmed[it["key"]] = cut_ms
+            note = "，裁掉声母 %dms" % cut_ms
         print(
             "[%d/%d] %s <- %s (%d bytes)%s"
             % (i, len(todo), it["key"], ssml, size, note)
         )
+
+    if trimmed:
+        # 裁切点落盘，便于事后复核切得对不对（spec §2 要求）
+        report = os.path.join(args.out, "trim-report.json")
+        with open(report, "w", encoding="utf-8") as f:
+            json.dump(trimmed, f, ensure_ascii=False, indent=2, sort_keys=True)
+        print("裁切点写入 %s" % report)
 
     print("完成，音频在 %s（发音人 %s）" % (args.out, args.voice))
     return 0

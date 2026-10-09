@@ -178,7 +178,12 @@ export function mount(root, { data, bank }) {
   }
 
   async function release(e) {
-    if (!holding) return;
+    if (!holding) {
+      // 还在等麦克风授权就松手了（iOS 首次按下会弹框打断触摸）。
+      // 不取消的话，授权回来后会在没人说话的情况下开始录。
+      recorder?.cancelPending();
+      return;
+    }
     e.preventDefault();
     holding = false;
     mic.classList.remove('recording');
