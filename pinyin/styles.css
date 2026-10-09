@@ -1,0 +1,62 @@
+:root {
+  --bg: #f5f3ff;
+  --card: #fff;
+  --ink: #2d2a45;
+  --accent: #667eea;
+  --ok: #2fa968;
+  --bad: #e2574c;
+  --muted: #8b86a8;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+/* #status 用 id 选择器设了 display:flex，会盖过 UA 的 [hidden]{display:none} */
+[hidden] { display: none !important; }
+body {
+  margin: 0;
+  font-family: -apple-system, 'PingFang SC', sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  padding-bottom: 24px;
+}
+header { padding: 16px 16px 0; }
+h1 { margin: 0 0 12px; font-size: 1.5rem; text-align: center; }
+#tabs { display: flex; gap: 8px; }
+.tab {
+  flex: 1;
+  min-height: 44px;
+  border: none;
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--muted);
+  font-size: 1rem;
+  font-family: inherit;
+}
+.tab[aria-selected="true"] { background: var(--accent); color: #fff; }
+main { padding: 16px; }
+
+.cell {
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 1.6rem;
+  font-family: inherit;
+  padding: 8px 4px;
+}
+.cell small { font-size: .7rem; color: var(--muted); margin-top: 2px; }
+.cell:disabled { opacity: 0; pointer-events: none; }
+.cell.playing { background: var(--accent); color: #fff; }
+
+#status {
+  position: fixed;
+  left: 16px; right: 16px; bottom: 16px;
+  min-height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--ink); color: #fff;
+  border-radius: 10px; padding: 12px;
+}
