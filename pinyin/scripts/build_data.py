@@ -10,6 +10,15 @@ import sys
 
 BASE_URL = "https://ohsaisai.oss-cn-shanghai.aliyuncs.com/pinyin/"
 
+# 可选音色。音频按 <baseUrl><voice>/<key> 存放，所以 key 里不带音色，
+# 换音色只是换 URL 前缀，不用重建数据。
+VOICES = [
+    {"id": "aitong", "label": "童声"},
+    {"id": "xiaoyun", "label": "女声"},
+    {"id": "xiaogang", "label": "男声"},
+]
+DEFAULT_VOICE = "aitong"
+
 # (字母, 呼读音)
 #
 # 注意：声母 w 的呼读音是 wu，和韵母 u 送进 TTS 的音节完全一样；y/yi 与韵母 i
@@ -229,6 +238,8 @@ def build():
 
     return {
         "baseUrl": BASE_URL,
+        "voices": VOICES,
+        "defaultVoice": DEFAULT_VOICE,
         "groups": groups,
         "confusions": {b: confusions_for(b) for b in bases},
     }

@@ -79,6 +79,7 @@ LPC + 多项式求根。考虑到上限本来就不够下判决，没有继续�
     # 然后开页面时带上 ?audio=local
 
 `pinyin/audio/` 已加入 .gitignore，不会进仓库。
+本地目录也按音色分（`audio/<voice>/ym/a1.mp3`），和 OSS 的结构一致。
 `?audio=<地址>` 也可以指向任意别的 baseUrl。
 
 ### 起服务
@@ -150,6 +151,30 @@ un→wen、ün→yun、ing→ying，以及 **o→wo、ong→weng**（见下）�
 它只合成 8 条高风险音节到 `/tmp/pinyin-smoke`，**仍然要人耳逐条确认声调**
 —— 字节数只能排除静音，排除不了读错调（`ph="o1"` 就被读成过「欧」）。
 整批合成完之后再跑一次 `audit_tones.py` 做调型验收。
+
+## 音色可以切换
+
+页面顶部能选 **童声 aitong / 女声 xiaoyun / 男声 xiaogang**，选择记在
+localStorage 里，`?voice=<id>` 可以临时覆盖。
+
+音频按 `<baseUrl><voice>/<key>` 存放，所以换音色只是换 URL 前缀 ——
+数据本身（key、声调、干扰项）和音色无关，加音色不用重建数据：
+
+1. 在 `build_data.py` 的 `VOICES` 里加一行
+2. `tts_aliyun.py --voice <id> -o /tmp/pinyin-audio-v/<id>`
+3. `retone.py -s /tmp/pinyin-audio-v/<id> -o /tmp/pinyin-retoned-v/<id>`
+4. `upload_oss.py -s /tmp/pinyin-retoned-v/<id> --prefix pinyin/<id>/`
+
+**换音色不影响跟读打分**：所有音色都经过同一套换调，调型是一样的。
+三套的调型验收：aitong 96%、xiaoyun 100%、xiaogang 99%。
+
+阿里云中文发音人约 60 个，童声/萝莉音有 9 个
+（aitong、sitong、xiaobei、aiwei、aibao、zhiwei、jielidou、yuer、zhibei_emo），
+都验过支持 phoneme 标签。音色对比页在 `audio/probe/voices.html`（本地工具，
+不进仓库）。
+
+> 探测发音人时注意**别用高并发** —— 6 路并发会触发限流，返回的错误很像
+> "这个音色不可用"，实际串行重试全都正常。
 
 ## 发音人与声调质量
 

@@ -1,10 +1,50 @@
 import { AudioBank } from './audio.js';
 import { resolveBaseUrl } from './lib/base-url.js';
+import { pickVoice, voiceBaseUrl } from './lib/voice.js';
 import { mount as mountChart } from './chart.js';
 import { mount as mountQuiz } from './quiz.js';
 import { mount as mountShadow } from './shadow.js';
 
 const VIEWS = { chart: mountChart, quiz: mountQuiz, shadow: mountShadow };
+
+const VOICE_KEY = 'pinyin:voice';
+
+function readVoice() {
+  try {
+    return localStorage.getItem(VOICE_KEY);
+  } catch (_) {
+    return null;   // 隐私模式下不可用，用默认音色
+  }
+}
+
+function writeVoice(id) {
+  try {
+    localStorage.setItem(VOICE_KEY, id);
+  } catch (_) { /* 存不下就算了，不影响使用 */ }
+}
+
+/** 音色选择器。换音色只换音频地址前缀，当前视图原地重建。 */
+function mountVoicePicker(data, ctx, show) {
+  const sel = document.getElementById('voice');
+  if (!sel || !Array.isArray(data.voices) || data.voices.length < 2) {
+    document.getElementById('voicebar')?.remove();
+    return;
+  }
+  for (const v of data.voices) {
+    const o = document.createElement('option');
+    o.value = v.id;
+    o.textContent = v.label;
+    sel.appendChild(o);
+  }
+  sel.value = ctx.voice;
+  sel.addEventListener('change', () => {
+    ctx.voice = sel.value;
+    writeVoice(sel.value);
+    ctx.bank.stop();
+    ctx.bank = new AudioBank(voiceBaseUrl(data.baseUrl, sel.value));
+    show(document.querySelector('.tab[aria-selected="true"]').dataset.view);
+  });
+}
 
 export function showStatus(text, onClick) {
   const el = document.getElementById('status');
@@ -36,7 +76,8 @@ async function start() {
     showStatus('😟 没有加载到内容，点我重试', () => location.reload());
     return;
   }
-  const ctx = { data, bank: new AudioBank(data.baseUrl) };
+  const voice = pickVoice(data, readVoice(), location.search);
+  const ctx = { data, voice, bank: new AudioBank(voiceBaseUrl(data.baseUrl, voice)) };
   const root = document.getElementById('view');
   // 视图可以返回一个拆卸函数；跟读用它关掉麦克风，否则 iOS 的麦克风
   // 指示灯会一直亮着，且每次重进都新开一条 MediaStream。
@@ -60,6 +101,8 @@ async function start() {
   for (const t of document.querySelectorAll('.tab')) {
     t.addEventListener('click', () => show(t.dataset.view));
   }
+
+  mountVoicePicker(data, ctx, show);
   show('chart');
 }
 

@@ -181,3 +181,23 @@ def test_carrier_initials_are_stops_so_they_cut_cleanly():
     for it in items(build()):
         if it.get("derive"):
             assert it["derive"][0] in "bpdtgk", it["derive"]
+
+
+def test_voices_are_listed():
+    """页面要能切换音色，所以数据里得有可选音色表。"""
+    data = build()
+    ids = [v["id"] for v in data["voices"]]
+    assert ids == ["aitong", "xiaoyun", "xiaogang"]
+    assert all(v["label"] for v in data["voices"])
+    assert data["defaultVoice"] == "aitong"
+
+
+def test_default_voice_is_in_the_list():
+    data = build()
+    assert data["defaultVoice"] in [v["id"] for v in data["voices"]]
+
+
+def test_keys_stay_voice_independent():
+    """key 不含音色，音色是 URL 前缀 —— 换音色不用重建数据。"""
+    for it in items(build()):
+        assert not any(v["id"] in it["key"] for v in build()["voices"]), it["key"]
