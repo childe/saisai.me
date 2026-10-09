@@ -12,8 +12,9 @@ export function rms(samples) {
   return Math.sqrt(s / samples.length);
 }
 
+/** 发声时长。只算真正出声的那段，不含为了不切掉起音而留的两端余量。 */
 export function durationOf(seg, sampleRate) {
-  return (seg.end - seg.start) / sampleRate;
+  return (seg.voicedEnd - seg.voicedStart) / sampleRate;
 }
 
 export function trimSilence(samples, sampleRate, opts = {}) {
@@ -39,10 +40,17 @@ export function trimSilence(samples, sampleRate, opts = {}) {
   }
   if (first < 0) return null;
 
+  // 发声段本身，用来算时长
+  const voicedStart = first * hop;
+  const voicedEnd = Math.min(samples.length, (last + 1) * hop);
+
+  // 两端各留一点余量再交给分析，免得切掉起音和收尾
   const pad = Math.round(sampleRate * PAD_MS / 1000);
-  const start = Math.max(0, first * hop - pad);
-  const end = Math.min(samples.length, (last + 1) * hop + pad);
+  const start = Math.max(0, voicedStart - pad);
+  const end = Math.min(samples.length, voicedEnd + pad);
   if (end <= start) return null;
 
-  return { start, end, samples: samples.subarray(start, end) };
+  return {
+    start, end, voicedStart, voicedEnd, samples: samples.subarray(start, end),
+  };
 }

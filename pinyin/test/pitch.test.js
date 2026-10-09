@@ -53,11 +53,50 @@ test('离谱的 f0 被当野点剔除', () => {
   assert.ok(c.every((v) => Math.abs(v) < 6), '野点没被剔除：' + c.join(','));
 });
 
-test('四声各自被分对', () => {
-  assert.equal(classifyTone(normalizeContour(track(FLAT))).tone, 1);
-  assert.equal(classifyTone(normalizeContour(track(RISE))).tone, 2);
-  assert.equal(classifyTone(normalizeContour(track(DIP))).tone, 3);
-  assert.equal(classifyTone(normalizeContour(track(FALL))).tone, 4);
+// 赵元任五度标调法描述的普通话四声，换算成相对自身中位数的半音。
+// 刻意**不是** TONE_TEMPLATES 里那几个函数的副本 —— 拿模板自己测自己，
+// 测的是重采样往返，不是分类器。
+const CHAO = {
+  1: () => 4,                                     // 55 高平
+  2: (t) => 4 * t,                                // 35 中升
+  3: (t) => (t < 0.55                             // 214 低降升
+    ? -2 - 2 * (t / 0.55)
+    : -4 + 6 * ((t - 0.55) / 0.45)),
+  4: (t) => 4 - 8 * t,                            // 51 全降
+};
+
+test('真实的四声形状各自被分对', () => {
+  for (const [tone, shape] of Object.entries(CHAO)) {
+    const got = classifyTone(normalizeContour(track(shape, 250)));
+    assert.equal(got.tone, Number(tone), `五度法 ${tone} 声被判成了 ${got.tone} 声`);
+  }
+});
+
+test('调域窄的说话人不会整体塌成一声', () => {
+  // 同样的形状，起伏只有一半。孩子、低声说话都会这样。
+  for (const [tone, shape] of Object.entries(CHAO)) {
+    const narrow = (t) => shape(t) * 0.5;
+    const got = classifyTone(normalizeContour(track(narrow, 250)));
+    assert.equal(got.tone, Number(tone), `窄调域的 ${tone} 声被判成了 ${got.tone} 声`);
+  }
+});
+
+test('调域宽的说话人也不会被判错', () => {
+  for (const [tone, shape] of Object.entries(CHAO)) {
+    const wide = (t) => shape(t) * 1.8;
+    const got = classifyTone(normalizeContour(track(wide, 250)));
+    assert.equal(got.tone, Number(tone), `宽调域的 ${tone} 声被判成了 ${got.tone} 声`);
+  }
+});
+
+test('几乎没有起伏的哼鸣判成一声', () => {
+  const hum = normalizeContour(track((t) => 0.2 * Math.sin(9 * t), 250));
+  assert.equal(classifyTone(hum).tone, 1);
+});
+
+test('倒过来的四声（其实是二声）不该算成四声', () => {
+  const upsideDown = normalizeContour(track((t) => -(4 - 8 * t), 250));
+  assert.notEqual(classifyTone(upsideDown).tone, 4);
 });
 
 test('有四个模板且点数一致', () => {
@@ -80,4 +119,50 @@ test('contourDistance 对称且自距为 0', () => {
   const b = normalizeContour(track(FALL));
   assert.equal(contourDistance(a, a), 0);
   assert.equal(contourDistance(a, b), contourDistance(b, a));
+});
+
+test('整八度的倍频错误要被剔掉，不能卡在边界上留下', () => {
+  // 正好 2 倍频是音高检测最典型的失败，差值恰好 12 个半音
+  const t = track(FLAT, 300);
+  for (const i of [10, 11, 12]) t[i] = { f0: 600, clarity: 0.95 };
+  const c = normalizeContour(t);
+  assert.ok(c.every((v) => Math.abs(v) < 3),
+    '倍频点没被剔除，曲线里有 ' + Math.max(...[...c].map(Math.abs)).toFixed(2) + ' 个半音的尖峰');
+});
+
+test('分频错误（半频）同样要被剔掉', () => {
+  const t = track(FLAT, 300);
+  for (const i of [20, 21, 22]) t[i] = { f0: 150, clarity: 0.95 };
+  assert.ok(normalizeContour(t).every((v) => Math.abs(v) < 3));
+});
+
+const holeInTheMiddle = () => track(DIP).map((p, i) =>
+  (i >= 12 && i <= 28) ? { f0: p.f0, clarity: 0.1 } : p);
+
+const maxJump = (c) => {
+  let m = 0;
+  for (let i = 1; i < c.length; i++) m = Math.max(m, Math.abs(c[i] - c[i - 1]));
+  return m;
+};
+
+test('中间丢帧不把时间轴揉变形', () => {
+  // 线性上升的曲线，跨空洞的线性插值应当精确还原。
+  // 若把幸存帧当成均匀分布去重采样，空洞被压扁、两侧被拉陡，必然偏离。
+  const full = normalizeContour(track(RISE));
+  const holed = normalizeContour(
+    track(RISE).map((p, i) => (i >= 12 && i <= 28) ? { f0: p.f0, clarity: 0.1 } : p));
+  const d = contourDistance(full, holed);
+  assert.ok(d < 0.2, '时间轴被揉变形了，和完整曲线差 ' + d.toFixed(2) + ' 个半音');
+});
+
+test('三声中段丢帧后仍判成三声', () => {
+  // 低谷的数据是真没了，插值只能拉直线、还原不回来 —— 但不该因此判错调
+  assert.equal(classifyTone(normalizeContour(holeInTheMiddle())).tone, 3);
+});
+
+test('丢帧后相邻点之间不出现断崖', () => {
+  const full = maxJump(normalizeContour(track(DIP)));
+  const holed = maxJump(normalizeContour(holeInTheMiddle()));
+  assert.ok(holed < full * 1.15,
+    '丢帧后最大跳变 ' + holed.toFixed(2) + '，完整曲线是 ' + full.toFixed(2));
 });

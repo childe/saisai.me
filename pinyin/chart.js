@@ -15,6 +15,7 @@ function cell(item, bank) {
   }
 
   b.addEventListener('click', async () => {
+    cancelPlayback();  // 打断进行中的连播，别让两股声音打架
     b.classList.add('playing');
     try {
       await bank.play(item);
@@ -33,6 +34,13 @@ function placeholder() {
   b.disabled = true;
   b.textContent = '·';
   return b;
+}
+
+/** 连播的代序号。任何新的播放都会让进行中的连播在下一拍停下。 */
+let playGeneration = 0;
+
+export function cancelPlayback() {
+  playGeneration += 1;
 }
 
 function yunmuRow(base, tones, bank) {
@@ -55,8 +63,13 @@ function yunmuRow(base, tones, bank) {
   all.textContent = '▶';
   all.setAttribute('aria-label', '连播四声');
   all.addEventListener('click', async () => {
+    cancelPlayback();
+    const mine = playGeneration;
     all.classList.add('playing');
     for (const it of tones) {
+      // 点了别的格子、或切走了 tab，就停下。否则 bank.play 的 stop()
+      // 会让上一条的 onended 立刻兑现，循环不但不停还会加速往下跑。
+      if (mine !== playGeneration || !all.isConnected) break;
       try {
         await bank.play(it);
       } catch (_) {
@@ -95,4 +108,6 @@ export function mount(root, { data, bank }) {
     }
     root.appendChild(sec);
   }
+
+  return cancelPlayback;
 }

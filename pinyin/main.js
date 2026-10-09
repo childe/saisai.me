@@ -36,16 +36,24 @@ async function start() {
   }
   const ctx = { data, bank: new AudioBank(data.baseUrl) };
   const root = document.getElementById('view');
+  // 视图可以返回一个拆卸函数；跟读用它关掉麦克风，否则 iOS 的麦克风
+  // 指示灯会一直亮着，且每次重进都新开一条 MediaStream。
+  let teardown = null;
 
   function show(name) {
     ctx.bank.stop();
+    if (teardown) teardown();
+    teardown = null;
     for (const t of document.querySelectorAll('.tab')) {
       t.setAttribute('aria-selected', String(t.dataset.view === name));
     }
     root.replaceChildren();
     hideStatus();
-    VIEWS[name](root, ctx);
+    teardown = VIEWS[name](root, ctx) || null;
   }
+
+  // 页面被隐藏/关闭时也要放开麦克风
+  window.addEventListener('pagehide', () => { if (teardown) teardown(); });
 
   for (const t of document.querySelectorAll('.tab')) {
     t.addEventListener('click', () => show(t.dataset.view));

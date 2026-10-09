@@ -70,10 +70,11 @@ export function mount(root, { data, bank }) {
   const debugBox = $('sh-debug');
   const mic = $('sh-mic');
 
-  activeToggleDebug = () => {
+  const toggleDebug = () => {
     debugOn = !debugOn;
     debugBox.hidden = !debugOn;
   };
+  activeToggleDebug = toggleDebug;
   installDebugTap();
 
   function render() {
@@ -127,6 +128,7 @@ export function mount(root, { data, bank }) {
 
     let refContour = null;
     let mfccDistance = Infinity;
+    let refFailed = false;
     try {
       const buf = await bank.buffer(item);
       const ref = analyzeSamples(buf.getChannelData(0), buf.sampleRate);
@@ -137,7 +139,9 @@ export function mount(root, { data, bank }) {
         }
       }
     } catch (_) {
-      // 标准音取不到，退回模板判调，仍能给分
+      // 标准音取不到。仍能用模板判调给分，但要如实说是网络的问题，
+      // 不能让孩子以为是自己读得不好。
+      refFailed = true;
     }
 
     const input = {
@@ -151,6 +155,11 @@ export function mount(root, { data, bank }) {
     // 采校准样本用：控制台里 copy(JSON.stringify(window.__lastShadow))
     window.__lastShadow = { id: item.id, display: item.display, input, score };
     showScore(score, refContour, mine.contour);
+    if (refFailed) {
+      $('sh-std').textContent = '😟 标准音没加载出来，点我重试';
+      $('sh-comment').textContent =
+        score.message + '（这次没比到标准音，先点上面重试）';
+    }
   }
 
   // —— 事件 ——
@@ -195,4 +204,10 @@ export function mount(root, { data, bank }) {
   });
 
   render();
+
+  return () => {
+    recorder?.release();
+    recorder = null;
+    if (activeToggleDebug === toggleDebug) activeToggleDebug = null;
+  };
 }

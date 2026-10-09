@@ -93,8 +93,12 @@ export function mount(root, { data, bank }) {
   root.append(bar, replay, grid, next);
 
   function updateMeter() {
+    // 显示真实的选项数，不是想要的难度档位 —— 四声辨别模式下同族只有
+    // 4 条（er 只有 3 条），档位再往上爬，屏幕上也还是那几个选项。
+    const shown = question ? question.options.length : optionCount(state);
+    const capped = shown < optionCount(state) ? '（这一组只有这些）' : '';
     meter.textContent =
-      `${optionCount(state)} 选 1 · 连对 ${state.streak}/${STREAK_TO_LEVEL_UP}`;
+      `${shown} 选 1${capped} · 连对 ${state.streak}/${STREAK_TO_LEVEL_UP}`;
   }
 
   async function speak(item) {

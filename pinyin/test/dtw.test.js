@@ -48,10 +48,22 @@ test('空序列返回 Infinity 而不是抛异常', () => {
   assert.equal(dtw(seq(1, 2), []), Infinity);
 });
 
-test('长度悬殊也能算出有限值', () => {
-  // Review Focus #5：极短对极长录音
-  const b = Array.from({ length: 300 }, (_, i) => [i % 3]);
-  assert.ok(Number.isFinite(dtw(seq(1), b)));
+test('长度悬殊时距离仍然有意义，不只是"有限"', () => {
+  // Review Focus #5：极短录音对上正常长度的标准音
+  const long = Array.from({ length: 300 }, () => [5]);
+  const matching = dtw(seq(5), long);
+  const mismatching = dtw(seq(1), long);
+  assert.equal(matching, 0, '一帧对上三百帧同值，距离应为 0');
+  assert.ok(Math.abs(mismatching - 4) < 1e-9,
+    '一帧对上三百帧差 4，归一化后应仍是 4，实际 ' + mismatching);
+});
+
+test('长度悬殊时耗时可控', () => {
+  const long = Array.from({ length: 5000 }, (_, i) => [Math.sin(i / 50)]);
+  const t0 = Date.now();
+  dtw(seq(1), long);
+  dtw(long, seq(1));
+  assert.ok(Date.now() - t0 < 500, '耗时 ' + (Date.now() - t0) + 'ms');
 });
 
 test('超长序列被抽样降到上限内，耗时可控', () => {

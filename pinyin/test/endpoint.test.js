@@ -59,3 +59,17 @@ test('返回的 samples 与 start/end 一致', () => {
   assert.equal(seg.samples.length, seg.end - seg.start);
   assert.equal(seg.samples[0], sig[seg.start]);
 });
+
+test('时长只算真正发声的那段，不含两端余量', () => {
+  // 碰一下就松：50ms 的声音。余量算进去会变成 ~0.13s，骗过 0.2s 的下限
+  const seg = trimSilence(concat(silence(0.3), tone(0.05), silence(0.3)), SR);
+  assert.ok(seg);
+  assert.ok(Math.abs(durationOf(seg, SR) - 0.05) < 0.03,
+    '时长 ' + durationOf(seg, SR) + '，应接近 0.05');
+});
+
+test('喂给分析的 samples 仍然带着余量，不切掉起音', () => {
+  const seg = trimSilence(concat(silence(0.3), tone(0.05), silence(0.3)), SR);
+  assert.ok(seg.samples.length > Math.round(0.05 * SR) * 1.5,
+    '分析用的片段应比发声段更长');
+});

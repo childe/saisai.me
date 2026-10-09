@@ -9,6 +9,7 @@ export class Recorder {
   constructor(ctx) {
     this.ctx = ctx;
     this.node = null;
+    this.sink = null;
     this.stream = null;
     this.chunks = [];
     this.recording = false;
@@ -40,7 +41,12 @@ export class Recorder {
         if (this.recording) this.chunks.push(e.data);
       };
       this.ctx.createMediaStreamSource(this.stream).connect(this.node);
-      // 不连 destination，避免自己听到自己（啸叫）
+      // 去向为空的 AudioWorkletNode 不保证会被渲染图拉动（Safari 尤其），
+      // process() 可能根本不跑。接一条到 destination 的路，但增益设 0 ——
+      // 既让图把节点拉起来，又不会自己听见自己（啸叫）。
+      this.sink = this.ctx.createGain();
+      this.sink.gain.value = 0;
+      this.node.connect(this.sink).connect(this.ctx.destination);
       return true;
     } catch (err) {
       this._error = err.name === 'NotAllowedError' ? 'denied' : 'failed';
@@ -56,9 +62,11 @@ export class Recorder {
 
   /** 返回这次录到的完整 PCM。 */
   async stop() {
-    this.recording = false;
     this.node?.port.postMessage('stop');
+    // 先等再关闸门：'stop' 跨线程要时间，这段里到达的 block 是音节的尾巴
+    // （四声的下落段、三声的回升段），正是声调分的立身之本，不能丢。
     await new Promise((r) => setTimeout(r, TAIL_MS));
+    this.recording = false;
     const total = this.chunks.reduce((s, c) => s + c.length, 0);
     const out = new Float32Array(total);
     let o = 0;
@@ -68,9 +76,12 @@ export class Recorder {
   }
 
   release() {
+    this.recording = false;
     this.stream?.getTracks().forEach((t) => t.stop());
     this.node?.disconnect();
+    this.sink?.disconnect?.();
     this.node = null;
+    this.sink = null;
     this.stream = null;
   }
 }

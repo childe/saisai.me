@@ -1,23 +1,26 @@
 /**
  * 把分析结果汇总成 0–10 星。纯函数。
  *
- * 配比是刻意的：声调 6 分有物理依据、可信；声韵母 3 分是跨说话人的
- * "像不像"，判别力有限；合理性 1 分基本是鼓励分。让可信的部分占大头。
+ * **只有声调参与计分**（9 分），外加 1 分合理性。
  *
- * 下面所有阈值都是第一版的合理猜测，必须用真实录音校准（见 spec §6.4）。
+ * 声韵母曾经占 3 分，已经拿掉：实测跨说话人的 MFCC+DTW 距离被音高差
+ * 主导，不同音色（3.71）反而比同音色（3.97）更"像"，白噪声之间也落在
+ * 同一区间（3.81）。那不是测量，换成分数只会白送一个约 2 分的常数，
+ * 让吹麦也能拿九星。距离仍然算、仍然进 debug，等真实录音证明它能判别
+ * 之后再决定要不要放回计分。
+ *
+ * 阈值是第一版的合理猜测，必须用真实录音校准（见 spec §6.4）。
  */
 
 import { classifyTone, contourDistance, TONE_TEMPLATES } from './pitch.js';
 
-export const TONE_POINTS = 6;
-export const SEGMENTAL_POINTS = 3;
+export const TONE_POINTS = 9;
+export const SANITY_POINTS = 1;
 
 const TONE_DIST_GOOD = 1.0;   // 曲线平均偏差小于此视为很准
 const TONE_DIST_BAD = 5.0;    // 大于此视为完全不对
-const MFCC_DIST_GOOD = 1.0;
-const MFCC_DIST_BAD = 12.0;
 const WRONG_TONE_CAP = 0.3;   // 判成别的声调时，声调分的封顶比例
-const SEG_WEAK_RATIO = 0.5;   // 低于此比例就提示"音还要再像一点"
+const TONE_WEAK_RATIO = 0.7;  // 低于此比例提示"调子还可以再到位"
 const DUR_MIN = 0.2;
 const DUR_MAX = 2.0;
 
@@ -45,7 +48,7 @@ export function scorePronunciation({
     return {
       stars: null,
       tone: { points: 0, detected: 0 },
-      segmental: { points: 0 },
+      segmental: { distance: mfccDistance },
       sanity: { points: 0 },
       message: '这次没分析出来，听听自己读的吧',
       debug,
@@ -66,17 +69,16 @@ export function scorePronunciation({
     tonePoints = Math.min(tonePoints, TONE_POINTS * WRONG_TONE_CAP);
   }
 
-  const segPoints = ramp(mfccDistance, MFCC_DIST_GOOD, MFCC_DIST_BAD, SEGMENTAL_POINTS);
-  const sanityPoints = durationSec >= DUR_MIN && durationSec <= DUR_MAX ? 1 : 0;
+  const sanityPoints = durationSec >= DUR_MIN && durationSec <= DUR_MAX
+    ? SANITY_POINTS : 0;
 
-  const stars = Math.max(0, Math.min(10,
-    Math.round(tonePoints + segPoints + sanityPoints)));
+  const stars = Math.max(0, Math.min(10, Math.round(tonePoints + sanityPoints)));
 
   let message;
   if (detected.tone !== targetTone && detected.tone) {
     message = `读成了${TONE_NAMES[detected.tone]}，再听一遍标准音`;
-  } else if (segPoints < SEGMENTAL_POINTS * SEG_WEAK_RATIO) {
-    message = '声调对了！音还要再像一点';
+  } else if (tonePoints < TONE_POINTS * TONE_WEAK_RATIO) {
+    message = '声调对了，调子还可以再到位一点';
   } else {
     message = '很棒，声调很准！';
   }
@@ -84,7 +86,7 @@ export function scorePronunciation({
   return {
     stars,
     tone: { points: tonePoints, detected: detected.tone },
-    segmental: { points: segPoints },
+    segmental: { distance: mfccDistance },  // 只报不计分，见文件头注释
     sanity: { points: sanityPoints },
     message,
     debug,
