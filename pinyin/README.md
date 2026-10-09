@@ -1,12 +1,80 @@
 # 学拼音
 
-小学一年级的汉语拼音跟练页。三个模式：拼音表试听、听音选形的选择题、
-带声调曲线对比的跟读打分。
+小学一年级的汉语拼音跟练页。三个模式：
+
+- **拼音表** —— 23 个声母和 24 个韵母的四声铺开，点哪个读哪个，整行连播听四声对比
+- **选择题** —— 听一个音，从形近音近的选项里挑出来。4 / 6 / 10 三档自适应难度
+- **跟读** —— 听标准音、自己读一遍，得 0–10 颗星，并看到自己的音高曲线和标准音叠在一起
+
+目标浏览器是 **iOS Safari**。
+
+## 跟读打分的原理与边界
+
+打分全在浏览器本地算，不联网、不上传录音、不依赖任何云端识别服务。
+10 分的构成是刻意的：
+
+| 项 | 分 | 可信度 |
+|---|---|---|
+| 声调 | 6 | **有物理依据，可信。** F0 曲线是从波形直接算出来的客观量 |
+| 声韵母 | 3 | **是启发式的「像不像」，判别力有限** |
+| 合理性 | 1 | 基本是鼓励分（时长和能量在合理范围） |
+
+声调怎么算：录音 → 端点检测掐掉静音 → 提 F0 曲线 → 转半音并减去**本次发音
+自身的中位数** → 时间轴重采样到固定点数 → 和标准音的曲线比距离，同时和四声
+的典型形状做分类。归一化这一步是关键：只比曲线形状、不比绝对音高，所以小孩
+的嗓门比标准音高一整个八度也不影响判断。
+
+声韵母怎么算：MFCC → CMVN（倒谱均值方差归一化，用来抵消说话人差异）→ DTW
+对齐求距离。**跨说话人的模板匹配判别力有限** —— 距离里混着「音色不同」和
+「读错了」两种差异，分不干净。它能抓住离谱的错，分不清 b/p 这类细微对立。
+
+所以：**这不是发音评测，是一个以声调为主的练习反馈。** 界面和文档都不该
+宣称它能准确判断发音对错。真要音素级的准确度，得接 Azure 或讯飞的发音评测
+API，那需要一个藏密钥的服务端代理，不在本项目范围内。
+
+## 本地预览
+
+`fetch` 在 `file://` 下会被拦截，需要起本地服务：
+
+    python3 -m http.server 8777
+
+然后打开 http://localhost:8777/pinyin/
+
+### 跟读必须跑在 HTTPS 下
+
+`getUserMedia` 要求安全上下文。`localhost` 算安全，**局域网 IP 不算** ——
+从 iPhone 访问 `http://192.168.x.x:8777` 时麦克风会直接被拒。真机测跟读两条路：
+
+1. 部署到 saisai.me，用手机访问
+2. 本地起 HTTPS：
+
+        openssl req -x509 -newkey rsa:2048 -keyout /tmp/k.pem -out /tmp/c.pem \
+          -days 7 -nodes -subj "/CN=$(ipconfig getifaddr en0)"
+        python3 -c "
+        import http.server, ssl
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain('/tmp/c.pem', '/tmp/k.pem')
+        srv = http.server.HTTPServer(('0.0.0.0', 8443), http.server.SimpleHTTPRequestHandler)
+        srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+        srv.serve_forever()
+        "
+
+   然后 iPhone 打开 `https://<你的IP>:8443/pinyin/`，信任自签证书。
+
+## 内容：118 条
+
+- 声母 23 个，按**呼读音**合成（b 读「玻 bo」、zh 读「知 zhi」），和课堂一致
+- 韵母 24 个 × 四声 = 95 条。**`er` 没有一声**（现代汉语只有 ér ěr èr）；
+  不收 `ê`（不在课本 24 韵母表内）
+
+数据在 `data/pinyin.json`，由 `scripts/build_data.py` 生成。
+`display`（屏幕字形，带调号）和 `ssml`（TTS 要的零声母音节）是两个字段，
+id 和 key 里 ü 一律写作 `v`（`lv`=ü、`ve`=üe、`vn`=ün），避开 URL 编码问题。
 
 ## TTS 合成说明
 
-118 条标准音由阿里云智能语音交互（ISI）合成，用 SSML 的 phoneme 标签
-按拼音加声调号精确控调，不靠挑汉字去凑声调：
+音频由阿里云智能语音交互（ISI）合成，用 SSML 的 phoneme 标签按拼音加声调号
+精确控调，不靠挑汉字去凑声调：
 
     <speak><phoneme alphabet="py" ph="ang3">啊</phoneme></speak>
 
@@ -16,21 +84,19 @@
 
 `ph` 必须是合法音节，所以韵母单独呼读时的写法和屏幕字形不同：
 i→yi、u→wu、ü→yu、ui→wei、iu→you、ie→ye、üe→yue、in→yin、
-un→wen、ün→yun、ing→ying。数据里 `display` 和 `ssml` 因此是两个字段。
+un→wen、ün→yun、ing→ying。
 
 ### ong 的特殊处理
 
 **普通话没有单独的 `ong` 音节**（`weng` 是韵母 ueng，音不同，不能顶替），
-所以它是唯一需要特判的一条。两条路：
+它是唯一需要特判的一条。两条路：
 
-1. `direct` —— 引擎若按拼音直接映射音素，能正确读出 ong，就照常合成。
+1. `direct` —— 引擎若按拼音直接映射音素、能正确读出 ong，就照常合成
 2. `trim-dong` —— 否则合成 `dong1`–`dong4`，再用能量起点检测裁掉声母 `d`。
-   教学上示范 ong 本来就是「dōng 去掉 d」。
+   教学上示范 ong 本来就是「dōng 去掉 d」
 
 **当前结论：尚未验证。** 冒烟测试还没跑过（需要先开通服务拿 appkey），
 `tts_aliyun.py` 的 `--ong-mode` 默认是 `direct`。跑完冒烟测试后回来更新这一节。
-
-重跑冒烟测试：
 
     python pinyin/scripts/smoke_tts.py
     afplay /tmp/pinyin-smoke/ong1.mp3
@@ -75,6 +141,27 @@ Bucket 需对 `pinyin/*` 开公共读，跨域规则沿用现有的
 **跨域头是必须的** —— 跟读要用 `fetch` + `decodeAudioData` 读标准音，
 不像 `<audio>` 标签那样能绕过 CORS。
 
+## 测试
+
+    node --test pinyin/test/*.test.js        # JS，零依赖，用 Node 内置 runner
+    python -m pytest pinyin/scripts/ -v      # Python 构建脚本
+
+注意是 glob 不是目录 —— Node 的 `--test` 收到目录参数会当成文件去解析。
+
+`lib/` 下全是纯函数，全部有单测：端点检测、FFT、MFCC+CMVN、DTW、声调归一化
+与四声分类、干扰项抽取、难度升降、评分汇总。另有两组跨模块的集成测试：
+
+- `analyze.test.js` —— 合成信号跑完「PCM→端点→F0→归一化→MFCC→DTW→打分」
+  全链路，含儿童音域对成人标准音、以及读错声调的情形
+- `quiz-scope.test.js` —— 拿真实的 118 条数据，对每个目标 × 每个出题范围 ×
+  每个难度验证选项不重复、含正确答案、数量合理
+
+## 阈值校准
+
+`lib/score.js` 顶部的阈值**第一版是猜的**，需要用真实录音调一轮。
+连点标题三下打开调试面板看各项原始数值；采样与调整的规矩见
+`test/fixtures/README.md`。在采到样本之前，`calibration.test.js` 记为 skipped。
+
 ## 第三方代码
 
 `vendor/` 下的文件是手工下载的 ESM，无构建步骤，来源可追溯：
@@ -87,3 +174,6 @@ Bucket 需对 `pinyin/*` 开公共读，跨域规则沿用现有的
 jsDelivr 的 `+esm` 构建里，pitchy 对 fft.js 的 import 写的是 CDN 绝对路径
 `/npm/fft.js@4.0.4/+esm`，离线解析不了。下载后把那一处改成了 `"./fft.mjs"`，
 这是对 vendored 文件的唯一改动。升级版本时记得重做这一步。
+
+（`lib/fft.js` 是给 MFCC 自己写的 FFT，和 `vendor/fft.mjs` 是两码事 ——
+后者是 pitchy 的依赖。）
