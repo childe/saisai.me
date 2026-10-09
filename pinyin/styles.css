@@ -97,3 +97,11 @@ main { padding: 16px; }
 .shadow-nav { display: flex; gap: 10px; margin-top: 20px; }
 .shadow-nav button { flex: 1; min-height: 48px; border: none; border-radius: 10px; background: var(--card); color: var(--ink); font-size: 1rem; font-family: inherit; }
 .debug { text-align: left; font-family: ui-monospace, monospace; font-size: .75rem; background: #1e1b33; color: #9ff; padding: 10px; border-radius: 8px; white-space: pre; overflow-x: auto; margin-top: 12px; }
+
+#voicebar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+#voicebar label { font-size: .82rem; color: var(--muted); }
+#voicebar select {
+  min-height: 36px; border: none; border-radius: 9px;
+  background: var(--card); color: var(--ink);
+  font-size: .95rem; font-family: inherit; padding: 0 10px;
+}

@@ -1,5 +1,20 @@
 {
   "baseUrl": "https://ohsaisai.oss-cn-shanghai.aliyuncs.com/pinyin/",
+  "voices": [
+    {
+      "id": "aitong",
+      "label": "童声"
+    },
+    {
+      "id": "xiaoyun",
+      "label": "女声"
+    },
+    {
+      "id": "xiaogang",
+      "label": "男声"
+    }
+  ],
+  "defaultVoice": "aitong",
   "groups": [
     {
       "id": "shengmu",
