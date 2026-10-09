@@ -23,14 +23,15 @@ button{min-height:44px;padding:0 18px;border:none;border-radius:10px;background:
 import { f0Track } from '../f0.js';
 import { trimSilence } from '../lib/endpoint.js';
 import { normalizeContour, classifyTone } from '../lib/pitch.js';
-import { resolveBaseUrl } from '../lib/base-url.js';
 
 const NAMES = { 0: '测不出', 1: '一声', 2: '二声', 3: '三声', 4: '四声' };
 
 document.getElementById('go').onclick = async () => {
   const data = await (await fetch('../data/pinyin.json')).json();
-  const base = resolveBaseUrl(data.baseUrl, location.search) === data.baseUrl
-    ? '../audio/' : resolveBaseUrl(data.baseUrl, location.search);
+  // ?dir=audio/retoned 之类，默认查本地的 ../audio/
+  const dir = new URLSearchParams(location.search).get('dir');
+  const base = dir ? (dir.endsWith('/') ? '../' + dir : '../' + dir + '/') : '../audio/';
+  document.getElementById('sum').textContent = '检查 ' + base + ' …';
   const items = data.groups.flatMap(g => g.items).filter(i => i.tone);
   const ctx = new OfflineAudioContext(1, 1, 16000);
   const t = document.getElementById('t');

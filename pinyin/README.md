@@ -159,7 +159,23 @@ SSML 写错：`ph="ma1"` 和直接给汉字「妈」，测出来的 F0 完全一
 后果不只是打分错：**音频本身在教错的调**。孩子听着「ā」是往上走的，
 照着读，然后被判「读成了二声」。
 
-重跑验收：起本地服务后打开 `pinyin/tools/tone-check.html`。
+### 解法：换调（`scripts/retone.py`）
+
+合成之后把音高曲线换成标准调型再重新合成。WORLD 声码器拆出
+F0 / 频谱包络 / 非周期性成分，**只改写 F0**，音色、音长、音强都来自原音；
+声调基准取该条音频自身 F0 的中位数，所以不改变说话人的音域。
+调型按赵元任五度标调法：一声 55、二声 35、三声 214、四声 51。
+
+效果（`tools/tone-check.html`，95 条韵母）：
+
+| | 判对 |
+|---|---|
+| xiaoyun 原始 | 约 1/4 的形状正确 |
+| aitong 原始 | 50 / 95（53%） |
+| **aitong + 换调** | **95 / 95（100%）** |
+
+重跑验收：起本地服务后打开
+`pinyin/tools/tone-check.html?dir=audio/retoned`（不带 `?dir=` 查 `audio/`）。
 
 ## 重新生成音频
 
@@ -176,16 +192,24 @@ OSS 复用 english-audio 那套凭证。项目根 `.env` 需要：
 
     uv pip install --python ~/tmp/fuck/c/.venv/bin/python \
         --index-url https://mirrors.aliyun.com/pypi/simple/ \
-        requests aliyun-python-sdk-core python-dotenv numpy oss2 soundfile
+        requests aliyun-python-sdk-core python-dotenv numpy oss2 soundfile \
+        pyworld "setuptools<81"
+
+（`pyworld` 换调用；它 import `pkg_resources`，setuptools 81 起移除了该模块，
+所以要钉版本。）
 
 流程：
 
     python pinyin/scripts/build_data.py          # 生成 data/pinyin.json
     python pinyin/scripts/smoke_tts.py           # 先验高风险音节，人耳确认
-    python pinyin/scripts/tts_aliyun.py --ong-mode trim-dong
-    python pinyin/scripts/upload_oss.py
+    python pinyin/scripts/tts_aliyun.py --ong-mode trim-dong      # -> /tmp/pinyin-audio
+    python pinyin/scripts/retone.py                               # -> /tmp/pinyin-retoned
+    python pinyin/scripts/upload_oss.py -s /tmp/pinyin-retoned
 
-后两步都幂等：已合成/已上传且大小一致则跳过。
+合成与上传都幂等：已存在且大小一致则跳过。换调不走网络，纯本地计算。
+
+**顺序不能换**：`ong` 是先合成 `dōng` 再裁掉声母，必须裁完再换调，
+否则换调会把声母那一段也算进调型里。
 
 Bucket 需对 `pinyin/*` 开公共读，跨域规则沿用现有的
 （允许来源 `https://saisai.me` 的 GET / HEAD）。验证：
