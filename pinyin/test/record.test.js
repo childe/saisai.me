@@ -122,3 +122,41 @@ test('release 之后可以重新 init', async () => {
   r.release();
   assert.equal(await r.init(), true);
 });
+
+test('录音有时长上限，长按不会一直录下去', async () => {
+  // 没有上限的话，20 秒的长按要在主线程上同步分析，手机会卡住，
+  // 还要留着几 MB 的 Float32Array
+  const env = fakeEnv();
+  const r = new Recorder(env.ctx);
+  await r.init();
+  assert.ok(r.maxSeconds > 0 && r.maxSeconds <= 10, '上限 ' + r.maxSeconds + ' 秒不合理');
+
+  r.start();
+  const sr = env.ctx.sampleRate;
+  const block = new Float32Array(sr); // 一秒
+  for (let i = 0; i < r.maxSeconds + 5; i++) env.node.port.onmessage({ data: block });
+  const pcm = await r.stop();
+  assert.ok(pcm.length <= r.maxSeconds * sr * 1.1,
+    '录了 ' + (pcm.length / sr).toFixed(1) + ' 秒，上限是 ' + r.maxSeconds);
+});
+
+test('到达上限后会自动停止', async () => {
+  const env = fakeEnv();
+  const r = new Recorder(env.ctx);
+  await r.init();
+  r.start();
+  const block = new Float32Array(env.ctx.sampleRate);
+  for (let i = 0; i < r.maxSeconds + 3; i++) env.node.port.onmessage({ data: block });
+  assert.equal(r.recording, false, '超过上限后应当自己停下');
+});
+
+test('init 期间松手，不会在手指已松开后才开始录', async () => {
+  // iOS 首次按下会弹权限框打断触摸：press 还在 await，touchcancel 已经到了
+  const env = fakeEnv();
+  const r = new Recorder(env.ctx);
+  const starting = r.init();
+  r.cancelPending();          // 模拟 init 还没回来就松手了
+  await starting;
+  r.start();
+  assert.equal(r.recording, false, '已经取消了，start 不该生效');
+});

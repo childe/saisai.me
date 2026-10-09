@@ -57,3 +57,18 @@ test('不修改传入的 state', () => {
 test('对错交替时停在最低档', () => {
   assert.equal(optionCount(run([true, false, true, false, true, false])), 4);
 });
+
+test('到顶之后连对计数不再虚涨', () => {
+  // 否则顶格后会显示「连对 7/5」这种没意义的数字
+  const s = run(Array(STREAK_TO_LEVEL_UP * 5).fill(true));
+  assert.equal(optionCount(s), 10);
+  assert.ok(s.streak <= STREAK_TO_LEVEL_UP,
+    '顶格后连对涨到了 ' + s.streak + '/' + STREAK_TO_LEVEL_UP);
+});
+
+test('到顶后答错仍然降级并清零', () => {
+  let s = run(Array(STREAK_TO_LEVEL_UP * 5).fill(true));
+  s = nextState(s, false);
+  assert.equal(optionCount(s), 6);
+  assert.equal(s.streak, 0);
+});

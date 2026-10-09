@@ -64,7 +64,8 @@ main { padding: 16px; }
 .group { margin-bottom: 24px; }
 .group h2 { font-size: 1rem; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
 .sm-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
-.ym-row { display: grid; grid-template-columns: 2.4rem repeat(4, 1fr) 2.6rem; gap: 6px; margin-bottom: 8px; align-items: stretch; }
+/* 末列 2.9rem：.cell 的 min-width 是 44px，轨道窄于它会溢出 */
+.ym-row { display: grid; grid-template-columns: 2.4rem repeat(4, 1fr) 2.9rem; gap: 6px; margin-bottom: 8px; align-items: stretch; }
 .ym-label { display: flex; align-items: center; color: var(--muted); font-size: 1.1rem; }
 .play-all { font-size: 1rem; background: #ece9ff; }
 

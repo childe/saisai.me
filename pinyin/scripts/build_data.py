@@ -11,6 +11,11 @@ import sys
 BASE_URL = "https://ohsaisai.oss-cn-shanghai.aliyuncs.com/pinyin/"
 
 # (字母, 呼读音)
+#
+# 注意：声母 w 的呼读音是 wu，和韵母 u 送进 TTS 的音节完全一样；y/yi 与韵母 i
+# 同理。两对的音频内容相同 —— 这是呼读音规则决定的，不是 bug。
+# 选择题里它们不会同时出现，只因为干扰项兜底按 group 过滤（见 lib/distractors.js
+# 第三级）。谁要放宽那一级，就会在「全部」范围里造出两个读音完全一样的选项。
 SHENGMU = [
     ("b", "bo"),
     ("p", "po"),

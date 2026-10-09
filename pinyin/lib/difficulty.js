@@ -16,8 +16,12 @@ export function nextState(state, correct) {
     return { levelIndex: Math.max(0, state.levelIndex - 1), streak: 0 };
   }
   const streak = state.streak + 1;
-  if (streak >= STREAK_TO_LEVEL_UP && state.levelIndex < LEVELS.length - 1) {
-    return { levelIndex: state.levelIndex + 1, streak: 0 };
+  if (streak >= STREAK_TO_LEVEL_UP) {
+    if (state.levelIndex < LEVELS.length - 1) {
+      return { levelIndex: state.levelIndex + 1, streak: 0 };
+    }
+    // 已经顶格，没得升了。连对计数就停在门槛上，别涨成「连对 7/5」。
+    return { levelIndex: state.levelIndex, streak: STREAK_TO_LEVEL_UP };
   }
   return { levelIndex: state.levelIndex, streak };
 }
