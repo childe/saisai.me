@@ -164,6 +164,25 @@ export class AudioBank {
   }
 
   /**
+   * 用 `<audio>` 元素播，完全不碰 Web Audio。
+   *
+   * iOS 的音频会话（静音拨片、听筒路由）只卡 Web Audio 的输出，
+   * `<audio>` 走的是另一条路。Web Audio 没声而它有声，就说明问题出在
+   * 会话上，而不是音频文件或网络。
+   */
+  async playElement(item) {
+    try {
+      const el = document.createElement('audio');
+      el.preload = 'auto';
+      el.src = this.url(item);
+      await el.play();
+      this.element = el;   // 留住引用，否则可能被回收掉
+    } catch (err) {
+      this.fail(err);
+    }
+  }
+
+  /**
    * 自检用：把一条音频走一遍 fetch + 解码，报告卡在哪一步。
    * 不播放 —— 只回答"音频取得到吗、解得开吗、解出来多长"。
    */

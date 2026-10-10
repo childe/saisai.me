@@ -319,3 +319,42 @@ test('重试也失败时，错误里要带上取不到的地址', async () => {
   assert.match(bank.diagnose().error, /Load failed/);
   assert.match(bank.diagnose().error, /ym\/a1\.mp3/, '看不出是哪个地址取不到');
 });
+
+// —— <audio> 元素旁路 ——
+// 耳机插着能听见、拔了还能听见、刷新后就不行 —— 说明声音在播，只是
+// 没走扬声器（或被静音键吃掉）。这都是 Web Audio 的音频会话问题。
+// <audio> 元素完全不碰 Web Audio，用它一试就知道是不是这条路的锅。
+
+function fakeAudioElement() {
+  const made = [];
+  globalThis.document = {
+    createElement(tag) {
+      const el = { tag, src: '', preload: '', played: false, play() { this.played = true; return Promise.resolve(); } };
+      made.push(el);
+      return el;
+    },
+  };
+  return made;
+}
+
+test('playElement 用 <audio> 播，完全不碰 AudioContext', async () => {
+  const env = fakeEnv();
+  const made = fakeAudioElement();
+  const bank = new AudioBank('https://cdn/');
+  await bank.playElement(ITEM);
+  assert.equal(made.length, 1);
+  assert.equal(made[0].tag, 'audio');
+  assert.equal(made[0].src, 'https://cdn/ym/a1.mp3');
+  assert.equal(made[0].played, true);
+  assert.ok(!env.log.includes('new AudioContext'), '不该建 AudioContext');
+});
+
+test('playElement 失败也记进 lastError', async () => {
+  fakeEnv();
+  globalThis.document = {
+    createElement: () => ({ src: '', play: () => Promise.reject(new Error('播不了')) }),
+  };
+  const bank = new AudioBank('https://cdn/');
+  await bank.playElement(ITEM);
+  assert.match(bank.diagnose().error, /播不了/);
+});
