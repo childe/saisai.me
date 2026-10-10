@@ -25,3 +25,13 @@ test('错误信息要带上', () => {
   const t = formatDiag({ ...OK, error: 'undefined is not an object' }, false);
   assert.match(t, /undefined is not an object/);
 });
+
+test('还没碰过页面时上下文本来就没建，不该报红', () => {
+  // 打开页面就弹一条红的"音频未创建"是误报：iOS 本来就要等用户手势
+  // 之后才允许建上下文。
+  assert.equal(formatDiag({ state: '未创建', degraded: false, error: null }, false), null);
+});
+
+test('但 ?debug 下还是要看得到未创建这个状态', () => {
+  assert.match(formatDiag({ state: '未创建', degraded: false, error: null }, true), /未创建/);
+});

@@ -122,11 +122,56 @@ export class AudioBank {
     if (this.buffers.has(item.id)) return this.buffers.get(item.id);
     // 先碰一下 ctx：这一行还在用户手势的同步窗口里，fetch 之后就不是了
     const ctx = this.ctx;
-    const res = await fetch(this.url(item));
-    if (!res.ok) throw new Error('音频 ' + res.status);
-    const buf = await ctx.decodeAudioData(await res.arrayBuffer());
-    this.buffers.set(item.id, buf);
-    return buf;
+    try {
+      const res = await fetch(this.url(item));
+      if (!res.ok) throw new Error('音频 ' + res.status);
+      const buf = await ctx.decodeAudioData(await res.arrayBuffer());
+      this.buffers.set(item.id, buf);
+      return buf;
+    } catch (err) {
+      this.fail(err);   // 照样往上抛，但必须留痕 —— iPhone 上看不了控制台
+      throw err;
+    }
+  }
+
+  /**
+   * 自检用：响一声。不碰网络也不碰解码，只测输出链路通不通。
+   *
+   * `direct` 绕开增益链直连喇叭 —— 两个都试一下就知道是整条路不通，
+   * 还是只有压缩器那一段把声音吃掉了。
+   */
+  beep({ direct = false, hz = 440, seconds = 0.4 } = {}) {
+    const ctx = this.ctx;
+    try {
+      const osc = ctx.createOscillator();
+      osc.frequency.value = hz;
+      osc.connect(direct ? ctx.destination : this.out);
+      osc.start();
+      if (osc.stop) setTimeout(() => { try { osc.stop(); } catch (_) {} }, seconds * 1000);
+    } catch (err) {
+      this.fail(err);
+    }
+  }
+
+  /**
+   * 自检用：把一条音频走一遍 fetch + 解码，报告卡在哪一步。
+   * 不播放 —— 只回答"音频取得到吗、解得开吗、解出来多长"。
+   */
+  async probe(item) {
+    const ctx = this.ctx;
+    let res;
+    try {
+      res = await fetch(this.url(item));
+    } catch (err) {
+      return { ok: false, step: 'fetch', detail: String(err && err.message || err) };
+    }
+    if (!res.ok) return { ok: false, step: 'fetch', detail: 'HTTP ' + res.status };
+    try {
+      const buf = await ctx.decodeAudioData(await res.arrayBuffer());
+      return { ok: true, step: 'decode', duration: buf.duration };
+    } catch (err) {
+      return { ok: false, step: 'decode', detail: String(err && err.message || err) };
+    }
   }
 
   /** 播一条，返回播完的 Promise。重复点击会掐掉上一条。 */

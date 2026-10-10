@@ -23,6 +23,13 @@ function fakeEnv({ startSuspended = true, legacyConnect = false } = {}) {
     resume() { log.push('resume'); this.state = 'running'; return Promise.resolve(); },
     createBuffer: (ch, len) => ({ length: len, copyToChannel() {} }),
     createGain: () => node('gain'),
+    createOscillator: () => {
+      const o = node('oscillator');
+      o.frequency = { value: 0 };
+      o.start = () => log.push('osc start');
+      o.stop = () => {};
+      return o;
+    },
     createDynamicsCompressor: () => node('compressor'),
     createBufferSource: () => {
       const src = {
@@ -205,4 +212,60 @@ test('换音色会清掉上一套音色的解码缓存', async () => {
   bank.setBaseUrl('https://cdn/xiaoyun/');
   assert.equal(bank.buffers.size, 0, '换了音色还留着旧音色的解码结果');
   assert.equal(bank.url(ITEM), 'https://cdn/xiaoyun/ym/a1.mp3');
+});
+
+// —— 自检：把"图的问题"和"解码的问题"分开 ——
+// 上下文 running、增益链也建起来了、没有异常，却还是没声音。这时候
+// 需要知道的是：声音到底卡在哪一段。
+
+test('beep 走增益链，不需要 fetch 也不需要解码', () => {
+  const env = fakeEnv();
+  const bank = new AudioBank('https://cdn/');
+  bank.beep();
+  assert.ok(env.chain.includes('oscillator→gain'), '实际链路: ' + env.chain.join(', '));
+  assert.ok(env.log.includes('osc start'));
+});
+
+test('beep 可以绕开增益链直连喇叭，用来判断是不是压缩器的锅', () => {
+  const env = fakeEnv();
+  const bank = new AudioBank('https://cdn/');
+  bank.beep({ direct: true });
+  assert.ok(env.chain.includes('oscillator→destination'), '实际链路: ' + env.chain.join(', '));
+  assert.ok(!env.chain.includes('oscillator→gain'), '直连时不该经过增益链');
+});
+
+test('probe 报告 fetch 失败，带状态码', async () => {
+  fakeEnv();
+  globalThis.fetch = async () => ({ ok: false, status: 403 });
+  const bank = new AudioBank('https://cdn/');
+  const r = await bank.probe(ITEM);
+  assert.equal(r.ok, false);
+  assert.equal(r.step, 'fetch');
+  assert.match(r.detail, /403/);
+});
+
+test('probe 报告解码失败，带原始错误', async () => {
+  const env = fakeEnv();
+  env.ctx.decodeAudioData = async () => { throw new Error('无法解码'); };
+  const bank = new AudioBank('https://cdn/');
+  const r = await bank.probe(ITEM);
+  assert.equal(r.ok, false);
+  assert.equal(r.step, 'decode');
+  assert.match(r.detail, /无法解码/);
+});
+
+test('probe 成功时报告解码出来的时长', async () => {
+  fakeEnv();
+  const bank = new AudioBank('https://cdn/');
+  const r = await bank.probe(ITEM);
+  assert.equal(r.ok, true);
+  assert.equal(r.duration, 0.4);
+});
+
+test('播放路径上的错误也要记进 lastError，而不是只往上抛', async () => {
+  fakeEnv();
+  globalThis.fetch = async () => ({ ok: false, status: 404 });
+  const bank = new AudioBank('https://cdn/');
+  await assert.rejects(() => bank.play(ITEM), '错误仍然要抛给调用方');
+  assert.match(bank.diagnose().error, /404/, '但同时必须留痕给诊断条');
 });
