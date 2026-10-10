@@ -83,6 +83,57 @@ function mountAudioDiag(ctx) {
   };
   render();
   setInterval(render, 1000);
+  if (debug) mountSelfTest(ctx, render);
+}
+
+/**
+ * `?debug=1` 下的自检面板。三个按钮把"没声音"拆成可以分别回答的问题：
+ *
+ *   1. 走增益链响一声 —— 不碰网络不碰解码，只测输出链路
+ *   2. 直连喇叭响一声 —— 绕开增益和压缩器
+ *   3. 加载一条音频   —— 只做 fetch + 解码，报告卡在哪一步
+ *
+ * 听得到 1：输出链路没问题，问题在音频本身 → 看 3
+ * 只听得到 2：增益链（多半是压缩器）把声音吃了
+ * 两个都听不到：上下文或设备层面的问题，跟 Web Audio 的图无关
+ */
+function mountSelfTest(ctx, render) {
+  const host = document.getElementById('audiodiag');
+  if (!host) return;
+  const panel = document.createElement('div');
+  panel.id = 'selftest';
+
+  const out = document.createElement('div');
+  const say = (t) => { out.textContent = t; render(); };
+
+  const button = (label, onClick) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.addEventListener('click', onClick);
+    panel.appendChild(b);
+    return b;
+  };
+
+  button('① 响一声（走增益链）', () => {
+    ctx.bank.beep();
+    say('① 已发声：走 增益→压缩器→喇叭');
+  });
+  button('② 响一声（直连喇叭）', () => {
+    ctx.bank.beep({ direct: true });
+    say('② 已发声：绕开增益链，直连喇叭');
+  });
+  button('③ 加载一条音频', async () => {
+    const item = ctx.data.groups[0].items[0];
+    say('③ 正在取 ' + ctx.bank.url(item) + ' …');
+    const r = await ctx.bank.probe(item);
+    say(r.ok
+      ? '③ 成功：解码出 ' + r.duration.toFixed(2) + ' 秒'
+      : '③ 失败于 ' + r.step + '：' + r.detail);
+  });
+
+  panel.appendChild(out);
+  host.parentNode.insertBefore(panel, host);
 }
 
 export function showStatus(text, onClick) {

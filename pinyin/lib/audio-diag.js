@@ -10,7 +10,9 @@
  * @returns {?string} 要显示的文字；null 表示不显示
  */
 export function formatDiag(d, debug) {
-  const bad = d.degraded || !!d.error || d.state !== 'running';
+  // '未创建' 不算异常：iOS 本来就要等用户手势之后才允许建上下文，
+  // 打开页面就报红是误报。
+  const bad = d.degraded || !!d.error || (d.state !== 'running' && d.state !== '未创建');
   if (!bad && !debug) return null;
   const parts = ['音频：' + d.state];
   if (d.degraded) parts.push('已降级（直连喇叭，没有增益）');
