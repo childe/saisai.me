@@ -358,3 +358,35 @@ test('playElement 失败也记进 lastError', async () => {
   await bank.playElement(ITEM);
   assert.match(bank.diagnose().error, /播不了/);
 });
+
+// —— resume() 是异步的，不能把 promise 丢掉 ——
+// 在控制中心点过暂停之后，上下文会停住，而那个状态跨刷新保留。
+// 不等 resume 完成就 start()，声音出不来，而且一声不吭。
+
+test('play 等 resume 完成之后才发声', async () => {
+  const env = fakeEnv();
+  let resumed = false;
+  env.ctx.resume = () => new Promise((r) => setTimeout(() => {
+    resumed = true; env.ctx.state = 'running'; r();
+  }, 5));
+  const bank = new AudioBank('https://cdn/');
+  await bank.play(ITEM);
+  assert.equal(resumed, true, 'resume 还没完成就发声了');
+});
+
+test('resume 失败要记进 lastError，不能静默丢掉', async () => {
+  const env = fakeEnv();
+  env.ctx.resume = () => Promise.reject(new Error('resume 被拒'));
+  const bank = new AudioBank('https://cdn/');
+  await bank.play(ITEM).catch(() => {});
+  assert.match(bank.diagnose().error, /resume 被拒/);
+});
+
+test('resume 之后仍然停着，要明确报出来', async () => {
+  const env = fakeEnv();
+  env.ctx.resume = () => Promise.resolve();   // 不改 state，一直 suspended
+  const bank = new AudioBank('https://cdn/');
+  await bank.play(ITEM).catch(() => {});
+  assert.match(bank.diagnose().error, /suspended/,
+    '上下文还停着就发声，必须留痕');
+});
