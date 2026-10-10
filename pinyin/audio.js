@@ -79,7 +79,12 @@ export class AudioBank {
     if (!this._ctx) {
       this._ctx = new (window.AudioContext || window.webkitAudioContext)();
     }
-    if (this._ctx.state === 'suspended') this._ctx.resume();
+    if (this._ctx.state === 'suspended') {
+      // resume() 是异步的。以前这里把 promise 直接丢了 —— 上下文还停着
+      // 就去 start()，声音出不来而且一声不吭。在控制中心点过暂停之后
+      // 就是这个样子，而那个状态跨刷新保留。
+      this._resuming = this._ctx.resume().catch((err) => this.fail(err));
+    }
     return this._ctx;
   }
 
@@ -203,11 +208,22 @@ export class AudioBank {
     }
   }
 
+  /** 等上下文真的跑起来。resume() 没完成就发声是听不见的。 */
+  async ready() {
+    const ctx = this.ctx;
+    await this._resuming;
+    if (ctx.state === 'suspended') {
+      this.fail(new Error('上下文 resume 之后仍是 suspended'));
+    }
+    return ctx.state;
+  }
+
   /** 播一条，返回播完的 Promise。重复点击会掐掉上一条。 */
   async play(item) {
     this.out;                       // 同上：必须在手势窗口内建上下文和输出链路
     setPlayback();                  // 跟读用过麦克风的话，把扬声器抢回来
     const buf = await this.buffer(item);
+    await this.ready();
     this.stop();
     return new Promise((resolve) => {
       const src = this.ctx.createBufferSource();

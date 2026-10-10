@@ -160,6 +160,41 @@ iOS 上 `getUserMedia()` 会把音频会话从 playback 切成 **play-and-record
 诊断条会显示当前会话类型，不是 playback 就报红 —— 这条信息是上面那个
 "状态全对但没声音"唯一的外部证据。
 
+### CDN 把 JS 缓存了 4 小时（排查时最大的坑）
+
+查"iPhone 没声音"查了好几轮都没进展，真正的原因是**手机根本没拿到新代码**：
+
+    pinyin/index.html   cache-control: max-age=600     ← 10 分钟
+    pinyin/main.js      cache-control: max-age=14400   ← 4 小时
+    pinyin/audio.js     cache-control: max-age=14400   ← 4 小时
+
+GitHub Pages 自己给的是 10 分钟，这个 4 小时是**前面的 Cloudflare** 按默认
+策略给静态资源套的浏览器缓存。HTML 过期了、JS 没过期，普通刷新也不会去
+重新验证。
+
+两个后果：
+
+1. 手机上验到的现象可能来自任意一个旧版本，排查结论全不可信
+2. **模块图会混搭** —— 新的 `main.js` 配旧的 `audio.js`，调一个还不存在的
+   方法就 `TypeError`，页面直接全哑。这本身就能造出"更新之后没声音"
+
+真机验证之前，先确认手机拿到的是新代码（比如看 `?debug=1` 的按钮数量对不对），
+否则就是在对着旧代码做实验。
+
+根治要么改 Cloudflare 的缓存规则（让它尊重源站的 header），要么给模块 URL
+加版本戳。
+
+### resume() 的 promise 不能丢
+
+    if (this._ctx.state === 'suspended') this._ctx.resume();   // ← 丢了
+
+`resume()` 是异步的。不等它完成就 `start()`，声音出不来而且一声不吭。
+在 iOS 控制中心点过暂停之后上下文就是停着的，**而那个状态跨刷新保留** ——
+表现是"新开的 tab 能响，老 tab 刷新多少次都不响"。
+
+现在 `play()` 会 `await this.ready()`，resume 失败或者 resume 完还停着，
+都记进 `lastError` 并显示在诊断条上。
+
 ### 换音色不新建 AudioContext
 
 iOS 对同时存在的 AudioContext 有数量上限，旧的又从不自动回收。原来每换
