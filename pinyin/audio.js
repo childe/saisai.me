@@ -12,27 +12,57 @@ export class AudioBank {
     this._out = null;
     this.gain = PLAYBACK_GAIN;
     this.current = null;
+    this.degraded = false;   // 增益链没建起来，退回直连喇叭
+    this.lastError = null;   // 最近一次被捕获的错误，给页面诊断条看
   }
 
   /**
    * 所有音源都接这里，而不是直接接 destination。
    * 增益 → 压缩器 → destination：提音量，同时不削顶。
+   *
+   * 两条规矩，都是 iPhone 上整个哑掉之后补的：
+   *   1. **不写链式 connect。** connect() 返回目标节点是标准后来才补的，
+   *      老 WebKit 返回 undefined，`a.connect(b).connect(c)` 当场 TypeError。
+   *   2. **建不起来就退回直连 destination。** 宁可没有增益、声音小一点，
+   *      也不能一个音都出不去。
    */
   get out() {
     if (!this._out) {
       const ctx = this.ctx;
-      const gain = ctx.createGain();
-      gain.gain.value = this.gain;
-      const comp = ctx.createDynamicsCompressor();
-      comp.threshold.value = -12;
-      comp.knee.value = 12;
-      comp.ratio.value = 6;
-      comp.attack.value = 0.003;
-      comp.release.value = 0.12;
-      gain.connect(comp).connect(ctx.destination);
-      this._out = gain;
+      try {
+        const gain = ctx.createGain();
+        gain.gain.value = this.gain;
+        const comp = ctx.createDynamicsCompressor();
+        comp.threshold.value = -12;
+        comp.knee.value = 12;
+        comp.ratio.value = 6;
+        comp.attack.value = 0.003;
+        comp.release.value = 0.12;
+        gain.connect(comp);              // 不吃返回值
+        comp.connect(ctx.destination);
+        this._out = gain;
+      } catch (err) {
+        this.fail(err);
+        this.degraded = true;
+        this._out = ctx.destination;     // 降级：直连喇叭
+      }
     }
     return this._out;
+  }
+
+  /** 记下错误。以前这些 catch 是空的，结果 iPhone 全哑还一行报错都没有。 */
+  fail(err) {
+    this.lastError = (err && err.message) ? err.message : String(err);
+    if (typeof console !== 'undefined') console.warn('[pinyin audio]', err);
+  }
+
+  /** 给页面诊断条用：上下文状态、是否降级、最近一次错误。 */
+  diagnose() {
+    return {
+      state: this._ctx ? this._ctx.state : '未创建',
+      degraded: this.degraded,
+      error: this.lastError,
+    };
   }
 
   /**
@@ -63,14 +93,27 @@ export class AudioBank {
     const ctx = this.ctx;
     try {
       if (navigator.audioSession) navigator.audioSession.type = 'playback';
-    } catch (_) { /* 不支持就算了 */ }
+    } catch (err) { this.fail(err); }
     try {
       const src = ctx.createBufferSource();
       src.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
       src.connect(this.out);
       src.start();
-    } catch (_) { /* 解锁失败不该拖垮调用方 */ }
+    } catch (err) { this.fail(err); }   // 不拖垮调用方，但必须留痕
     return ctx;
+  }
+
+  /**
+   * 换音色。只换地址前缀并清掉解码缓存，**上下文和输出链路原样留着**。
+   *
+   * 以前换音色是整个 new 一个 AudioBank，于是每换一次就多一个
+   * AudioContext。iOS 对同时存在的上下文有数量上限，旧的又从不回收，
+   * 切几次之后新建的那个就是死的 —— 又是一种"突然没声了"。
+   */
+  setBaseUrl(baseUrl) {
+    this.stop();
+    this.baseUrl = baseUrl;
+    this.buffers.clear();
   }
 
   url(item) { return this.baseUrl + item.key; }
