@@ -3,6 +3,8 @@
  * 不走 MediaRecorder —— iOS 上它吐 AAC/mp4，还要多解一道码。
  */
 
+import { setPlayback } from './lib/audio-session.js';
+
 const TAIL_MS = 60;  // 停止后再收一会儿，接住在途的 block
 // 录音时长上限。分析是在主线程上同步跑的，20 秒的长按会把界面卡住，
 // 还要一直留着几 MB 的 Float32Array。一个音节用不了这么久。
@@ -70,7 +72,8 @@ export class Recorder {
       // 既让图把节点拉起来，又不会自己听见自己（啸叫）。
       this.sink = this.ctx.createGain();
       this.sink.gain.value = 0;
-      this.node.connect(this.sink).connect(this.ctx.destination);
+      this.node.connect(this.sink);        // 不写链式：老 WebKit 的
+      this.sink.connect(this.ctx.destination);  // connect() 不返回目标节点
       return true;
     } catch (err) {
       this._error = err.name === 'NotAllowedError' ? 'denied' : 'failed';
@@ -105,6 +108,9 @@ export class Recorder {
   release() {
     this.recording = false;
     this.stream?.getTracks().forEach((t) => t.stop());
+    // 停音轨不会把音频会话从 play-and-record 切回来，输出会一直走听筒 ——
+    // 跟读完回到拼音表就彻底没声了。必须显式抢回扬声器。
+    setPlayback();
     this.node?.disconnect();
     this.sink?.disconnect?.();
     this.node = null;

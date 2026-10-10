@@ -160,3 +160,29 @@ test('init 期间松手，不会在手指已松开后才开始录', async () => 
   r.start();
   assert.equal(r.recording, false, '已经取消了，start 不该生效');
 });
+
+test('接线不用链式 connect', async () => {
+  // 老 WebKit 的 connect() 不返回目标节点，链式写法当场 TypeError。
+  // 拼音表那条增益链就是栽在这上面，这里是同一个写法。
+  const env = fakeEnv();
+  env.gain.connect = (dest) => { env.connections.push(['gain', dest.__name]); };
+  env.node.connect = (dest) => { env.connections.push(['worklet', dest.__name]); };
+  const r = new Recorder(env.ctx);
+  assert.equal(await r.init(), true, '老 WebKit 上也要接得起来');
+  assert.ok(env.connections.some(([a, b]) => a === 'gain' && b === 'destination'),
+    '实际接线: ' + JSON.stringify(env.connections));
+});
+
+test('释放麦克风之后要把扬声器抢回来', async () => {
+  // iOS 上 getUserMedia 把会话切成 play-and-record，输出改走听筒。
+  // 停掉音轨不会自动切回来 —— 跟读完回拼音表就彻底没声了。
+  const env = fakeEnv();
+  const session = { type: 'auto' };
+  const r = new Recorder(env.ctx);
+  await r.init();
+  navigator.audioSession = session;
+  session.type = 'play-and-record';
+  r.release();
+  assert.equal(env.tracks[0].stopped, true);
+  assert.equal(session.type, 'playback', '麦克风放了，但会话还卡在录音模式');
+});
