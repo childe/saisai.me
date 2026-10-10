@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { setPlayback, sessionType } from '../lib/audio-session.js';
+import { setPlayback, setPlayAndRecord, sessionType } from '../lib/audio-session.js';
 
 function withNavigator(value) {
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value });
@@ -42,4 +42,18 @@ test('不支持 audioSession 时要说"不支持"，不能和正常长得一样'
 test('支持时如实返回当前类型', () => {
   withNavigator({ audioSession: { type: 'play-and-record' } });
   assert.equal(sessionType(), 'play-and-record');
+});
+
+test('要录音时把会话切成 play-and-record', () => {
+  // 'playback' 是在告诉 iOS"这个页面只放音不录音"。设成它之后再去
+  // 要麦克风，拿不到。录之前必须先切过去。
+  const session = { type: 'playback' };
+  withNavigator({ audioSession: session });
+  assert.equal(setPlayAndRecord(), true);
+  assert.equal(session.type, 'play-and-record');
+});
+
+test('不支持 audioSession 时切换不报错', () => {
+  withNavigator({});
+  assert.equal(setPlayAndRecord(), false);
 });

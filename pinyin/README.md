@@ -195,6 +195,21 @@ GitHub Pages 自己给的是 10 分钟，这个 4 小时是**前面的 Cloudflar
 现在 `play()` 会 `await this.ready()`，resume 失败或者 resume 完还停着，
 都记进 `lastError` 并显示在诊断条上。
 
+### playback 和 play-and-record 要成对切换
+
+为了绕开静音拨片、以及用完麦克风抢回扬声器，播放链路每次都把会话设成
+`playback`。但 `playback` 是在告诉 iOS **"这个页面只放音、不录音"** ——
+设成它之后再去要麦克风就拿不到了（跟读报"麦克风打不开"）。
+
+所以两个方向都要显式切：
+
+- `Recorder.init()` 在 `getUserMedia()` **之前**调 `setPlayAndRecord()`
+- `Recorder.release()` 之后调 `setPlayback()` 抢回扬声器
+- 要麦克风失败时也要调 `setPlayback()`，别把会话丢在录音模式上
+
+另外 `init()` 原来把所有非权限错误都收敛成一个 `'failed'`，真机上
+什么线索都没有。现在保留 `errorDetail`（错误名 + 原文）并贴到诊断条上。
+
 ### 换音色不新建 AudioContext
 
 iOS 对同时存在的 AudioContext 有数量上限，旧的又从不自动回收。原来每换

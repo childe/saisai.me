@@ -3,7 +3,7 @@
  * 不走 MediaRecorder —— iOS 上它吐 AAC/mp4，还要多解一道码。
  */
 
-import { setPlayback } from './lib/audio-session.js';
+import { setPlayback, setPlayAndRecord } from './lib/audio-session.js';
 
 const TAIL_MS = 60;  // 停止后再收一会儿，接住在途的 block
 // 录音时长上限。分析是在主线程上同步跑的，20 秒的长按会把界面卡住，
@@ -22,10 +22,13 @@ export class Recorder {
     this.maxSeconds = MAX_SECONDS;
     this._cancelled = false;
     this._error = null;
+    this._errorDetail = null;
   }
 
   get available() { return this.node !== null; }
   get error() { return this._error; }
+  /** 出错时的原文（名字 + 消息）。'failed' 那一个词在真机上没法查。 */
+  get errorDetail() { return this._errorDetail; }
 
   /**
    * 取消一次尚未真正开始的录音。
@@ -48,6 +51,9 @@ export class Recorder {
         this._error = 'unsupported';
         return false;
       }
+      // 播放那条链路每次都把会话设成 'playback'（绕静音键、抢扬声器），
+      // 那是在告诉 iOS"本页只放音不录音"。不切回来就拿不到麦克风。
+      setPlayAndRecord();
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: false,  // 会动频谱，分析前关掉
@@ -77,6 +83,10 @@ export class Recorder {
       return true;
     } catch (err) {
       this._error = err.name === 'NotAllowedError' ? 'denied' : 'failed';
+      // 'failed' 这一个词把所有非权限问题都吞掉了，真机上没法查。留下原文。
+      this._errorDetail = (err && err.name ? err.name + ': ' : '')
+        + (err && err.message ? err.message : String(err));
+      setPlayback();   // 没录成，别把会话丢在录音模式上
       return false;
     }
   }

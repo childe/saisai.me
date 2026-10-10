@@ -186,3 +186,32 @@ test('释放麦克风之后要把扬声器抢回来', async () => {
   assert.equal(env.tracks[0].stopped, true);
   assert.equal(session.type, 'playback', '麦克风放了，但会话还卡在录音模式');
 });
+
+test('要麦克风之前先把会话切成 play-and-record', async () => {
+  // 播放那条链路现在每次都把会话设成 'playback'，那是在告诉 iOS
+  // "本页只放音不录音"。不切回来就拿不到麦克风。
+  const env = fakeEnv();
+  const session = { type: 'playback' };
+  let typeAtRequest = null;
+  navigator.audioSession = session;
+  const inner = navigator.mediaDevices.getUserMedia;
+  navigator.mediaDevices.getUserMedia = async (c) => {
+    typeAtRequest = session.type;
+    return inner(c);
+  };
+  const r = new Recorder(env.ctx);
+  assert.equal(await r.init(), true);
+  assert.equal(typeAtRequest, 'play-and-record', '要麦克风时会话还是 ' + typeAtRequest);
+});
+
+test('麦克风打不开时要留下真实错误，而不是只说一句 failed', async () => {
+  const env = fakeEnv();
+  navigator.mediaDevices.getUserMedia = async () => {
+    throw Object.assign(new Error('session not active'), { name: 'InvalidStateError' });
+  };
+  const r = new Recorder(env.ctx);
+  assert.equal(await r.init(), false);
+  assert.equal(r.error, 'failed');
+  assert.match(r.errorDetail, /InvalidStateError/);
+  assert.match(r.errorDetail, /session not active/);
+});
