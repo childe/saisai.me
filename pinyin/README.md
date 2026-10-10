@@ -139,6 +139,27 @@ iPhone 上就是全哑。
 "connect 会返回目标节点"这个假设直接编码进了测试。现在替身有
 `legacyConnect` 选项，专门模拟老 WebKit 的行为。
 
+### 第三次全哑：麦克风把输出切到了听筒
+
+**症状：Safari 里状态全对（running、无异常、链路正常），就是一点声音没有，
+状态栏还亮着麦克风图标。**
+
+iOS 上 `getUserMedia()` 会把音频会话从 playback 切成 **play-and-record**，
+这时输出不再走扬声器，而是走**听筒**（就是打电话贴耳朵那个），音量极小 ——
+听上去和没声音没区别。
+
+关键在于：**`track.stop()` 并不会把会话切回来。** 所以跟读用完麦克风，
+回到拼音表就彻底没声了，而且所有状态看起来都正常。
+
+`lib/audio-session.js` 的 `setPlayback()` 负责抢回扬声器，三个地方调它：
+
+1. `AudioBank.unlock()` —— 顺带绕开侧边静音拨片
+2. `AudioBank.play()` / `playSamples()` —— 每次播放前都抢一次
+3. `Recorder.release()` —— 放掉麦克风之后立刻抢回来
+
+诊断条会显示当前会话类型，不是 playback 就报红 —— 这条信息是上面那个
+"状态全对但没声音"唯一的外部证据。
+
 ### 换音色不新建 AudioContext
 
 iOS 对同时存在的 AudioContext 有数量上限，旧的又从不自动回收。原来每换

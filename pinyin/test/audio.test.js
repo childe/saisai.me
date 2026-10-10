@@ -269,3 +269,53 @@ test('播放路径上的错误也要记进 lastError，而不是只往上抛', a
   await assert.rejects(() => bank.play(ITEM), '错误仍然要抛给调用方');
   assert.match(bank.diagnose().error, /404/, '但同时必须留痕给诊断条');
 });
+
+// —— 用过麦克风之后，播放要把扬声器抢回来 ——
+// iOS 上 getUserMedia 会把音频会话切成 play-and-record，输出改走听筒。
+// 跟读用完麦克风回到拼音表，就会"状态全对、一点声音都没有"。
+
+test('每次播放前都把音频会话设回 playback', async () => {
+  const env = fakeEnv();
+  const session = { type: 'play-and-record' };
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true, value: { audioSession: session },
+  });
+  const bank = new AudioBank('https://cdn/');
+  await bank.play(ITEM);
+  assert.equal(session.type, 'playback', '播放前没把会话抢回来');
+  assert.ok(env.log.includes('start'));
+});
+
+test('回放自己的录音前也要抢回扬声器', () => {
+  fakeEnv();
+  const session = { type: 'play-and-record' };
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true, value: { audioSession: session },
+  });
+  const bank = new AudioBank('https://cdn/');
+  bank.playSamples(new Float32Array(10), 16000);
+  assert.equal(session.type, 'playback');
+});
+
+test('取音频失败会重试一次，瞬时网络抖动不该变成没声音', async () => {
+  fakeEnv();
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) throw new TypeError('Load failed');
+    return { ok: true, arrayBuffer: async () => new ArrayBuffer(8) };
+  };
+  const bank = new AudioBank('https://cdn/');
+  const buf = await bank.buffer(ITEM);
+  assert.equal(calls, 2, '只试了一次');
+  assert.ok(buf);
+});
+
+test('重试也失败时，错误里要带上取不到的地址', async () => {
+  fakeEnv();
+  globalThis.fetch = async () => { throw new TypeError('Load failed'); };
+  const bank = new AudioBank('https://cdn/');
+  await assert.rejects(() => bank.buffer(ITEM));
+  assert.match(bank.diagnose().error, /Load failed/);
+  assert.match(bank.diagnose().error, /ym\/a1\.mp3/, '看不出是哪个地址取不到');
+});

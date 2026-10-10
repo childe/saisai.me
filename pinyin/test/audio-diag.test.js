@@ -35,3 +35,12 @@ test('还没碰过页面时上下文本来就没建，不该报红', () => {
 test('但 ?debug 下还是要看得到未创建这个状态', () => {
   assert.match(formatDiag({ state: '未创建', degraded: false, error: null }, true), /未创建/);
 });
+
+test('会话类型不是 playback 时要显示出来，这正是听筒问题的证据', () => {
+  const t = formatDiag({ state: 'running', degraded: false, error: null, session: 'play-and-record' }, false);
+  assert.match(t, /play-and-record/);
+});
+
+test('会话已经是 playback 就不用占地方', () => {
+  assert.equal(formatDiag({ state: 'running', degraded: false, error: null, session: 'playback' }, false), null);
+});

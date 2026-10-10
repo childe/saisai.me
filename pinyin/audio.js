@@ -1,3 +1,5 @@
+import { setPlayback, sessionType } from './lib/audio-session.js';
+
 // 播放增益。iPhone 上 Web Audio 的输出本来就比 <audio> 轻，而拼音音节又短
 // （响度感知随时长累积），叠起来就显得"声音很小"。后面接压缩器兜住峰值，
 // 所以这里可以放心提。
@@ -60,6 +62,7 @@ export class AudioBank {
   diagnose() {
     return {
       state: this._ctx ? this._ctx.state : '未创建',
+      session: sessionType(),
       degraded: this.degraded,
       error: this.lastError,
     };
@@ -91,9 +94,7 @@ export class AudioBank {
    */
   unlock() {
     const ctx = this.ctx;
-    try {
-      if (navigator.audioSession) navigator.audioSession.type = 'playback';
-    } catch (err) { this.fail(err); }
+    setPlayback();
     try {
       const src = ctx.createBufferSource();
       src.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
@@ -122,15 +123,24 @@ export class AudioBank {
     if (this.buffers.has(item.id)) return this.buffers.get(item.id);
     // 先碰一下 ctx：这一行还在用户手势的同步窗口里，fetch 之后就不是了
     const ctx = this.ctx;
+    const url = this.url(item);
     try {
-      const res = await fetch(this.url(item));
-      if (!res.ok) throw new Error('音频 ' + res.status);
+      // 取一次失败就再试一次：手机上网络抖一下不该直接变成"没声音"
+      let res;
+      try {
+        res = await fetch(url);
+      } catch (_) {
+        res = await fetch(url);
+      }
+      if (!res.ok) throw new Error('HTTP ' + res.status);
       const buf = await ctx.decodeAudioData(await res.arrayBuffer());
       this.buffers.set(item.id, buf);
       return buf;
     } catch (err) {
-      this.fail(err);   // 照样往上抛，但必须留痕 —— iPhone 上看不了控制台
-      throw err;
+      // 带上地址：光看到 "Load failed" 不知道是哪个文件取不到
+      const e = new Error((err && err.message || err) + ' — ' + url);
+      this.fail(e);     // 照样往上抛，但必须留痕 —— iPhone 上看不了控制台
+      throw e;
     }
   }
 
@@ -177,6 +187,7 @@ export class AudioBank {
   /** 播一条，返回播完的 Promise。重复点击会掐掉上一条。 */
   async play(item) {
     this.out;                       // 同上：必须在手势窗口内建上下文和输出链路
+    setPlayback();                  // 跟读用过麦克风的话，把扬声器抢回来
     const buf = await this.buffer(item);
     this.stop();
     return new Promise((resolve) => {
@@ -192,6 +203,7 @@ export class AudioBank {
   /** 播一段自己录的 PCM。 */
   playSamples(samples, sampleRate) {
     const ctx = this.ctx;           // 同样要在手势窗口内
+    setPlayback();
     const buf = ctx.createBuffer(1, samples.length, sampleRate);
     buf.copyToChannel(Float32Array.from(samples), 0);
     this.stop();
