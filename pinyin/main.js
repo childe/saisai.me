@@ -123,6 +123,12 @@ function mountSelfTest(ctx, render) {
     ctx.bank.beep({ direct: true });
     say('② 已发声：绕开增益链，直连喇叭');
   });
+  button('④ 用 <audio> 播（不碰 Web Audio）', async () => {
+    const item = ctx.data.groups[0].items[0];
+    say('④ 正在用 <audio> 元素播 ' + item.display + ' …');
+    await ctx.bank.playElement(item);
+    say('④ 已交给 <audio> 元素播放');
+  });
   button('③ 加载一条音频', async () => {
     const item = ctx.data.groups[0].items[0];
     say('③ 正在取 ' + ctx.bank.url(item) + ' …');

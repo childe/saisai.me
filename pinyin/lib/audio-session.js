@@ -25,8 +25,11 @@ export function setPlayback() {
 /** 当前会话类型，不支持就返回 null。诊断条用它来暴露听筒路由问题。 */
 export function sessionType() {
   try {
-    return navigator.audioSession ? navigator.audioSession.type : null;
+    // 必须和 'playback' 区分开：不支持意味着 setPlayback() 根本没生效，
+    // 问题不在我们的代码里而在 iOS 版本（audioSession 要 16.4+）。
+    // 以前这里返回 null，诊断条就什么都不显示 —— 和一切正常长得一样。
+    return navigator.audioSession ? navigator.audioSession.type : '不支持';
   } catch (_) {
-    return null;
+    return '不支持';
   }
 }

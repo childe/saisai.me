@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { setPlayback } from '../lib/audio-session.js';
+import { setPlayback, sessionType } from '../lib/audio-session.js';
 
 function withNavigator(value) {
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value });
@@ -30,4 +30,16 @@ test('不支持 audioSession 的浏览器不报错', () => {
 test('设置时抛异常也不报错', () => {
   withNavigator({ audioSession: { set type(_) { throw new Error('nope'); } } });
   assert.equal(setPlayback(), false);
+});
+
+test('不支持 audioSession 时要说"不支持"，不能和正常长得一样', () => {
+  // 这是关键信息：说明 setPlayback() 根本没生效，问题不在我们的代码里，
+  // 而在 iOS 版本（audioSession 要 16.4+）。
+  withNavigator({});
+  assert.equal(sessionType(), '不支持');
+});
+
+test('支持时如实返回当前类型', () => {
+  withNavigator({ audioSession: { type: 'play-and-record' } });
+  assert.equal(sessionType(), 'play-and-record');
 });
