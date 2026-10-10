@@ -33,3 +33,20 @@ export function sessionType() {
     return '不支持';
   }
 }
+
+/**
+ * 切成 play-and-record。**要麦克风之前必须调一次。**
+ *
+ * `setPlayback()` 是在告诉 iOS"这个页面只放音不录音"，设成它之后再去
+ * 要麦克风就拿不到了。录完记得用 `setPlayback()` 把扬声器抢回来 ——
+ * 否则输出会一直走听筒。
+ */
+export function setPlayAndRecord() {
+  try {
+    if (!navigator.audioSession) return false;
+    navigator.audioSession.type = 'play-and-record';
+    return true;
+  } catch (_) {
+    return false;
+  }
+}

@@ -98,6 +98,9 @@ export function mount(root, { data, bank }) {
     if (!ok) {
       mic.disabled = true;
       mic.textContent = MIC_HINT[recorder.error] || MIC_HINT.failed;
+      // 真机上没法看控制台，把原始错误贴到诊断条上，否则"打不开"三个字
+      // 什么线索都给不出
+      if (recorder.errorDetail) bank.fail(new Error('麦克风 ' + recorder.errorDetail));
     }
     return ok;
   }
