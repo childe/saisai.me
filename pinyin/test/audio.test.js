@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { AudioBank } from '../audio.js';
 
 /** 够用的 Web Audio 替身。state 模拟 iOS 的 suspended 行为。 */
-function fakeEnv({ startSuspended = true } = {}) {
+function fakeEnv({ startSuspended = true, legacyConnect = false } = {}) {
+  // 老的 WebKit（iOS Safari）connect() 什么都不返回，链式写法会当场 TypeError
+  const ret = (dest) => (legacyConnect ? undefined : dest);
   const log = [];
   const chain = [];
   const node = (name) => ({
@@ -11,7 +13,7 @@ function fakeEnv({ startSuspended = true } = {}) {
     gain: { value: 1 },
     threshold: { value: 0 }, knee: { value: 0 }, ratio: { value: 1 },
     attack: { value: 0 }, release: { value: 0 },
-    connect(dest) { chain.push(name + '→' + dest.__name); return dest; },
+    connect(dest) { chain.push(name + '→' + dest.__name); return ret(dest); },
     disconnect() {},
   });
   const ctx = {
@@ -25,7 +27,7 @@ function fakeEnv({ startSuspended = true } = {}) {
     createBufferSource: () => {
       const src = {
         buffer: null, onended: null, stop() {},
-        connect(dest) { chain.push('source→' + dest.__name); return dest; },
+        connect(dest) { chain.push('source→' + dest.__name); return ret(dest); },
         // 真实的 BufferSource 播完会回调 onended，play() 等的就是它
         start() { log.push('start'); setTimeout(() => src.onended?.(), 0); },
       };
@@ -131,4 +133,76 @@ test('自己的录音回放也走同一条链路', () => {
   const bank = new AudioBank('https://cdn/');
   bank.playSamples(new Float32Array(100), 16000);
   assert.ok(env.chain.includes('source→gain'));
+});
+
+// —— 老 WebKit：connect() 不返回目标节点 ——
+// 链式 `gain.connect(comp).connect(destination)` 在这种浏览器上是
+// `undefined.connect(...)`，当场 TypeError。异常抛在 `_out` 赋值之前，
+// 缓存永远为空，每次用到都重抛一次 —— 整条输出链路建不起来，一个音都出不去。
+// 这正是"电脑有声、iPhone 全哑"的样子。
+
+test('connect 不返回目标节点时，输出链路照样建得起来', () => {
+  const env = fakeEnv({ legacyConnect: true });
+  const bank = new AudioBank('https://cdn/');
+  assert.doesNotThrow(() => bank.out, '老 WebKit 上 out 不该抛');
+  assert.ok(env.chain.includes('gain→compressor'), '实际链路: ' + env.chain.join(', '));
+  assert.ok(env.chain.includes('compressor→destination'), '实际链路: ' + env.chain.join(', '));
+});
+
+test('connect 不返回目标节点时，声音仍然送得到 destination', async () => {
+  const env = fakeEnv({ legacyConnect: true });
+  const bank = new AudioBank('https://cdn/');
+  await bank.play(ITEM);
+  assert.ok(env.chain.some((c) => c.endsWith('→destination')),
+    '没有任何节点接到 destination，实际链路: ' + env.chain.join(', '));
+});
+
+test('增益链建不起来就退回直连 destination，宁可声音小也不能没声', () => {
+  const env = fakeEnv();
+  env.ctx.createDynamicsCompressor = () => { throw new Error('压缩器不可用'); };
+  const bank = new AudioBank('https://cdn/');
+  assert.equal(bank.out, env.ctx.destination, '应该退回直连喇叭');
+  assert.match(bank.diagnose().error, /压缩器不可用/);
+  assert.equal(bank.diagnose().degraded, true);
+});
+
+test('unlock 里的错误不再被静默吞掉，而是记下来', () => {
+  const env = fakeEnv();
+  env.ctx.createBufferSource = () => { throw new Error('解锁失败'); };
+  const bank = new AudioBank('https://cdn/');
+  assert.doesNotThrow(() => bank.unlock(), 'unlock 不该拖垮调用方');
+  assert.match(bank.diagnose().error, /解锁失败/);
+});
+
+test('diagnose 报告上下文状态，供页面上的诊断条显示', () => {
+  const env = fakeEnv();
+  const bank = new AudioBank('https://cdn/');
+  assert.equal(bank.diagnose().state, '未创建');
+  bank.unlock();
+  assert.equal(bank.diagnose().state, 'running');
+  assert.equal(bank.diagnose().degraded, false);
+  assert.equal(bank.diagnose().error, null);
+});
+
+// —— 换音色不该新建 AudioContext ——
+// iOS 对同时存在的 AudioContext 有数量上限，旧的又从不自动回收。
+// 以前每换一次音色就 new 一个 AudioBank，切几次之后新建的上下文就是死的。
+
+test('换音色复用同一个 AudioContext，不新建', () => {
+  const env = fakeEnv();
+  const bank = new AudioBank('https://cdn/aitong/');
+  bank.unlock();
+  bank.setBaseUrl('https://cdn/xiaoyun/');
+  const created = env.log.filter((l) => l === 'new AudioContext').length;
+  assert.equal(created, 1, '实际建了 ' + created + ' 个上下文');
+});
+
+test('换音色会清掉上一套音色的解码缓存', async () => {
+  fakeEnv();
+  const bank = new AudioBank('https://cdn/aitong/');
+  await bank.play(ITEM);
+  assert.equal(bank.buffers.size, 1);
+  bank.setBaseUrl('https://cdn/xiaoyun/');
+  assert.equal(bank.buffers.size, 0, '换了音色还留着旧音色的解码结果');
+  assert.equal(bank.url(ITEM), 'https://cdn/xiaoyun/ym/a1.mp3');
 });

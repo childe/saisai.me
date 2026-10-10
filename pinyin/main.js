@@ -1,4 +1,5 @@
 import { AudioBank } from './audio.js';
+import { formatDiag } from './lib/audio-diag.js';
 import { resolveBaseUrl } from './lib/base-url.js';
 import { pickVoice, voiceBaseUrl } from './lib/voice.js';
 import { mount as mountChart } from './chart.js';
@@ -59,11 +60,29 @@ function mountVoicePicker(data, ctx, show) {
   sel.addEventListener('change', () => {
     ctx.voice = sel.value;
     writeVoice(sel.value);
-    ctx.bank.stop();
-    ctx.bank = new AudioBank(voiceBaseUrl(data.baseUrl, sel.value));
-    ctx.bank.unlock();              // 换音色是用户手势，顺手把新上下文解锁
+    // 复用同一个 AudioBank：只换地址前缀。新建会多出一个 AudioContext，
+    // 而 iOS 对同时存在的上下文有上限，切几次就没声了。
+    ctx.bank.setBaseUrl(voiceBaseUrl(data.baseUrl, sel.value));
+    ctx.bank.unlock();              // 换音色是用户手势，顺手确认一下解锁状态
     show(document.querySelector('.tab[aria-selected="true"]').dataset.view);
   });
+}
+
+/**
+ * 音频诊断条。iPhone 上看不了控制台，所以把上下文状态、是否降级、最近
+ * 一次错误直接贴在页面底部。正常情况下它是隐藏的，`?debug=1` 强制显示。
+ */
+function mountAudioDiag(ctx) {
+  const el = document.getElementById('audiodiag');
+  if (!el) return;
+  const debug = new URLSearchParams(location.search).has('debug');
+  const render = () => {
+    const text = formatDiag(ctx.bank.diagnose(), debug);
+    el.hidden = text === null;
+    if (text !== null) el.textContent = text;
+  };
+  render();
+  setInterval(render, 1000);
 }
 
 export function showStatus(text, onClick) {
@@ -124,6 +143,7 @@ async function start() {
 
   mountVoicePicker(data, ctx, show);
   installAudioUnlock(ctx);
+  mountAudioDiag(ctx);
   show('chart');
 }
 

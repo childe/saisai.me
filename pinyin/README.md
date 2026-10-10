@@ -112,6 +112,40 @@ iPhone 上就是全哑。
 `test/audio.test.js` 用 Web Audio 替身锁住了这几条，其中最关键的一条是
 "play 在第一个 await 之前就把 AudioContext 建起来"。
 
+### 第二次全哑：链式 connect
+
+加了播放增益之后 iPhone 又一次完全没声。起因是这一行：
+
+    gain.connect(comp).connect(ctx.destination);
+
+`connect()` 返回目标节点是标准后来才补的，**老 WebKit 返回 `undefined`**，
+于是这行就是 `undefined.connect(...)`，当场 `TypeError`。异常抛在
+`this._out = gain` 之前，缓存永远为空，每次用到都重抛一次 —— 整条输出
+链路根本没建起来。
+
+更糟的是 `unlock()` 外面包着 `try { ... } catch (_) {}`，异常被静默吞掉，
+**控制台一行报错都没有**。
+
+三条规矩是从这里来的：
+
+1. **不写链式 `connect`。** 一次一行，不吃返回值。
+2. **建不起来就退回直连 `destination`。** 宁可没有增益、声音小一点，也不能
+   一个音都出不去（`AudioBank.degraded`）。
+3. **catch 不许是空的。** 错误记到 `AudioBank.lastError`，由
+   `lib/audio-diag.js` 贴到页面底部 —— iPhone 上看不了控制台，错误必须
+   自己爬到屏幕上来。加 `?debug=1` 可以强制显示诊断条。
+
+当时的单测抓不到这个，因为替身的 `connect(dest) { return dest; }` 把
+"connect 会返回目标节点"这个假设直接编码进了测试。现在替身有
+`legacyConnect` 选项，专门模拟老 WebKit 的行为。
+
+### 换音色不新建 AudioContext
+
+iOS 对同时存在的 AudioContext 有数量上限，旧的又从不自动回收。原来每换
+一次音色就 `new AudioBank(...)`，也就多一个上下文，切几次之后新建的那个
+就是死的 —— 又是一种"突然没声了"。现在换音色走 `AudioBank.setBaseUrl()`，
+只换地址前缀并清掉解码缓存，上下文和输出链路原样留着。
+
 ## 本地预览
 
 ### 音频的跨域问题（本地自测必读）
