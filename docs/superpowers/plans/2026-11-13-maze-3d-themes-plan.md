@@ -426,7 +426,10 @@ Expected: 全部 PASS，且没有控制台错误
   - 依次把 `localStorage['maze3d.theme']` 设成 `'foo'`、`'GARDEN'`、`''`，每次 reload 后 `theme == 'garden'`。
   - 用已有的 `BLOCK_STORAGE` 作 init script 打开新页：`theme == 'garden'`；点 `#theme-castle` 后 `theme == 'castle'`。
   - 全程无 `pageerror`。
-- `t6`（纹理释放）：按 `THEME_IDS` 循环点击 20 次（每次与上一次不同）。之后 `textureCount == 4`，`textureStats.builds == 21`（启动 1 次 + 20 次切换）。
+- `t6`（纹理释放）：新页面（默认 `garden`，此时 `builds == 1`）。第 `i` 次（`i = 0..19`）点击 `THEME_IDS[(i + 1) % 4]`，即从 `brick` 开始循环，保证每次点击都与当前主题不同。
+  - 每次点击后断言：`textureCount == 4`，且 `textureStats.builds` 比上一次点击后恰好增加 1（断言消息带上 `i` 与 `tid`，便于定位出错的那次切换）。
+  - 循环结束后：`textureCount == 4`，`textureStats.builds == 21`（启动 1 次 + 20 次切换）。
+  - 再点击一次当前主题：`textureCount == 4`，`builds` 仍为 21。
 - `t8`（375px）：`viewport 375×667, is_mobile, has_touch, device_scale_factor=2`。断言 `scrollWidth <= 375`；四个按钮的 `bounding_box().height >= 44`；按钮都在 `#theme-row` 内，且其 `y` 大于 `#view-row` 的 `y`。
 
 - [ ] **Step 2: 运行检查**
