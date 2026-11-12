@@ -125,3 +125,31 @@ test('reduced motion disables transitions', () => {
 test('no dark mode', () => {
   assert.doesNotMatch(html, /prefers-color-scheme/);
 });
+
+const svgOf = tool => cards().find(c => c.tool === tool).svg;
+const shapeCount = s => (s.match(/<(path|rect|circle|ellipse|line|polyline|polygon|text)\b/g) || []).length;
+
+test('every svg has viewBox and no fixed size', () => {
+  for (const c of cards()) {
+    assert.match(c.svg, /^<svg[^>]*viewBox="0 0 200 150"/);
+    assert.doesNotMatch(c.svg.match(/^<svg[^>]*>/)[0], /\s(width|height)="/);
+  }
+});
+
+test('pinyin art shows tone-marked letters', () => {
+  const s = svgOf('pinyin');
+  for (const ch of ['ā', 'á', 'ǎ', 'à']) assert.ok(s.includes(ch), ch);
+  assert.ok(shapeCount(s) >= 5);
+});
+
+test('english art shows headphones and ABC', () => {
+  const s = svgOf('english');
+  assert.match(s, /ABC|>A<[\s\S]*>B<[\s\S]*>C</);
+  assert.ok(shapeCount(s) >= 6);
+});
+
+test('equation art shows x = ?', () => {
+  const s = svgOf('equation');
+  assert.match(s, /x\s*(=|＝)\s*\?|x\s*(=|＝)\s*？/);
+  assert.ok(shapeCount(s) >= 5);
+});
