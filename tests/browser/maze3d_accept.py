@@ -1121,6 +1121,292 @@ def check_9c(browser, base):
         close(page)
 
 
+# ---------------------------------------------------------------- themes
+
+THEME_IDS = ["garden", "brick", "blocks", "castle"]
+
+
+def click_theme(page, tid):
+    page.click(f"#theme-{tid}")
+
+
+def active_themes(page):
+    return page.evaluate(
+        "() => [...document.querySelectorAll('.theme-btn.active')]"
+        ".map((b) => b.dataset.theme)"
+    )
+
+
+def theme_init(tid):
+    return "try { localStorage.setItem('maze3d.theme', %s) } catch {}" % json.dumps(tid)
+
+
+def themes_mod(page, expr, arg=None):
+    """在页面里 import themes.js 后求值 expr（可用 T、M=__maze3d、arg）。"""
+    return page.evaluate(
+        "async ([expr, arg]) => {"
+        " const T = await import('/maze-3d/themes.js');"
+        " const M = window.__maze3d;"
+        " return (new Function('T', 'M', 'arg', 'return (' + expr + ');'))(T, M, arg);"
+        "}",
+        [expr, arg],
+    )
+
+
+def floor_base_hex(page, tid):
+    return themes_mod(
+        page, "'#' + T.THEMES[arg].floorBase.toString(16).padStart(6, '0')", tid
+    )
+
+
+COUNT_HEX_JS = """(() => {
+  let n = 0;
+  for (let r = 0; r < M.size; r++)
+    for (let c = 0; c < M.size; c++) if (M.floorColorHex(r, c) === arg) n++;
+  return n;
+})()"""
+
+
+def check_t1(browser, base):
+    """主题切换与一致性：按钮高亮、普通格底色、纹理数、重复点击、道路色、重建迷宫后的墙色。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    details = []
+    try:
+        wait_idle(page)
+        th = m3(page, "theme")
+        act = active_themes(page)
+        details.append(f"default={th} active={act}")
+        if th != "garden" or act != ["garden"]:
+            return False, " ".join(details)
+        for tid in THEME_IDS:
+            click_theme(page, tid)
+            th = m3(page, "theme")
+            act = active_themes(page)
+            got = m3(page, "floorColorHex(1, 1)")
+            want = floor_base_hex(page, tid)
+            tc = m3(page, "textureCount")
+            details.append(f"{tid}: floor={got}/{want} textures={tc}")
+            if th != tid or act != [tid] or got != want or tc != 4:
+                return False, " ".join(details) + f" theme={th} active={act}"
+        builds = m3(page, "textureStats")["builds"]
+        click_theme(page, THEME_IDS[-1])
+        b2 = m3(page, "textureStats")["builds"]
+        tc = m3(page, "textureCount")
+        details.append(f"reclick builds {builds}->{b2} textures={tc}")
+        if b2 != builds or tc != 4:
+            return False, " ".join(details)
+        page.click("#show-path-btn")
+        red0 = logic(page, COUNT_HEX_JS, "#ff6b6b")
+        click_theme(page, "garden")
+        red1 = logic(page, COUNT_HEX_JS, "#ff6b6b")
+        details.append(f"path red {red0}->{red1}")
+        if red0 == 0 or red0 != red1:
+            return False, " ".join(details)
+        click_theme(page, "blocks")
+        builds = m3(page, "textureStats")["builds"]
+        page.click("#regen-btn")
+        wait_idle(page)
+        page.click("#size-15")
+        wait_idle(page)
+        got = page.evaluate(
+            "() => Array.from({ length: 10 }, (_, i) => window.__maze3d.wallColorHex(i))"
+        )
+        want = themes_mod(
+            page,
+            "Array.from({ length: 10 }, (_, i) => '#' + T.THEMES.blocks.blockPalette["
+            "T.blockColorIndex(i, 5)].toString(16).padStart(6, '0'))",
+        )
+        b2 = m3(page, "textureStats")["builds"]
+        tc = m3(page, "textureCount")
+        size = m3(page, "size")
+        details.append(
+            f"blocks after regen+15: size={size} walls={got == want} builds {builds}->{b2}"
+            f" textures={tc}"
+        )
+        if got != want or b2 != builds or tc != 4 or size != 15:
+            return False, " ".join(details) + f" got={got} want={want}"
+        ok, msg = no_errors(errors)
+        return ok, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def far_direction(page):
+    """找一个下一站与当前格相距至少 2 格的方向；找不到就沿最短路走一步再找，最多 20 次。"""
+    for _ in range(20):
+        here = pos(page)
+        for d in ["right", "down", "left", "up"]:
+            stop = next_stop(page, d)
+            if (
+                stop
+                and abs(stop["row"] - here["row"]) + abs(stop["col"] - here["col"]) >= 2
+            ):
+                return d, stop
+        step = path_dir(page)
+        if step is None:
+            return None, None
+        page.keyboard.press(KEYS[step])
+        wait_settled(page)
+    return None, None
+
+
+CLICK_DURING_JS = (
+    "(id) => { const s = window.__maze3d.state;"
+    " document.getElementById(id).click(); return s; }"
+)
+
+
+def check_t3(browser, base):
+    """移动与转身动画途中切换主题：动画照常完成，迷宫不重建。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    details = []
+    try:
+        wait_idle(page)
+        d, exp = far_direction(page)
+        if d is None:
+            return False, f"no long move found, player={pos(page)}"
+        gen0 = m3(page, "generation")
+        page.keyboard.press(KEYS[d])
+        st = page.evaluate(CLICK_DURING_JS, "theme-castle")
+        wait_settled(page)
+        got = pos(page)
+        gen1 = m3(page, "generation")
+        th = m3(page, "theme")
+        details.append(
+            f"move {d}: state_at_click={st} pos={got} want={exp} gen {gen0}->{gen1} theme={th}"
+        )
+        if st != "moving" or got != exp or gen1 != gen0 or th != "castle":
+            return False, " ".join(details)
+        page.click("#view-btn")
+        wait_idle(page)
+        before = m3(page, "player")["facing"]
+        want = logic(page, "L.turn(arg, 'left')", before)
+        page.keyboard.press("ArrowLeft")
+        st = page.evaluate(CLICK_DURING_JS, "theme-brick")
+        wait_idle(page)
+        got = m3(page, "player")["facing"]
+        th = m3(page, "theme")
+        details.append(
+            f"turn: state_at_click={st} facing {before}->{got} want={want} theme={th}"
+        )
+        if st != "turning" or got != want or th != "brick":
+            return False, " ".join(details)
+        ok, msg = no_errors(errors)
+        return ok, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_t4(browser, base):
+    """主题持久化；非法存储值与存储被禁用时以花园主题启动。"""
+    details = []
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    try:
+        wait_idle(page)
+        click_theme(page, "brick")
+        page.reload()
+        wait_idle(page)
+        th = m3(page, "theme")
+        act = active_themes(page)
+        details.append(f"reload: theme={th} active={act}")
+        if th != "brick" or act != ["brick"]:
+            return False, " ".join(details)
+        for bad in ["foo", "GARDEN", ""]:
+            page.evaluate("(v) => localStorage.setItem('maze3d.theme', v)", bad)
+            page.reload()
+            wait_idle(page)
+            th = m3(page, "theme")
+            act = active_themes(page)
+            details.append(f"stored {bad!r}: theme={th} active={act}")
+            if th != "garden" or act != ["garden"]:
+                return False, " ".join(details)
+        pageerrors = [e for e in errors if e.startswith("pageerror")]
+        if pageerrors:
+            return False, " ".join(details) + f" pageerrors={pageerrors}"
+    finally:
+        close(page)
+    page, errors = open_page(
+        browser, f"{base}{PAGE}?seed={S}&size=10", init_script=BLOCK_STORAGE
+    )
+    try:
+        wait_idle(page)
+        th0 = m3(page, "theme")
+        click_theme(page, "castle")
+        th1 = m3(page, "theme")
+        act = active_themes(page)
+        pageerrors = [e for e in errors if e.startswith("pageerror")]
+        details.append(
+            f"blocked: theme={th0} after click={th1} active={act} pageerrors={pageerrors}"
+        )
+        ok = (
+            th0 == "garden" and th1 == "castle" and act == ["castle"] and not pageerrors
+        )
+        return ok, " ".join(details)
+    finally:
+        close(page)
+
+
+def check_t6(browser, base):
+    """反复切换主题：旧纹理被释放，存活纹理数恒为 4。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    try:
+        wait_idle(page)
+        stats = m3(page, "textureStats")
+        if stats["builds"] != 1 or m3(page, "textureCount") != 4:
+            return False, f"start: stats={stats} textures={m3(page, 'textureCount')}"
+        prev = 1
+        for i in range(20):
+            tid = THEME_IDS[(i + 1) % 4]
+            click_theme(page, tid)
+            tc = m3(page, "textureCount")
+            builds = m3(page, "textureStats")["builds"]
+            if tc != 4 or builds != prev + 1:
+                return False, f"i={i} tid={tid} textures={tc} builds {prev}->{builds}"
+            prev = builds
+        tc = m3(page, "textureCount")
+        builds = m3(page, "textureStats")["builds"]
+        if tc != 4 or builds != 21:
+            return False, f"after 20 switches: textures={tc} builds={builds}"
+        click_theme(page, m3(page, "theme"))
+        tc2 = m3(page, "textureCount")
+        b2 = m3(page, "textureStats")["builds"]
+        ms = m3(page, "textureStats")["lastMs"]
+        detail = f"20 switches: textures={tc} builds={builds}; reclick textures={tc2} builds={b2} lastMs={ms:.1f}"
+        ok_err, msg = no_errors(errors)
+        ok = ok_err and tc2 == 4 and b2 == 21
+        return ok, (detail + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_t8(browser, base):
+    """375px 宽：不出横向滚动，主题按钮够大、排在视角行之下。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10",
+        viewport={"width": 375, "height": 667},
+        is_mobile=True,
+        has_touch=True,
+        device_scale_factor=2,
+    )
+    try:
+        wait_idle(page)
+        page.wait_for_timeout(300)
+        sw = page.evaluate("() => document.documentElement.scrollWidth")
+        row = box_of(page, "#theme-row")
+        view_row = box_of(page, "#view-row")
+        bad = []
+        for tid in THEME_IDS:
+            b = box_of(page, f"#theme-{tid}")
+            if b["height"] < 44 or not inside(b, row) or b["y"] <= view_row["y"]:
+                bad.append(f"{tid}:{b}")
+        ok_err, msg = no_errors(errors)
+        ok = ok_err and sw <= 375 and not bad
+        return ok, f"scrollWidth={sw} bad={bad} row={row} {msg}".strip()
+    finally:
+        close(page)
+
+
 # ---------------------------------------------------------------- runner
 
 CHECKS = {
@@ -1142,6 +1428,11 @@ CHECKS = {
     "9c": check_9c,
     "13": check_13,
     "14": check_14,
+    "t1": check_t1,
+    "t3": check_t3,
+    "t4": check_t4,
+    "t6": check_t6,
+    "t8": check_t8,
 }
 
 
