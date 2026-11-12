@@ -12,6 +12,12 @@ test('lamp glow proportional to power ratio, capped at 2', () => {
   assert.equal(partVisual(lamp, { v: 1, i: 0.1, p: 0.45 }, { ...d, broken: { L: true } }, true).glow, 0);
 });
 
+test('lamp below LAMP_LIT_P is dark (glow 0), at threshold starts glowing', () => {
+  assert.equal(partVisual(lamp, { v: 1.5e-6, i: 1.5e-7, p: 2.25e-13 }, d, true).glow, 0);
+  assert.equal(partVisual(lamp, { v: 0.6, i: 0.06, p: 0.044 }, d, true).glow, 0);
+  assert.ok(partVisual(lamp, { v: 0.67, i: 0.067, p: 0.045 }, d, true).glow > 0);
+});
+
 test('invalid result: meters show --, nothing animates, never NaN', () => {
   const am = { id: 'A', type: 'ammeter', params: {} };
   const v = partVisual(am, undefined, d, false);

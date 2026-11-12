@@ -23,7 +23,7 @@ export function partVisual(part, reading, damage, ok) {
   const v = fin(reading.v), i = fin(reading.i), p = fin(reading.p);
   switch (part.type) {
     case 'lamp':
-      vis.glow = burnt ? 0 : clamp(p / PHYS.LAMP_P_RATED, 0, 2);
+      vis.glow = burnt || p < PHYS.LAMP_LIT_P ? 0 : clamp(p / PHYS.LAMP_P_RATED, 0, 2);
       break;
     case 'led':
       vis.glow = burnt || i < PHYS.LED_LIT_A ? 0 : clamp(i / 0.02, 0, 1.5);
