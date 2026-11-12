@@ -46,6 +46,9 @@ KEYS = {
 WASD = {"up": "w", "down": "s", "left": "a", "right": "d"}
 PW = None  # main() 中赋值，供需要设备描述的检查使用
 BASELINE_ROOT = None  # --baseline-root：改动前代码的副本，供对比检查使用
+SHOTS = Path(
+    "/Users/jialiu/Projects/saisai.me/.xdev/20261113-001535-maze-3d-themes/screenshots"
+)  # --shots 覆盖
 DIRS = {"up": (-1, 0), "down": (1, 0), "left": (0, -1), "right": (0, 1)}
 
 
@@ -963,11 +966,14 @@ def play_rounds(page):
         wait_settled(page, timeout=15000)
 
 
-def perf_round(browser, base, mobile):
+def perf_round(browser, base, mobile, init_script=None):
+    """base 可以指向基线服务器；init_script 用来预设主题。"""
     if mobile:
         dev = dict(PW.devices["iPhone SE"])
         dev.pop("default_browser_type", None)
-        page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=20", **dev)
+        page, errors = open_page(
+            browser, f"{base}{PAGE}?seed={S}&size=20", init_script=init_script, **dev
+        )
         cdp = page.context.new_cdp_session(page)
         cdp.send("Emulation.setCPUThrottlingRate", {"rate": 4})
     else:
@@ -975,6 +981,7 @@ def perf_round(browser, base, mobile):
             browser,
             f"{base}{PAGE}?seed={S}&size=20",
             viewport={"width": 1280, "height": 800},
+            init_script=init_script,
         )
     try:
         wait_idle(page, timeout=15000)
@@ -988,6 +995,11 @@ def perf_round(browser, base, mobile):
             "p95": round(stats["p95"], 1),
             "quality": m3(page, "quality"),
             "renderer": m3(page, "rendererName"),
+            "downgradeCount": m3(page, "downgradeCount"),
+            "textureMs": page.evaluate(
+                "() => window.__maze3d.textureStats"
+                " ? window.__maze3d.textureStats.lastMs : null"
+            ),
             "errors": errors,
         }
     finally:
@@ -1704,6 +1716,168 @@ def check_t5(browser, base):
     return all_ok, " | ".join(details)
 
 
+def fmt_perf(name, r):
+    ms = r["textureMs"]
+    ms_s = "None" if ms is None else f"{ms:.1f}"
+    return (
+        f"{name}: avg={r['avg']} p95={r['p95']} quality={r['quality']}"
+        f" downgradeCount={r['downgradeCount']} renderer={r['renderer']!r} textureMs={ms_s}"
+    )
+
+
+def check_t7(browser, base):
+    """GPU 下 iPhone SE + 4 倍 CPU 降速：各主题帧时间不超过基线的 1.3 倍，且不触发降画质。"""
+    if not BASELINE_ROOT:
+        return None, "need --baseline-root"
+    bt = browser.browser_type
+    attempts = []
+    proc, bbase = start_server(BASELINE_ROOT)
+    try:
+        for headless in [True, False]:
+            gb = bt.launch(
+                channel="chromium",
+                headless=headless,
+                args=["--use-angle=metal", "--enable-gpu"],
+            )
+            try:
+                runs = [("baseline", perf_round(gb, bbase, mobile=True))]
+                if "swiftshader" in runs[0][1]["renderer"].lower():
+                    attempts.append(
+                        f"headless={headless} renderer={runs[0][1]['renderer']!r}"
+                    )
+                    continue
+                for tid in THEME_IDS:
+                    runs.append(
+                        (
+                            tid,
+                            perf_round(
+                                gb, base, mobile=True, init_script=theme_init(tid)
+                            ),
+                        )
+                    )
+            finally:
+                gb.close()
+            lines = [f"headless={headless}"] + [fmt_perf(n, r) for n, r in runs]
+            detail = " | ".join(lines)
+            renderers = {r["renderer"] for _, r in runs}
+            if any("swiftshader" in x.lower() for x in renderers):
+                return None, detail + " | INCONCLUSIVE: swiftshader"
+            if len(renderers) != 1:
+                return None, detail + f" | INCONCLUSIVE: renderers differ {renderers}"
+            errs = [e for _, r in runs for e in r["errors"]]
+            if errs:
+                return False, detail + " | errors=" + " | ".join(errs[:3])
+            bl = runs[0][1]
+            limit = 1.3 * bl["avg"]
+            high = bl["quality"] == "high" and bl["downgradeCount"] == 0
+            verdicts = []
+            ok = True
+            for tid, r in runs[1:]:
+                if high and r["downgradeCount"] > 0:
+                    verdicts.append(
+                        f"{tid}: FAIL 触发降级 downgradeCount={r['downgradeCount']}"
+                    )
+                    ok = False
+                elif r["avg"] > limit:
+                    verdicts.append(f"{tid}: FAIL avg {r['avg']} > {limit:.1f}")
+                    ok = False
+                else:
+                    verdicts.append(f"{tid}: ok avg {r['avg']} <= {limit:.1f}")
+            detail += " | " + "; ".join(verdicts)
+            if not high:
+                return None, detail + " | 基线已降级，非高画质比较"
+            return ok, detail
+    finally:
+        proc.terminate()
+        proc.wait()
+    return None, "still SwiftShader: " + "; ".join(attempts)
+
+
+def check_t7b(browser, base):
+    """自动降画质换了 renderer 之后切换主题：纹理照常显示，各向异性降为 1。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1&slow=40")
+    details = []
+    try:
+        wait_ready(page)
+        page.wait_for_function("() => window.__maze3d.quality === 'low'", timeout=10000)
+        wait_idle(page, timeout=10000)
+        an0 = m3(page, "textureAnisotropy")
+        details.append(f"after downgrade anisotropy={an0}")
+        if an0 != [1, 1, 1]:
+            return False, " ".join(details)
+        page.click("#view-btn")
+        facing = face_wall(page)
+        if facing is None:
+            return False, " ".join(details) + " no wall to face"
+        for tid in THEME_IDS:
+            click_theme(page, tid)
+            th = m3(page, "theme")
+            act = active_themes(page)
+            wc = m3(page, "wallContrast()")
+            an = m3(page, "textureAnisotropy")
+            ok = th == tid and act == [tid] and contrast_ok(wc) and an == [1, 1, 1]
+            details.append(f"{tid}: {fmt_metrics(wc)} anisotropy={an} ok={ok}")
+            if not ok:
+                return False, " ".join(details) + f" theme={th} active={act}"
+        builds = m3(page, "textureStats")["builds"]
+        click_theme(page, "garden")
+        b2 = m3(page, "textureStats")["builds"]
+        wc = m3(page, "wallContrast()")
+        an = m3(page, "textureAnisotropy")
+        details.append(
+            f"garden again: builds {builds}->{b2} {fmt_metrics(wc)} anisotropy={an}"
+        )
+        ok_err, msg = no_errors(errors)
+        ok = (
+            ok_err
+            and b2 == builds + 1
+            and contrast_ok(wc)
+            and an == [1, 1, 1]
+            and m3(page, "quality") == "low"
+        )
+        return ok, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_t9(browser, base):
+    """每个主题存三张截图（跟随、第一人称看通道、第一人称面墙），供人工查看。"""
+    SHOTS.mkdir(parents=True, exist_ok=True)
+    files = []
+    all_errors = []
+    for tid in THEME_IDS:
+        page, errors = open_page(
+            browser,
+            f"{base}{PAGE}?seed={S}&size=10",
+            viewport={"width": 1280, "height": 800},
+            init_script=theme_init(tid),
+        )
+        try:
+            wait_idle(page)
+            page.wait_for_timeout(500)
+            f = SHOTS / f"{tid}-follow.png"
+            canvas_image(page).save(f)
+            files.append(f)
+            page.click("#view-btn")
+            face_walkable(page)
+            page.wait_for_timeout(300)
+            f = SHOTS / f"{tid}-first.png"
+            canvas_image(page).save(f)
+            files.append(f)
+            face_wall(page)
+            page.wait_for_timeout(300)
+            f = SHOTS / f"{tid}-first-wall.png"
+            canvas_image(page).save(f)
+            files.append(f)
+            all_errors += errors
+        finally:
+            close(page)
+    good = [f for f in files if f.exists() and f.stat().st_size > 0]
+    ok_err, msg = no_errors(all_errors)
+    ok = ok_err and len(good) == 12
+    return ok, f"dir={SHOTS} files={len(good)}/12 {msg}".strip()
+
+
 # ---------------------------------------------------------------- runner
 
 CHECKS = {
@@ -1732,6 +1906,9 @@ CHECKS = {
     "t8": check_t8,
     "t2": check_t2,
     "t5": check_t5,
+    "t7": check_t7,
+    "t7b": check_t7b,
+    "t9": check_t9,
 }
 
 
@@ -1745,9 +1922,12 @@ def main():
     ap.add_argument("--only", default="")
     ap.add_argument("--write", action="store_true")
     ap.add_argument("--baseline-root", default="")
+    ap.add_argument("--shots", default="")
     args = ap.parse_args()
-    global BASELINE_ROOT
+    global BASELINE_ROOT, SHOTS
     BASELINE_ROOT = Path(args.baseline_root) if args.baseline_root else None
+    if args.shots:
+        SHOTS = Path(args.shots)
     names = (
         [n.strip() for n in args.only.split(",") if n.strip()]
         if args.only
@@ -1793,8 +1973,11 @@ def main():
             "# 3D 迷宫浏览器验收结果",
             f"日期：{datetime.datetime.now().isoformat(timespec='seconds')}",
             f"Chromium：{version}",
-            f"命令：python tests/browser/maze3d_accept.py --write",
+            "命令：python tests/browser/maze3d_accept.py --write"
+            + (f" --baseline-root {BASELINE_ROOT}" if BASELINE_ROOT else ""),
             f"总体：{'PASS' if all_ok else 'FAIL'}",
+            f"基线代码：{BASELINE_ROOT}（merge-base）",
+            f"人工检查：待用户查看 {SHOTS} 下 12 张截图，确认四种风格纹理明显",
             "",
         ]
         RESULTS.write_text("\n".join(header + lines) + "\n", encoding="utf-8")

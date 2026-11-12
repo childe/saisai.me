@@ -1042,6 +1042,11 @@ function start() {
     get textureStats() {
       return { builds: textureStats.builds, lastMs: textureStats.lastMs };
     },
+    // 当前墙面、墙顶、地板纹理的各向异性过滤级别
+    get textureAnisotropy() {
+      if (!currentTextures) return [];
+      return [currentTextures.wall, currentTextures.top, currentTextures.floor].map((t) => t.anisotropy);
+    },
     sampleDistinctColors,
     get fog() {
       return { on: fogOn, radius: fogRadius };
