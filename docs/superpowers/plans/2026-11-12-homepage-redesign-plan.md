@@ -4,7 +4,7 @@
 
 **Goal:** 把 `index.html` 从「📁 目录 + 📄 文字链接」改成一屏六张大插图卡片，一年级小朋友看图就能选工具。
 
-**Architecture:** 单文件 `index.html`：内联 `<style>` + 六个 `<a class="card">`，每张卡片内嵌一幅内联 SVG 插图。无 JavaScript、无外部资源。用一个 Node 内置 `node:test` 静态测试文件按正则检查 HTML 文本，响应式布局用 headless Chrome 截图人工核对。
+**Architecture:** 单文件 `index.html`：内联 `<style>` + 六个 `<a class="card">`，每张卡片内嵌一幅内联 SVG 插图。无 JavaScript、无外部资源。用一个 Node 内置 `node:test` 静态测试文件检查链接、标题、文案等契约；布局、横向溢出、减少动态效果用「浏览器核对脚本」（见共享约定，自动发现本机 Chrome / Edge / Chromium，在 iframe 里按指定宽度渲染）实测并输出数值，插图可识别度看整页截图人工核对。
 
 **Tech Stack:** HTML5、CSS（Grid、media queries、自定义属性）、内联 SVG；测试用 Node 内置 `node:test` + `node:assert/strict`（与 `pinyin/test/*.test.js` 同一风格，无 npm 依赖）。
 
@@ -16,6 +16,8 @@
 - 纯静态单文件，无构建步骤、无框架、无 npm 依赖、无 `<script>`。
 - 不加载任何外部资源：无 CDN、无 Google Fonts、无外部图片、无 `<link>`、无 `<img>`、无 `@import`、无 `url(http…)`。
 - `<html lang="zh-CN">`，`<title>赛赛的工具箱</title>`，页头大标题「赛赛的工具箱」。
+- 整文件重写时保留现有 `<meta name="viewport" content="width=device-width, initial-scale=1.0">`（缺了它手机会按 980px 桌面宽度渲染，所有断点失效）。
+- 本分支在实施开始前已有 `.gitignore` 改动（新增 `.xdev/` 一行，来自设计文档提交）。这是允许的既有变更，实施阶段不要撤销它，也不要再改它。
 - 字体：系统字体栈 `"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif`。
 - 六张卡片的顺序、短名、链接固定为：
   1. 学拼音 → `pinyin/index.html`
@@ -67,8 +69,74 @@
 - `const html` = `index.html` 全文（`fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8')`）。
 - `function cards()` → 返回 `[{ tool, href, title, desc, svg }]`，按出现顺序，用正则从每个 `<a class="card" …>…</a>` 中提取。
 - `function visibleText()` → 去掉 `<style>…</style>` 和所有标签后的文本。
+- `function mediaBlock(query)` → 在 `html` 中找到 `@media <query> {`，按花括号配对返回整个块的内部文本；找不到返回 `''`。用于断言「某 media 块里有某条规则」，不依赖块内规则顺序。
 
 运行全部测试：`node --test tests/`
+
+### 浏览器核对脚本（Task 2/3 的视觉验收用，不进仓库）
+
+静态测试只证明 HTML 文本里有某些规则，不能证明渲染结果对。布局与插图的验收以本脚本输出的数值和整页截图为准。
+
+要点（已在本机验证可用）：
+- 本机没有 Google Chrome，有 Microsoft Edge。脚本按 Chrome → Edge → Chromium 顺序自动发现浏览器，一个都没有就打印 `NO_BROWSER` 并退出 1。遇到 `NO_BROWSER` 时停下来报告，不要用静态测试代替视觉验收。
+- headless 模式下 `--window-size` 宽度小于约 500px 会被抬高（实测 375 → 492），所以窄宽度不能直接靠窗口宽度模拟。脚本把 `index.html` 放进一个指定宽度的 `<iframe>`，iframe 内的 media query 按 iframe 宽度生效（实测 340px 下 `(max-width:359px)` 为 true）。
+- iframe 高度 4000px，截图为整页截图；脚本输出 `allVisible=true` 表示最后一张卡片的底边在截图范围内，六张卡片都被覆盖。
+- 横向溢出用 `scrollWidth > clientWidth` 实测（`hscroll=`），不凭截图里有没有滚动条判断。
+- `titleOverflow=` 统计右边缘超出所在卡片右边缘的 `.card-title` 个数。
+- `transition=` 是第一张卡片的计算后 `transition-duration`；带 `--force-prefers-reduced-motion` 运行时应为 `0s`。
+
+把脚本写到临时目录（每次运行前重写一遍，保证内容最新）：
+
+```bash
+mkdir -p "$TMPDIR/home-check" && cat > "$TMPDIR/home-check/check.sh" <<'EOS'
+#!/bin/bash
+# usage: check.sh <worktree> <outdir> [extra browser flags...]
+set -u
+WT="$1"; OUT="$2"; shift 2
+BROWSER=""
+for b in "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+         "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" \
+         "/Applications/Chromium.app/Contents/MacOS/Chromium"; do
+  [ -x "$b" ] && BROWSER="$b" && break
+done
+[ -n "$BROWSER" ] || { echo "NO_BROWSER"; exit 1; }
+TO=""; command -v timeout >/dev/null && TO="timeout 60"
+mkdir -p "$OUT"
+# 每次调用独立 profile + 60 秒超时，防止 headless 进程挂住
+run() { local tag="$1"; shift; $TO "$BROWSER" --headless=new --disable-gpu --allow-file-access-from-files \
+  --user-data-dir="$OUT/profile-$tag" "$@" </dev/null 2>/dev/null || echo "BROWSER_FAIL $tag" >&2; }
+for w in 340 360 375 768 1280; do
+  H=4000; WW=$(( w < 600 ? 600 : w ))
+  cat > "$OUT/frame-$w.html" <<EOF
+<!doctype html><html><body style="margin:0;background:#888">
+<iframe id="f" src="file://$WT/index.html" style="border:0;display:block;width:${w}px;height:${H}px"></iframe>
+<script>
+f.onload = () => {
+  const win = f.contentWindow, d = f.contentDocument, de = d.documentElement;
+  const cards = [...d.querySelectorAll('.card')];
+  const cols = new Set(cards.map(c => Math.round(c.getBoundingClientRect().left))).size;
+  const titleOverflow = cards.filter(c => {
+    const t = c.querySelector('.card-title');
+    return t && t.getBoundingClientRect().right > c.getBoundingClientRect().right + 0.5;
+  }).length;
+  const lastBottom = cards.length ? Math.max(...cards.map(c => c.getBoundingClientRect().bottom)) : 0;
+  const c0 = cards[0] ? win.getComputedStyle(cards[0]) : null;
+  document.title = 'w=' + win.innerWidth + ' cards=' + cards.length + ' cols=' + cols +
+    ' hscroll=' + (de.scrollWidth > de.clientWidth) + ' titleOverflow=' + titleOverflow +
+    ' allVisible=' + (lastBottom <= $H) + ' transition=' + (c0 ? c0.transitionDuration : '-');
+};
+</script></body></html>
+EOF
+  run "dom-$w" "$@" --window-size=$WW,$H --virtual-time-budget=3000 --dump-dom "file://$OUT/frame-$w.html" \
+    | grep -o '<title>[^<]*' | sed 's/<title>//'
+  run "shot-$w" "$@" --window-size=$WW,$H --screenshot="$OUT/home-$w.png" "file://$OUT/frame-$w.html" >/dev/null
+  [ -s "$OUT/home-$w.png" ] || echo "NO_SCREENSHOT w=$w"
+done
+EOS
+chmod +x "$TMPDIR/home-check/check.sh"
+```
+
+截图左侧是页面，iframe 右侧（宽度不足 600 时）和下方是灰色底，不属于页面。
 
 ---
 
@@ -97,6 +165,10 @@ const EXPECTED = [
   ['maze',     'maze-gen/maze.html',               '迷宫生成器'],
   ['jump',     'tiao-yi-tiao/game.html',           '跳一跳'],
 ];
+
+test('viewport meta kept', () => {
+  assert.match(html, /<meta\s+name="viewport"\s+content="width=device-width,\s*initial-scale=1(\.0)?"/);
+});
 
 test('lang and title', () => {
   assert.match(html, /<html[^>]*lang="zh-CN"/);
@@ -142,9 +214,10 @@ test('system font stack', () => {
 
 test('breakpoints 900 and 360', () => {
   assert.match(html, /grid-template-columns:\s*repeat\(3,/);
-  assert.match(html, /@media\s*\(max-width:\s*899px\)[^{]*\{[^}]*\{[^}]*repeat\(2,/);
-  assert.match(html, /@media\s*\(max-width:\s*359px\)[^{]*\{[^}]*\{[^}]*(1fr\s*;|repeat\(1,)/);
+  assert.match(mediaBlock('(max-width: 899px)'), /grid-template-columns:\s*repeat\(2,/);
+  assert.match(mediaBlock('(max-width: 359px)'), /grid-template-columns:\s*(1fr\s*[;}]|repeat\(1,)/);
 });
+// 实际列数以浏览器核对脚本的 cols= 为准（Task 3 Step 5）。
 
 test('grid items can shrink', () => {
   assert.match(html, /\.card\s*\{[^}]*min-width:\s*0/);
@@ -177,8 +250,9 @@ Expected: 多数用例 FAIL（例如 `six cards in order…` 报 `0 !== 6`，`no
 - [ ] **Step 3: 重写 `index.html`**
 
 要点（具体数值由实现者定）：
+- `<head>` 保留 `<meta charset="UTF-8">` 和现有 viewport 声明。
 - `body` 暖色浅底（奶油/米白），深色文字；`<header>` 内 `<h1>赛赛的工具箱</h1>`，旁边一个小装饰 SVG（工具箱或星星，`aria-hidden="true"`）。
-- `<main class="grid">` 内六张卡片，结构与顺序严格按「共享约定」；`.grid` 默认 `repeat(3, minmax(0, 1fr))`，`@media (max-width: 899px)` 改 `repeat(2, minmax(0, 1fr))`，`@media (max-width: 359px)` 改 `1fr`。两个 media 块里 `.grid { grid-template-columns: … }` 必须是块内第一条规则（测试正则依赖这个顺序）。
+- `<main class="grid">` 内六张卡片，结构与顺序严格按「共享约定」；`.grid` 默认 `repeat(3, minmax(0, 1fr))`，`@media (max-width: 899px)` 改 `repeat(2, minmax(0, 1fr))`，`@media (max-width: 359px)` 改 `1fr`。media 查询写成 `@media (max-width: 899px)` / `@media (max-width: 359px)`（冒号后一个空格，`mediaBlock()` 按这个字面量查找）；块内规则顺序不限。
 - `.card`：`display:flex; flex-direction:column; min-width:0;` 圆角、白底、柔和阴影、`text-decoration:none`；`.card-art` 用 `background: var(--tint)`，占卡片高度大半（插图区 `aspect-ratio: 4 / 3`）；`.art { display:block; width:100%; height:auto; }`。
 - `.card-title` 大号粗体，`font-size: clamp(…)`；`.card-desc` 明显更小、颜色更淡但对比度足够。
 - 交互：`.card` 有 `transition`；`@media (hover: hover) { .card:hover { transform: translateY(…) } }`；`.card:active { transform: scale(0.98) }`；`.card:focus-visible { outline: 4px solid var(--accent); outline-offset: 4px }`；`@media (prefers-reduced-motion: reduce) { .card { transition: none } .card:hover, .card:active { transform: none } }`。
@@ -261,13 +335,13 @@ Expected: 全部 PASS。
 
 - [ ] **Step 5: 截图自查插图可识别**
 
-Run:
+先按「共享约定 → 浏览器核对脚本」写出 `$TMPDIR/home-check/check.sh`，然后 Run:
 ```bash
-cd /Users/jialiu/Projects/saisai.me/.worktrees/20261112-154332-homepage-redesign && \
-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu \
-  --window-size=1280,900 --screenshot="$TMPDIR/home-1280.png" "file://$PWD/index.html"
+"$TMPDIR/home-check/check.sh" /Users/jialiu/Projects/saisai.me/.worktrees/20261112-154332-homepage-redesign "$TMPDIR/home-check/t2"
 ```
-用 Read 打开 `$TMPDIR/home-1280.png`。Expected：前三张卡片插图分别一眼可认出「拼音声调字母」「耳机 + ABC」「天平 + x = ?」，字母没有被裁切。
+Expected：输出 5 行，每行 `cards=6`；不出现 `NO_BROWSER`。
+用 Read 打开 `$TMPDIR/home-check/t2/home-1280.png`（整页截图）。Expected：前三张卡片插图分别一眼可认出「拼音声调字母」「耳机 + ABC」「天平 + x = ?」，字母没有被裁切。
+如果输出 `NO_BROWSER`、`NO_SCREENSHOT` 或 stderr 出现 `BROWSER_FAIL`：先重跑一次；仍失败就停下来报告，不要跳过本步。
 
 - [ ] **Step 6: Commit**
 
@@ -291,34 +365,17 @@ git commit -m "feat(home): 学拼音、英语听力、解方程插图"
 - [ ] **Step 1: 追加失败测试**
 
 ```js
-test('plotter art has axes, two points and a line', () => {
-  const s = svgOf('plotter');
-  assert.ok((s.match(/<(line|path|polyline)\b/g) || []).length >= 3); // 两条坐标轴 + 一条直线
-  assert.ok((s.match(/<circle\b/g) || []).length >= 2);               // 两个点
-});
-
-test('maze art has walls and start/end markers', () => {
-  const s = svgOf('maze');
-  assert.ok(shapeCount(s) >= 8);
-  assert.ok((s.match(/<(circle|polygon|path)\b[^>]*fill="(?!none)/g) || []).length >= 2); // 起点、终点
-});
-
-test('jump art has a figure, two blocks and an arc', () => {
-  const s = svgOf('jump');
-  assert.ok((s.match(/<(rect|polygon|path)\b/g) || []).length >= 2);  // 两个方块
-  assert.match(s, /<path\b[^>]*d="[^"]*[QqCcAa]/);                      // 跳跃弧线（曲线命令）
-  assert.match(s, /<(circle|ellipse)\b/);                               // 小人的头
-});
-
 test('no placeholder-only svg remains', () => {
   for (const c of cards()) assert.ok(shapeCount(c.svg) >= 5, c.tool);
 });
 ```
 
+说明：本任务的静态测试只用来驱动「占位图已被替换」。坐标轴、迷宫墙、小人和弧线画得对不对，不用正则断言形状类型（正则通过不能证明画对），统一在 Step 5 看整页截图逐张验收。
+
 - [ ] **Step 2: 运行测试确认失败**
 
 Run: `node --test tests/`
-Expected: `plotter art…`、`maze art…`、`jump art…`、`no placeholder-only svg remains` FAIL。
+Expected: `no placeholder-only svg remains` FAIL，失败信息为 `plotter`（第一张仍是占位图的卡片）。
 
 - [ ] **Step 3: 画三幅插图**
 
@@ -332,22 +389,29 @@ Expected: `plotter art…`、`maze art…`、`jump art…`、`no placeholder-onl
 Run: `node --test tests/`
 Expected: 全部 PASS。
 
-- [ ] **Step 5: 四个宽度截图核对布局**
+- [ ] **Step 5: 五个宽度实测布局 + 整页截图核对**
 
-Run:
+先重写一遍 `$TMPDIR/home-check/check.sh`（见共享约定），然后 Run:
 ```bash
-cd /Users/jialiu/Projects/saisai.me/.worktrees/20261112-154332-homepage-redesign && \
-for s in 340,900 360,900 375,900 768,1024 1280,900; do \
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu --hide-scrollbars=false \
-    --window-size=$s --screenshot="$TMPDIR/home-${s%,*}.png" "file://$PWD/index.html"; done
+WT=/Users/jialiu/Projects/saisai.me/.worktrees/20261112-154332-homepage-redesign
+"$TMPDIR/home-check/check.sh" "$WT" "$TMPDIR/home-check/t3"
+"$TMPDIR/home-check/check.sh" "$WT" "$TMPDIR/home-check/t3-rm" --force-prefers-reduced-motion
 ```
-用 Read 逐张打开。Expected：
-- 1280：3 列；768：2 列；375 和 360：2 列；340：1 列。
-- 每张截图中卡片右边缘与页面右边缘之间有留白，没有卡片或标题被右侧裁切，底部无横向滚动条。
-- 「坐标绘图器」「迷宫生成器」在 360 宽下标题在卡片内（可换行，不溢出）。
-- 六幅插图看图就能分辨是哪个工具；页面上没有 📁、📄、英文目录名。
+Expected（第一条命令，5 行）：
+- 每行 `cards=6 hscroll=false titleOverflow=0 allVisible=true`，`transition=` 不是 `0s`。
+- 列数：`w=1280 … cols=3`；`w=768 … cols=2`；`w=375 … cols=2`；`w=360 … cols=2`；`w=340 … cols=1`。
 
-如果任一项不满足：调整 `index.html` 的 CSS（间距、`clamp()` 下限、留白），重跑 Step 4 和 Step 5。
+Expected（第二条命令，减少动态效果）：5 行都是 `transition=0s`。
+
+然后用 Read 逐张打开 `$TMPDIR/home-check/t3/home-{1280,768,375,360,340}.png`（整页截图，覆盖全部六张卡片）。Expected：
+- 卡片右边缘与页面右边缘之间有留白，没有卡片或标题被右侧裁切。
+- 「坐标绘图器」「迷宫生成器」在 360 宽下标题在卡片内（可换行）。
+- 六幅插图看图就能分辨是哪个工具：坐标轴 + 两点一线、迷宫墙 + 起点终点、方块 + 小人 + 跳跃弧线，以及 Task 2 的三幅；页面上没有 📁、📄、英文目录名。
+
+如果任一项不满足：调整 `index.html`（CSS 间距、`clamp()` 下限、留白，或插图本身），重跑 Step 4 和 Step 5。
+如果输出 `NO_BROWSER`、`NO_SCREENSHOT` 或 stderr 出现 `BROWSER_FAIL`：先重跑一次；仍失败就停下来报告，不要跳过本步。
+
+键盘 Tab/Enter：卡片是原生 `<a href>`，Tab 可达、Enter 跳转由浏览器保证；焦点框样式由 Task 1 `focus-visible outline exists` 检查。headless 下脚本调用 `focus()` 不会触发 `:focus-visible`（已实测），所以本步不自动化键盘检查。
 
 - [ ] **Step 6: 核对链接目标存在**
 
@@ -361,7 +425,7 @@ Expected：六行全是 `OK`。
 - [ ] **Step 7: 确认只改了允许的文件**
 
 Run: `git -C /Users/jialiu/Projects/saisai.me/.worktrees/20261112-154332-homepage-redesign diff --name-only main...HEAD; git -C /Users/jialiu/Projects/saisai.me/.worktrees/20261112-154332-homepage-redesign status --short`
-Expected：除 `docs/superpowers/` 下的文档外，只出现 `index.html` 和 `tests/homepage.test.mjs`。
+Expected：除 `docs/superpowers/` 下的文档和既有的 `.gitignore`（实施开始前已在本分支，见 Global Constraints）外，只出现 `index.html` 和 `tests/homepage.test.mjs`。不要为了让本步通过而撤销 `.gitignore` 的改动。
 
 - [ ] **Step 8: Commit**
 
