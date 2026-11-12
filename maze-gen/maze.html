@@ -1009,6 +1009,44 @@
         let currentSize = 50;
         let playerPosition = { row: 0, col: 0 }; // 小人当前位置
 
+        // ==== fog BEGIN ====
+        const FOG_MIN = 1;
+        const FOG_MAX = 25;
+        const FOG_DEFAULT_RADIUS = 5;
+        const FOG_ENABLED_KEY = 'maze-fog-enabled';
+        const FOG_RADIUS_KEY = 'maze-fog-radius';
+        let fogEnabled = true;
+        let fogRadius = 5;
+        let displayPosition = { row: 0, col: 0 }; // 小人当前显示位置（动画中逐格变化）
+
+        // Chebyshev 距离 <= radius 即在视野内
+        function isInFogView(row, col, playerRow, playerCol, radius) {
+            return Math.abs(row - playerRow) <= radius && Math.abs(col - playerCol) <= radius;
+        }
+
+        function loadFogSettings() {
+            try {
+                const enabledRaw = localStorage.getItem(FOG_ENABLED_KEY);
+                const radiusRaw = localStorage.getItem(FOG_RADIUS_KEY);
+                fogEnabled = enabledRaw !== 'false';
+                const n = radiusRaw === null ? NaN : Number(radiusRaw);
+                fogRadius = Number.isInteger(n) && n >= FOG_MIN && n <= FOG_MAX ? n : FOG_DEFAULT_RADIUS;
+            } catch (e) {
+                fogEnabled = true;
+                fogRadius = FOG_DEFAULT_RADIUS;
+            }
+        }
+
+        function saveFogSettings() {
+            try {
+                localStorage.setItem(FOG_ENABLED_KEY, String(fogEnabled));
+                localStorage.setItem(FOG_RADIUS_KEY, String(fogRadius));
+            } catch (e) {
+                // 存储不可用时忽略
+            }
+        }
+        // ==== fog END ====
+
         function setMazeSize(size) {
             currentSize = size;
             
