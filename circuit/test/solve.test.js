@@ -98,3 +98,19 @@ test('broken lamp is open; motor reverses; opposing batteries cancel', () => {
   const o = solve(loop({ B1: ['battery'], B2: ['battery'], L: ['lamp'] }, ['B1.p', 'B2.p', 'B2.n', 'L.a', 'L.b', 'B1.n']));
   assert.ok(Math.abs(o.parts.L.i) < 1e-6);
 });
+
+test('coincident terminals are connected: lamps butted end to end', () => {
+  // L1.b 与 L2.a 落在同一格点；导线只接到 L2.a，L1 仍应通电。
+  const c = build({
+    parts: {
+      B: ['battery', {}, { x: 6, y: 4 }],
+      L1: ['lamp', {}, { x: 6, y: 11 }],
+      L2: ['lamp', {}, { x: 10, y: 11 }],
+    },
+    wires: [['B.p', 'L1.a'], ['B.n', 'L2.a'], ['B.n', 'L2.b']],
+  });
+  const s = solve(c);
+  assert.ok(s.ok);
+  assert.ok(Math.abs(s.parts.L1.p - 0.22) < 0.01, `L1 p=${s.parts.L1.p}`);
+  assert.ok(Math.abs(s.parts.L2.p) < 1e-6);
+});
