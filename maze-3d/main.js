@@ -11,6 +11,10 @@ import {
   findNextIntersection,
   resolveInput,
   followOffset,
+  isInFogView,
+  clampRadius,
+  findPath,
+  wallInView,
 } from './game-logic.js';
 
 const STEP_MS = 120;
@@ -28,6 +32,23 @@ const COLORS = {
 };
 
 const $ = (id) => document.getElementById(id);
+
+// localStorage 在隐私模式等情况下可能抛异常，读写都要兜住
+function storageGet(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function storageSet(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // 保存失败不影响游戏
+  }
+}
 const stage = $('stage');
 
 // ---------- WebGL 探测与降级 ----------
@@ -114,6 +135,13 @@ function start() {
   let view = 'follow';
   const pos = { row: 0, col: 0, facing: 'down' };
   const display = { row: 0, col: 0 };
+
+  // ---------- 迷雾与道路 ----------
+  let fogOn = storageGet('maze3d.fogOn') !== '0';
+  let fogRadius = clampRadius(storageGet('maze3d.fogRadius') ?? 5);
+  let showPath = false;
+  let pathSet = null;
+  let fogRecomputeCount = 0;
 
   const tmpMatrix = new THREE.Matrix4();
   const tmpColor = new THREE.Color();
@@ -219,8 +247,7 @@ function start() {
       b.classList.toggle('active', Number(b.dataset.size) === size);
     });
 
-    applyWallVisibility();
-    applyFloorColors();
+    recomputeFog();
     snapCamera();
   }
 
@@ -228,18 +255,60 @@ function start() {
     player.position.set(v.x, 0, v.z);
   }
 
-  function cellVisible() {
-    return true;
+  function cellVisible(row, col) {
+    return !fogOn || isInFogView(display, { row, col }, fogRadius);
   }
 
   function onPathSet() {
-    return null;
+    return pathSet;
   }
+
+  // 唯一的迷雾重算入口：只在显示格变化、视野 / 开关 / 道路变化、重建迷宫时调用
+  function recomputeFog() {
+    fogRecomputeCount += 1;
+    if (showPath) {
+      const path = findPath(connections, display, { row: size - 1, col: size - 1 });
+      pathSet = new Set(path.map(([r, c]) => r * size + c));
+    } else {
+      pathSet = null;
+    }
+    applyWallVisibility();
+    applyFloorColors();
+  }
+
+  function updateFogUi() {
+    $('fog-btn').textContent = fogOn ? '迷雾：开' : '迷雾：关';
+    $('fog-radius').textContent = `视野 ${fogRadius}`;
+    $('fog-minus').disabled = fogRadius <= 1;
+    $('fog-plus').disabled = fogRadius >= 25;
+  }
+
+  function setFog(on, radius) {
+    fogOn = on;
+    fogRadius = clampRadius(radius);
+    storageSet('maze3d.fogOn', fogOn ? '1' : '0');
+    storageSet('maze3d.fogRadius', String(fogRadius));
+    updateFogUi();
+    recomputeFog();
+  }
+
+  $('fog-btn').addEventListener('click', () => setFog(!fogOn, fogRadius));
+  $('fog-minus').addEventListener('click', () => setFog(fogOn, fogRadius - 1));
+  $('fog-plus').addEventListener('click', () => setFog(fogOn, fogRadius + 1));
+  $('show-path-btn').addEventListener('click', () => {
+    showPath = true;
+    recomputeFog();
+  });
+  $('hide-path-btn').addEventListener('click', () => {
+    showPath = false;
+    recomputeFog();
+  });
+  updateFogUi();
 
   function applyWallVisibility() {
     for (let i = 0; i < segments.length; i++) {
       const s = segments[i];
-      const visible = s.cells.some(([row, col]) => cellVisible(row, col));
+      const visible = !fogOn || wallInView(s, display, fogRadius);
       tmpPos.set(s.x, 0.4, s.z);
       tmpQuat.setFromAxisAngle(yAxis, s.along === 'z' ? Math.PI / 2 : 0);
       tmpScale.setScalar(visible ? 1 : 0);
@@ -267,7 +336,7 @@ function start() {
   const camTarget = new THREE.Vector3();
 
   function currentFollowOffset() {
-    return followOffset(5);
+    return followOffset(fogOn ? fogRadius : 10);
   }
 
   function followTarget(out) {
@@ -293,7 +362,9 @@ function start() {
     return Date.now() + Math.floor(Math.random() * 1000);
   }
 
-  function onDisplayCellChanged() {}
+  function onDisplayCellChanged() {
+    recomputeFog();
+  }
 
   function cancelAnimation() {
     anim = null;
@@ -494,8 +565,10 @@ function start() {
       const out = [];
       for (let i = 0; i < segments.length; i++) {
         walls.getMatrixAt(i, tmpMatrix);
-        tmpMatrix.decompose(tmpPos, tmpQuat, tmpScale);
-        out.push(tmpScale.x !== 0 || tmpScale.y !== 0 || tmpScale.z !== 0);
+        // 不用 decompose：r187 对行列式为 0 的矩阵直接返回缩放 1
+        const e = tmpMatrix.elements;
+        const scale = Math.hypot(e[0], e[1], e[2]) * Math.hypot(e[4], e[5], e[6]);
+        out.push(scale * Math.hypot(e[8], e[9], e[10]) !== 0);
       }
       return out;
     },
@@ -504,6 +577,15 @@ function start() {
       return '#' + tmpColor.getHexString();
     },
     sampleDistinctColors,
+    get fog() {
+      return { on: fogOn, radius: fogRadius };
+    },
+    get showPath() {
+      return showPath;
+    },
+    get fogRecomputeCount() {
+      return fogRecomputeCount;
+    },
     get threeRevision() {
       return THREE.REVISION;
     },

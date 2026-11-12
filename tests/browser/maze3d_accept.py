@@ -463,6 +463,214 @@ def check_11(browser, base):
     return ok, (" ".join(details) + " " + msg).strip()
 
 
+FOG_STATE_JS = """(() => {
+  const vis = M.wallsVisible();
+  const want = M.segments.map((s) => L.wallInView(s, M.display, arg));
+  let wallMismatch = 0;
+  for (let i = 0; i < want.length; i++) if (vis[i] !== want[i]) wallMismatch++;
+  let floorMismatch = 0;
+  for (let row = 0; row < M.size; row++)
+    for (let col = 0; col < M.size; col++) {
+      const inView = L.isInFogView(M.display, { row, col }, arg);
+      const hex = M.floorColorHex(row, col);
+      if (!inView && hex !== '#333333') floorMismatch++;
+      if (inView && hex === '#333333') floorMismatch++;
+    }
+  return { wallMismatch, floorMismatch, walls: want.length };
+})()"""
+
+
+def click_until_disabled(page, sel, limit=40):
+    for _ in range(limit):
+        if page.is_disabled(sel):
+            return True
+        page.click(sel)
+    return page.is_disabled(sel)
+
+
+def check_4(browser, base):
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=20")
+    details = []
+    try:
+        wait_idle(page)
+        # (a) 默认迷雾
+        fog = m3(page, "fog")
+        r = logic(page, FOG_STATE_JS, 5)
+        ok = fog == {"on": True, "radius": 5} and r["wallMismatch"] == 0
+        ok = ok and r["floorMismatch"] == 0
+        details.append(f"a:fog={fog} {r}")
+        if not ok:
+            return False, " ".join(details)
+        # (b) 视野调到 1 与 25
+        click_until_disabled(page, "#fog-minus")
+        text1 = page.inner_text("#fog-radius")
+        r1 = m3(page, "fog")["radius"]
+        click_until_disabled(page, "#fog-plus")
+        r25 = m3(page, "fog")["radius"]
+        ok = (
+            text1 == "视野 1"
+            and r1 == 1
+            and r25 == 25
+            and page.is_disabled("#fog-plus")
+            and not page.is_disabled("#fog-minus")
+        )
+        details.append(f"b:min={r1}({text1}) max={r25}")
+        if not ok:
+            return False, " ".join(details)
+        # (c) 关闭迷雾
+        page.click("#fog-btn")
+        btn = page.inner_text("#fog-btn")
+        all_walls = page.evaluate("() => window.__maze3d.wallsVisible().every(Boolean)")
+        dark = page.evaluate(
+            "() => { const M = window.__maze3d; let n = 0;"
+            " for (let r = 0; r < M.size; r++) for (let c = 0; c < M.size; c++)"
+            " if (M.floorColorHex(r, c) === '#333333') n++; return n; }"
+        )
+        ok = btn == "迷雾：关" and all_walls and dark == 0
+        details.append(f"c:btn={btn} allWalls={all_walls} dark={dark}")
+        if not ok:
+            return False, " ".join(details)
+        # (d) 刷新后保持
+        page.reload()
+        wait_idle(page)
+        fog = m3(page, "fog")
+        ok = fog == {"on": False, "radius": 25}
+        details.append(f"d:reload fog={fog}")
+        if not ok:
+            return False, " ".join(details)
+        # (e) 空闲时不重算，移动后重算
+        n0 = m3(page, "fogRecomputeCount")
+        page.wait_for_timeout(1000)
+        n1 = m3(page, "fogRecomputeCount")
+        d = entrance_dir(page)
+        page.keyboard.press(KEYS[d])
+        wait_settled(page)
+        n2 = m3(page, "fogRecomputeCount")
+        ok = n0 == n1 and n2 > n1
+        details.append(f"e:count {n0}->{n1} idle, ->{n2} after move")
+        if not ok:
+            return False, " ".join(details)
+        ok, msg = no_errors(errors)
+        return ok, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+PATH_STATE_JS = """(() => {
+  const path = L.findPath(M.connections, M.player, { row: M.size - 1, col: M.size - 1 });
+  const on = new Set(path.map(([r, c]) => r * M.size + c));
+  let bad = 0;
+  for (let row = 0; row < M.size; row++)
+    for (let col = 0; col < M.size; col++) {
+      const red = M.floorColorHex(row, col) === '#ff6b6b';
+      if (red !== on.has(row * M.size + col)) bad++;
+    }
+  return { len: path.length, bad };
+})()"""
+
+
+def check_5(browser, base):
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    details = []
+    try:
+        wait_idle(page)
+        page.keyboard.press(KEYS[entrance_dir(page)])
+        wait_idle(page)
+        page.click("#show-path-btn")
+        r = logic(page, PATH_STATE_JS)
+        details.append(f"show:{r} showPath={m3(page, 'showPath')}")
+        if r["bad"] != 0 or r["len"] < 2:
+            return False, " ".join(details)
+        # 再走一步，路径按新位置重算
+        moved = False
+        for d in ["right", "down", "left", "up"]:
+            if next_stop(page, d) is not None:
+                page.keyboard.press(KEYS[d])
+                wait_settled(page)
+                moved = True
+                break
+        r = logic(page, PATH_STATE_JS)
+        details.append(f"after-move({moved}) at {pos(page)}:{r}")
+        if not moved or r["bad"] != 0:
+            return False, " ".join(details)
+        page.click("#hide-path-btn")
+        res = logic(
+            page,
+            """(() => {
+              let red = 0;
+              for (let row = 0; row < M.size; row++)
+                for (let col = 0; col < M.size; col++)
+                  if (M.floorColorHex(row, col) === '#ff6b6b') red++;
+              const startIn = L.isInFogView(M.display, { row: 0, col: 0 }, M.fog.radius) || !M.fog.on;
+              const endIn = L.isInFogView(M.display, { row: M.size - 1, col: M.size - 1 }, M.fog.radius) || !M.fog.on;
+              return {
+                red,
+                start: M.floorColorHex(0, 0),
+                startWant: startIn ? '#4caf50' : '#333333',
+                end: M.floorColorHex(M.size - 1, M.size - 1),
+                endWant: endIn ? '#e53935' : '#333333',
+              };
+            })()""",
+        )
+        details.append(f"hide:{res}")
+        ok = (
+            res["red"] == 0
+            and res["start"] == res["startWant"]
+            and res["end"] == res["endWant"]
+        )
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+BLOCK_STORAGE = """
+Storage.prototype.getItem = function () { throw new Error('storage blocked'); };
+Storage.prototype.setItem = function () { throw new Error('storage blocked'); };
+"""
+
+
+def preset_storage(on, radius):
+    return (
+        "try { localStorage.setItem('maze3d.fogOn', %s);"
+        " localStorage.setItem('maze3d.fogRadius', %s); } catch (e) {}"
+        % (json.dumps(on), json.dumps(radius))
+    )
+
+
+def check_4b(browser, base):
+    details = []
+    page, errors = open_page(
+        browser, f"{base}{PAGE}?seed={S}&size=10", init_script=BLOCK_STORAGE
+    )
+    try:
+        wait_idle(page)
+        fog = m3(page, "fog")
+        page.click("#fog-plus")
+        r6 = m3(page, "fog")["radius"]
+        pageerrors = [e for e in errors if e.startswith("pageerror")]
+        details.append(f"blocked: fog={fog} after+={r6} pageerrors={pageerrors}")
+        if fog != {"on": True, "radius": 5} or r6 != 6 or pageerrors:
+            return False, " ".join(details)
+    finally:
+        close(page)
+    for raw, want in [("abc", 5), ("99", 25)]:
+        page, errors = open_page(
+            browser,
+            f"{base}{PAGE}?seed={S}&size=10",
+            init_script=preset_storage("1", raw),
+        )
+        try:
+            wait_idle(page)
+            fog = m3(page, "fog")
+            details.append(f"preset {raw!r}: fog={fog}")
+            if fog != {"on": True, "radius": want}:
+                return False, " ".join(details)
+        finally:
+            close(page)
+    return True, " ".join(details)
+
+
 # ---------------------------------------------------------------- runner
 
 CHECKS = {
@@ -474,6 +682,9 @@ CHECKS = {
     "6b": check_6b,
     "7": check_7,
     "11": check_11,
+    "4": check_4,
+    "4b": check_4b,
+    "5": check_5,
 }
 
 
