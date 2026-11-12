@@ -55,7 +55,13 @@ function dct(input, numCoeffs) {
   return out;
 }
 
-export function mfcc(samples, sampleRate, opts = {}) {
+/**
+ * 逐帧的对数梅尔能量（MFCC 做 DCT 之前的那一步）。
+ *
+ * 跟读打分里它单独有用：MFCC 配的是每条自归一（cmvn），而梅尔谱配的是
+ * 按说话人归一 —— 两种归一化各自有效，合起来比任一个都稳。见 README。
+ */
+export function logMel(samples, sampleRate, opts = {}) {
   const frameSize = opts.frameSize ?? Math.round(sampleRate * 0.025);
   const hopSize = opts.hopSize ?? Math.round(sampleRate * 0.010);
   if (samples.length < frameSize) return [];
@@ -84,9 +90,14 @@ export function mfcc(samples, sampleRate, opts = {}) {
       return Math.log(Math.max(s, LOG_FLOOR));
     });
 
-    frames.push(dct(logEnergies, NUM_COEFFS));
+    frames.push(logEnergies);
   }
   return frames;
+}
+
+export function mfcc(samples, sampleRate, opts = {}) {
+  return logMel(samples, sampleRate, opts)
+    .map((energies) => dct(energies, NUM_COEFFS));
 }
 
 /**

@@ -1,0 +1,485 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>声韵母"像不像"实验台</title><style>
+body{font-family:-apple-system,'PingFang SC',sans-serif;background:#f5f3ff;color:#2d2a45;margin:0;padding:16px;max-width:820px}
+h1{font-size:1.1rem}
+p.note{color:#6b6690;font-size:.85rem;line-height:1.6;background:#fff;padding:12px;border-radius:10px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
+button{min-height:44px;padding:0 18px;border:none;border-radius:10px;background:#667eea;color:#fff;font-size:1rem;font-family:inherit}
+button[disabled]{opacity:.4}
+button.ghost{background:#fff;color:#2d2a45;border:1px solid #d9d5f0}
+button.on{background:#e2574c}
+select{min-height:44px;font-size:1rem;font-family:inherit;border-radius:10px;border:1px solid #d9d5f0;padding:0 10px;background:#fff}
+#score{font-size:1rem;background:#fff;border-radius:10px;padding:12px;margin:12px 0;line-height:1.7}
+#score b.big{font-size:1.6rem}
+table{width:100%;border-collapse:collapse;font-size:.85rem;background:#fff;border-radius:10px;overflow:hidden}
+td,th{padding:5px 8px;text-align:left;border-bottom:1px solid #eee}
+tr.target{background:#e8f7ef;font-weight:600}
+.bar{display:inline-block;height:10px;background:#667eea;border-radius:3px;vertical-align:middle}
+.bar.neg{background:#e2574c}
+pre{background:#fff;border-radius:10px;padding:12px;font-size:.8rem;overflow:auto;line-height:1.5}
+.panel{background:#fff;border-radius:10px;padding:12px;margin:12px 0}
+.panel h3{font-size:.85rem;margin:0 0 6px;color:#6b6690;font-weight:600}
+.panel .cap{font-size:.78rem;color:#9892b8;margin-top:6px;line-height:1.5}
+.two{display:flex;gap:12px;flex-wrap:wrap}
+.two>div{flex:1;min-width:260px}
+canvas{width:100%;display:block;border-radius:6px}
+</style></head><body>
+<h1>声韵母"像不像"实验台</h1>
+<p class="note">
+不判"读对读错"，只给一个相对分数：把你的录音到<b>目标韵母</b>的距离，放进"到同声调
+其它全部韵母的距离"这个分布里，取 z 分数。说话人、麦克风、音量的差异对所有候选
+同等生效，一减一除就抵消掉了。<br>
+参考音库在浏览器里现算特征，和录音走<b>同一条代码路径</b>，不存在两边实现对不齐的问题。<br>
+<b>星级阈值是未标定的占位值</b>（按成人数据定的），孩子的 z 会整体偏低。先看 z 和排名。
+</p>
+
+<div class="row">
+  <button id="load">① 加载参考音库</button>
+  <span id="loadmsg"></span>
+</div>
+
+<div class="row">
+  <label>目标：</label>
+  <select id="ym" disabled></select>
+  <select id="tone" disabled>
+    <option value="1">一声</option><option value="2">二声</option>
+    <option value="3">三声</option><option value="4">四声</option>
+  </select>
+  <button id="play" class="ghost" disabled>听标准音</button>
+  <button id="rec" disabled>② 开始录音</button>
+  <button id="playrec" class="ghost" disabled>听我的录音</button>
+</div>
+
+<div id="score"></div>
+
+<div class="panel" id="viz" hidden>
+  <h3>① 波形与端点 —— 先确认切的是对的</h3>
+  <canvas id="wave" height="100"></canvas>
+  <div class="cap">灰色是整段录音，蓝色是端点检测认定的发声段，只有蓝色部分参与打分。
+  两端有大片灰色说明录早了/停晚了；蓝色贴边说明掐掉了起音或收尾。</div>
+
+  <h3 style="margin-top:16px">② 打分器眼里的两张脸</h3>
+  <div class="two">
+    <div><canvas id="specA" height="150"></canvas>
+      <div class="cap" id="capA">你的录音</div></div>
+    <div><canvas id="specB" height="150"></canvas>
+      <div class="cap" id="capB">标准音</div></div>
+  </div>
+  <div class="cap">这不是原始声谱图，是<b>真正送进比对的那个东西</b>：按说话人归一、再沿时间轴
+  重采样到 24 帧的梅尔谱。横轴是时间（已拉成等长，所以不比时长只比形状），纵轴是频率
+  （下低上高）。暖色＝该频段能量相对偏高。两张图的纹路越像，z 越高。</div>
+
+  <h3 style="margin-top:16px">③ 哪一段不像</h3>
+  <canvas id="diff" height="70"></canvas>
+  <div class="cap">逐帧的差异（按时间比例对齐，不是 DTW 路径）。柱子高的地方就是两张图
+  对不上的时间点 —— 起音处高多半是声母或起始位置的事，中段高才是韵母本身不像。</div>
+</div>
+
+<table id="t"></table>
+
+<div class="row" style="margin-top:20px">
+  <button id="selftest" class="ghost" disabled>③ 自检：用音库 A 当"录音"去对音库 B</button>
+</div>
+<pre id="out"></pre>
+
+<script type="module">
+// 开发工具，永远用最新的模块：浏览器会缓存 ESM，改完代码不击穿就看不到效果
+const v = '?v=' + Date.now();
+const { logMel, mfcc, cmvn } = await import('../lib/mfcc.js' + v);
+const { trimSilence } = await import('../lib/endpoint.js' + v);
+const {
+  resampleTraj, speakerStats, applyStats, zScores, fuseZ, stars,
+} = await import('../lib/similarity.js' + v);
+
+const SR = 16000;
+const CORPORA = ['hyp', 'pd'];          // 本地有的两个真人音库
+const $ = (id) => document.getElementById(id);
+
+/* ---------- 参考音库 ---------- */
+
+// corpus -> tone -> Map<韵母, {mel, mfc}>
+const REF = {};
+let YM = [];
+
+async function decode(url) {
+  const ctx = new OfflineAudioContext(1, 1, SR);
+  const buf = await ctx.decodeAudioData(await (await fetch(url)).arrayBuffer());
+  return buf.getChannelData(0);
+}
+
+/** 一段 PCM → 两套特征的原始帧（还没归一、还没重采样）。seg 留给画图用。 */
+function rawFeats(samples) {
+  const seg = trimSilence(samples, SR);
+  if (!seg) return null;
+  return { seg, mel: logMel(seg.samples, SR), mfc: cmvn(mfcc(seg.samples, SR)) };
+}
+
+async function loadCorpus(name, items, onStep) {
+  const got = [];
+  for (const it of items) {
+    try {
+      const f = rawFeats(await decode(`../audio/${name}/${it.key}`));
+      if (f) got.push({ it, f });
+    } catch (_) { /* 这个音库没有这一条，跳过 */ }
+    onStep();
+  }
+  // 说话人级归一只对梅尔谱做（MFCC 那一路走的是每条自归一）
+  const stats = speakerStats(got.map((g) => g.f.mel));
+  const byTone = { 1: new Map(), 2: new Map(), 3: new Map(), 4: new Map() };
+  for (const { it, f } of got) {
+    byTone[it.tone].set(it.base, {
+      mel: resampleTraj(applyStats(f.mel, stats)),
+      mfc: resampleTraj(f.mfc),
+    });
+  }
+  return { byTone, stats };
+}
+
+$('load').onclick = async () => {
+  $('load').disabled = true;
+  const data = await (await fetch('../data/pinyin.json')).json();
+  const items = data.groups.filter((g) => g.id !== 'shengmu')
+    .flatMap((g) => g.items)
+    .filter((i) => i.tone)
+    .map((i) => ({ ...i, base: i.id.replace(/[1-4]$/, '') }));
+
+  let done = 0;
+  const total = items.length * CORPORA.length;
+  const step = () => {
+    done++;
+    $('loadmsg').textContent = `解码 ${done}/${total} …`;
+  };
+  for (const c of CORPORA) REF[c] = await loadCorpus(c, items, step);
+
+  // 只保留两个音库都有的候选
+  for (const t of [1, 2, 3, 4]) {
+    const common = [...REF[CORPORA[0]].byTone[t].keys()]
+      .filter((k) => CORPORA.every((c) => REF[c].byTone[t].has(k)));
+    for (const c of CORPORA) {
+      for (const k of [...REF[c].byTone[t].keys()]) {
+        if (!common.includes(k)) REF[c].byTone[t].delete(k);
+      }
+    }
+  }
+  YM = [...new Set([1, 2, 3, 4].flatMap((t) => [...REF.hyp.byTone[t].keys()]))].sort();
+  $('ym').innerHTML = YM.map((y) => `<option>${y}</option>`).join('');
+  for (const id of ['ym', 'tone', 'rec', 'play', 'selftest']) $(id).disabled = false;
+  const n = [...REF.hyp.byTone[1].keys()].length;
+  $('loadmsg').textContent = `就绪：${YM.length} 个韵母，一声有 ${n} 个候选`;
+};
+
+/* ---------- 录音 ---------- */
+
+const WORKLET = `
+class R extends AudioWorkletProcessor {
+  constructor(){super();this.on=false;this.port.onmessage=e=>{this.on=e.data==='start'}}
+  process(i){if(this.on&&i[0]&&i[0][0])this.port.postMessage(i[0][0].slice());return true}
+}
+registerProcessor('recorder', R);`;
+
+let ctx = null; let node = null; let chunks = []; let on = false;
+let lastPcm = null;        // 最近一次录音，已降到 16k
+
+async function initMic() {
+  if (node) return;
+  ctx = new AudioContext();
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+  });
+  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: 'text/javascript' })));
+  node = new AudioWorkletNode(ctx, 'recorder');
+  node.port.onmessage = (e) => { if (on) chunks.push(e.data); };
+  ctx.createMediaStreamSource(stream).connect(node);
+  const sink = ctx.createGain();
+  sink.gain.value = 0;                     // 拉动渲染图但不自听
+  node.connect(sink);
+  sink.connect(ctx.destination);
+}
+
+/** 任意采样率 → 16k，和参考音库对齐。 */
+async function to16k(pcm, rate) {
+  if (rate === SR) return pcm;
+  const off = new OfflineAudioContext(1, Math.ceil(pcm.length * SR / rate), SR);
+  const b = off.createBuffer(1, pcm.length, rate);
+  b.copyToChannel(pcm, 0);
+  const s = off.createBufferSource();
+  s.buffer = b;
+  s.connect(off.destination);
+  s.start();
+  return (await off.startRendering()).getChannelData(0);
+}
+
+$('rec').onclick = async () => {
+  if (!on) {
+    await initMic();
+    chunks = []; on = true;
+    $('rec').textContent = '■ 停止'; $('rec').classList.add('on');
+    node.port.postMessage('start');
+    return;
+  }
+  on = false;
+  node.port.postMessage('stop');
+  $('rec').textContent = '② 开始录音'; $('rec').classList.remove('on');
+  await new Promise((r) => setTimeout(r, 80));   // 接住在途的 block
+  const total = chunks.reduce((s, c) => s + c.length, 0);
+  const pcm = new Float32Array(total);
+  let o = 0;
+  for (const c of chunks) { pcm.set(c, o); o += c.length; }
+  lastPcm = await to16k(pcm, ctx.sampleRate);
+  $('playrec').disabled = false;
+  score(lastPcm);
+};
+
+/**
+ * 回放刚才的录音。放的是**降到 16k、打分器真正听到的那一份**，
+ * 不是原始采样率的——听感和分数对不上的时候，先怀疑这一步。
+ *
+ * 增益链路照抄 audio.js：音源 → 增益(3x) → 压缩器 → destination。
+ * 麦克风录下来的本来就轻，不提增益基本听不见；压缩器兜住峰值不削顶。
+ */
+$('playrec').onclick = () => {
+  if (!lastPcm || !ctx) return;
+  const buf = ctx.createBuffer(1, lastPcm.length, SR);
+  buf.copyToChannel(lastPcm, 0);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const gain = ctx.createGain();
+  gain.gain.value = 3;
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -12;
+  comp.ratio.value = 6;
+  src.connect(gain);
+  gain.connect(comp);          // 不写链式：老 WebKit 的 connect() 不返回目标节点
+  comp.connect(ctx.destination);
+  src.start();
+};
+
+$('play').onclick = async () => {
+  const url = `../audio/hyp/ym/${$('ym').value}${$('tone').value}.mp3`;
+  new Audio(url).play().catch(() => {});
+};
+
+/* ---------- 打分 ---------- */
+
+/** probe 的原始特征 + 候选表 → 融合后的 z 表。 */
+function scoreAgainst(raw, tone, corpora) {
+  const maps = [];
+  for (const c of corpora) {
+    const refs = REF[c].byTone[tone];
+    if (!refs || refs.size < 4) continue;
+    // 梅尔谱：用**参考说话人**的统计量去归一探测音，两边落在同一个坐标系里
+    const mel = resampleTraj(applyStats(raw.mel, REF[c].stats));
+    const mfc = resampleTraj(raw.mfc);
+    maps.push(zScores(mel, new Map([...refs].map(([k, r]) => [k, r.mel]))));
+    maps.push(zScores(mfc, new Map([...refs].map(([k, r]) => [k, r.mfc]))));
+  }
+  return fuseZ(maps);
+}
+
+function score(pcm) {
+  const raw = rawFeats(pcm);
+  if (!raw) { $('score').textContent = '没检测到发声段'; $('viz').hidden = true; return; }
+  const tone = Number($('tone').value);
+  const target = $('ym').value;
+  const z = scoreAgainst(raw, tone, CORPORA);
+  if (!z.has(target)) { $('score').textContent = `参考音库里没有 ${target}${tone}`; return; }
+
+  const zt = z.get(target);
+  const ranked = [...z].sort((a, b) => b[1] - a[1]);
+  const rank = ranked.findIndex(([k]) => k === target) + 1;
+  $('score').innerHTML =
+    `目标 <b>${target}${tone}</b> 　 z = <b class="big">${zt.toFixed(2)}</b> `
+    + `　 ${stars(zt)} / 10 星（阈值未标定）　 在 ${ranked.length} 个候选里排第 ${rank}`
+    + `<br><span style="color:#6b6690;font-size:.85rem">参考：读对 ≈ +1.2，`
+    + `近邻错（an↔ang）≈ +0.44，远错 ≈ −0.11，哼鸣 ≈ 0.00</span>`;
+
+  drawViz(pcm, raw, target, tone);
+
+  $('t').innerHTML = '<tr><th>候选</th><th>z</th><th></th></tr>'
+    + ranked.map(([k, val]) => {
+      const w = Math.min(200, Math.abs(val) * 60);
+      return `<tr class="${k === target ? 'target' : ''}"><td>${k}</td>`
+        + `<td>${val >= 0 ? '+' : ''}${val.toFixed(2)}</td>`
+        + `<td><span class="bar ${val < 0 ? 'neg' : ''}" style="width:${w}px"></span></td></tr>`;
+    }).join('');
+}
+
+/* ---------- 画图 ---------- */
+
+function fitCanvas(cv, cssH) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth || 600;
+  cv.width = Math.round(w * dpr);
+  cv.height = Math.round(cssH * dpr);
+  cv.style.height = cssH + 'px';
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, cssH);
+  return { g, w, h: cssH };
+}
+
+/** 整段录音的包络，发声段用蓝色标出来。 */
+function drawWave(cv, pcm, seg) {
+  const { g, w, h } = fitCanvas(cv, 100);
+  const mid = h / 2;
+  g.fillStyle = '#faf9ff';
+  g.fillRect(0, 0, w, h);
+  const per = Math.max(1, Math.floor(pcm.length / w));
+  for (let x = 0; x < w; x++) {
+    const a = x * per;
+    let lo = 0;
+    let hi = 0;
+    for (let i = a; i < Math.min(pcm.length, a + per); i++) {
+      if (pcm[i] < lo) lo = pcm[i];
+      if (pcm[i] > hi) hi = pcm[i];
+    }
+    const voiced = seg && a >= seg.voicedStart && a < seg.voicedEnd;
+    g.fillStyle = voiced ? '#667eea' : '#cfcadf';
+    g.fillRect(x, mid - hi * mid * 0.95, 1, Math.max(1, (hi - lo) * mid * 0.95));
+  }
+  if (seg) {       // 发声段的两条边界
+    g.strokeStyle = '#2fa968';
+    g.setLineDash([3, 3]);
+    for (const p of [seg.voicedStart, seg.voicedEnd]) {
+      const x = (p / pcm.length) * w;
+      g.beginPath();
+      g.moveTo(x, 0);
+      g.lineTo(x, h);
+      g.stroke();
+    }
+    g.setLineDash([]);
+  }
+}
+
+/** 归一化之后的值是有正有负的，所以用发散色标：冷 ← 0 → 暖。 */
+function heat(v, span = 2.5) {
+  const t = Math.max(-1, Math.min(1, v / span));
+  const mix = (a, b, k) => a.map((x, i) => Math.round(x + (b[i] - x) * k));
+  const cold = [59, 58, 107];
+  const zero = [246, 244, 252];
+  const warm = [226, 87, 76];
+  const c = t < 0 ? mix(zero, cold, -t) : mix(zero, warm, t);
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+
+/** frames: 帧 × 梅尔通道。横轴时间，纵轴频率（下低上高）。 */
+function drawSpec(cv, frames) {
+  const { g, w, h } = fitCanvas(cv, 150);
+  if (!frames.length) return;
+  const nF = frames.length;
+  const nB = frames[0].length;
+  const cw = w / nF;
+  const ch = h / nB;
+  for (let i = 0; i < nF; i++) {
+    for (let b = 0; b < nB; b++) {
+      g.fillStyle = heat(frames[i][b]);
+      g.fillRect(i * cw, h - (b + 1) * ch, Math.ceil(cw) + 0.5, Math.ceil(ch) + 0.5);
+    }
+  }
+}
+
+function drawDiff(cv, A, B) {
+  const { g, w, h } = fitCanvas(cv, 70);
+  g.fillStyle = '#faf9ff';
+  g.fillRect(0, 0, w, h);
+  if (!A.length || !B.length) return;
+  const d = A.map((f, i) => Math.sqrt(
+    f.reduce((s, v, k) => s + (v - B[i][k]) ** 2, 0)));
+  const max = Math.max(...d) || 1;
+  const cw = w / d.length;
+  d.forEach((v, i) => {
+    const bh = (v / max) * (h - 14);
+    g.fillStyle = v > max * 0.7 ? '#e2574c' : '#667eea';
+    g.fillRect(i * cw + 1, h - bh, cw - 2, bh);
+  });
+  g.fillStyle = '#9892b8';
+  g.font = '10px -apple-system,sans-serif';
+  g.fillText('起音', 2, 10);
+  g.fillText('收尾', w - 26, 10);
+}
+
+function drawViz(pcm, raw, target, tone) {
+  const c = CORPORA[0];                       // 画图统一用第一个参考音库
+  const ref = REF[c].byTone[tone].get(target);
+  if (!ref) { $('viz').hidden = true; return; }
+  const probeMel = resampleTraj(applyStats(raw.mel, REF[c].stats));
+  $('viz').hidden = false;
+  drawWave($('wave'), pcm, raw.seg);
+  drawSpec($('specA'), probeMel);
+  drawSpec($('specB'), ref.mel);
+  drawDiff($('diff'), probeMel, ref.mel);
+  $('capA').textContent = '你的录音';
+  $('capB').textContent = `标准音 ${target}${tone}（音库 ${c}）`;
+}
+
+/* ---------- 自检 ---------- */
+
+const NEAR_PAIRS = [['an', 'ang'], ['in', 'ing'], ['en', 'eng'], ['i', 'ing'], ['i', 'in'],
+  ['u', 'ou'], ['e', 'er'], ['a', 'ai'], ['a', 'ao'], ['a', 'an'], ['e', 'ei'], ['e', 'en'],
+  ['u', 'un'], ['ui', 'ei'], ['iu', 'ou'], ['lv', 'u'], ['ve', 'ie'], ['vn', 'un'],
+  ['ie', 'i'], ['o', 'ou']];
+const NEAR = new Set(NEAR_PAIRS.flatMap(([a, b]) => [`${a}|${b}`, `${b}|${a}`]));
+
+function auc(pos, neg) {
+  const all = [...pos.map((v) => [v, 1]), ...neg.map((v) => [v, 0])]
+    .sort((a, b) => a[0] - b[0]);
+  let rp = 0;
+  all.forEach(([, lab], i) => { if (lab) rp += i + 1; });
+  return (rp - pos.length * (pos.length + 1) / 2) / (pos.length * neg.length);
+}
+
+const mean = (a) => a.reduce((s, x) => s + x, 0) / (a.length || 1);
+
+$('selftest').onclick = async () => {
+  $('selftest').disabled = true;
+  const lines = [];
+  for (const [p, r] of [['hyp', 'pd'], ['pd', 'hyp']]) {
+    const pos = []; const nearE = []; const farE = []; const ranks = [];
+    for (const t of [1, 2, 3, 4]) {
+      const probeSet = REF[p].byTone[t];
+      for (const [base] of probeSet) {
+        // 探测音用对方音库当参考，和真录音完全一样的路径
+        const refs = REF[r].byTone[t];
+        const maps = [
+          zScores(probeSet.get(base).mel, new Map([...refs].map(([k, x]) => [k, x.mel]))),
+          zScores(probeSet.get(base).mfc, new Map([...refs].map(([k, x]) => [k, x.mfc]))),
+        ];
+        const z = fuseZ(maps);
+        for (const [k, val] of z) {
+          if (k === base) pos.push(val);
+          else if (NEAR.has(`${base}|${k}`)) nearE.push(val);
+          else farE.push(val);
+        }
+        ranks.push([...z].sort((a, b) => b[1] - a[1]).findIndex(([k]) => k === base) + 1);
+      }
+      await new Promise((rr) => setTimeout(rr, 0));
+    }
+    ranks.sort((a, b) => a - b);
+    lines.push(
+      `${p} → ${r}  n=${ranks.length}\n`
+      + `  读对   ${mean(pos).toFixed(2).padStart(6)}   `
+      + `近邻错 ${mean(nearE).toFixed(2).padStart(6)}   `
+      + `远错 ${mean(farE).toFixed(2).padStart(6)}\n`
+      + `  AUC 对vs错 ${auc(pos, [...nearE, ...farE]).toFixed(3)}   `
+      + `对vs近邻 ${auc(pos, nearE).toFixed(3)}   `
+      + `中位名次 ${ranks[ranks.length >> 1]}`);
+  }
+  $('out').textContent = lines.join('\n\n')
+    + '\n\n（Python 实验里 mel+mfcc 融合是：读对 +1.45/+1.17，近邻错 +0.45，'
+    + '\n远错 −0.11，AUC 对vs错 0.873/0.809。两边对得上就说明 JS 这条路径是对的。）';
+  $('selftest').disabled = false;
+};
+
+// 自动化测试的入口：可以不经过麦克风，直接拿一段 PCM 走完整条打分和回放路径
+window.__lab = {
+  score, to16k, rawFeats, scoreAgainst, REF,
+  feed(pcm) {
+    ctx = ctx || new AudioContext();
+    lastPcm = pcm;
+    $('playrec').disabled = false;
+    score(pcm);
+  },
+};
+</script>
+</body></html>
