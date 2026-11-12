@@ -1975,7 +1975,7 @@ def main():
             f"Chromium：{version}",
             "命令：python tests/browser/maze3d_accept.py --write"
             + (f" --baseline-root {BASELINE_ROOT}" if BASELINE_ROOT else ""),
-            f"总体：{'PASS' if all_ok else 'FAIL'}",
+            f"自动检查：{'PASS' if all_ok else 'FAIL'}",
             f"基线代码：{BASELINE_ROOT}（merge-base）",
             f"人工检查：待用户查看 {SHOTS} 下 12 张截图，确认四种风格纹理明显",
             "",
