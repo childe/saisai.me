@@ -118,6 +118,19 @@
             background-color: #ff0000 !important;
             opacity: 0.8;
         }
+
+        /* 迷雾：视野外的格子 */
+        .fog {
+            background-color: #444 !important;
+        }
+
+        .cell.fog > * {
+            visibility: hidden;
+        }
+
+        .cell.fog.solution {
+            background-color: #ff0000 !important;
+        }
         
         .entrance {
             background-color: #4CAF50;
@@ -145,6 +158,39 @@
             line-height: 1;
         }
         
+        .fog-controls {
+            margin: 15px 0;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+        }
+
+        .fog-toggle {
+            flex: 0 1 auto;
+        }
+
+        .fog-step {
+            flex: 0 0 44px;
+            width: 44px;
+            min-width: 44px;
+            height: 44px;
+            padding: 0;
+        }
+
+        .fog-step:disabled {
+            background-color: #9e9e9e;
+            cursor: not-allowed;
+        }
+
+        .fog-radius {
+            min-width: 4em;
+            text-align: center;
+            color: #333;
+        }
+
         .action-buttons {
             display: flex;
             gap: 10px;
@@ -192,7 +238,8 @@
                 margin-bottom: 10px;
             }
             
-            .size-controls {
+            .size-controls,
+            .fog-controls {
                 margin: 10px 0;
                 gap: 6px;
             }
@@ -252,6 +299,13 @@
             <button class="size-btn" onclick="setMazeSize(40)" id="size-40">40×40</button>
             <button class="size-btn active" onclick="setMazeSize(50)" id="size-50">50×50</button>
         </div>
+
+        <div class="fog-controls">
+            <button id="fog-toggle" class="fog-toggle" onclick="toggleFog()">迷雾：开</button>
+            <button id="fog-minus" class="fog-step" onclick="changeFogRadius(-1)" aria-label="缩小视野">−</button>
+            <span id="fog-radius-value" class="fog-radius">视野 5</span>
+            <button id="fog-plus" class="fog-step" onclick="changeFogRadius(1)" aria-label="扩大视野">+</button>
+        </div>
         
         <div id="maze">
             <div class="swipe-indicator" id="swipeIndicator"></div>
@@ -265,6 +319,7 @@
         
         <div style="margin-top: 15px; text-align: center; color: #666; font-size: clamp(12px, 2.5vw, 14px);">
             <p>使用键盘方向键或在迷宫上滑动手势控制小人移动</p>
+            <p>开启迷雾后只能看到小人周围的格子，可用 − / + 调节视野</p>
         </div>
     </div>
 
@@ -1009,6 +1064,80 @@
         let currentSize = 50;
         let playerPosition = { row: 0, col: 0 }; // 小人当前位置
 
+        // ==== fog BEGIN ====
+        const FOG_MIN = 1;
+        const FOG_MAX = 25;
+        const FOG_DEFAULT_RADIUS = 5;
+        const FOG_ENABLED_KEY = 'maze-fog-enabled';
+        const FOG_RADIUS_KEY = 'maze-fog-radius';
+        let fogEnabled = true;
+        let fogRadius = 5;
+        let displayPosition = { row: 0, col: 0 }; // 小人当前显示位置（动画中逐格变化）
+
+        // Chebyshev 距离 <= radius 即在视野内
+        function isInFogView(row, col, playerRow, playerCol, radius) {
+            return Math.abs(row - playerRow) <= radius && Math.abs(col - playerCol) <= radius;
+        }
+
+        function loadFogSettings() {
+            try {
+                const enabledRaw = localStorage.getItem(FOG_ENABLED_KEY);
+                const radiusRaw = localStorage.getItem(FOG_RADIUS_KEY);
+                fogEnabled = enabledRaw !== 'false';
+                const n = radiusRaw === null ? NaN : Number(radiusRaw);
+                fogRadius = Number.isInteger(n) && n >= FOG_MIN && n <= FOG_MAX ? n : FOG_DEFAULT_RADIUS;
+            } catch (e) {
+                fogEnabled = true;
+                fogRadius = FOG_DEFAULT_RADIUS;
+            }
+        }
+
+        function saveFogSettings() {
+            try {
+                localStorage.setItem(FOG_ENABLED_KEY, String(fogEnabled));
+                localStorage.setItem(FOG_RADIUS_KEY, String(fogRadius));
+            } catch (e) {
+                // 存储不可用时忽略
+            }
+        }
+
+        // 按 displayPosition 刷新所有格子的迷雾状态
+        function updateFog() {
+            const cells = document.querySelectorAll('.cell');
+            for (let i = 0; i < cells.length; i++) {
+                const row = Math.floor(i / currentSize);
+                const col = i % currentSize;
+                cells[i].classList.toggle('fog',
+                    fogEnabled && !isInFogView(row, col, displayPosition.row, displayPosition.col, fogRadius));
+            }
+        }
+
+        function updateFogControls() {
+            const toggleBtn = document.getElementById('fog-toggle');
+            const minusBtn = document.getElementById('fog-minus');
+            const plusBtn = document.getElementById('fog-plus');
+            const valueEl = document.getElementById('fog-radius-value');
+            if (toggleBtn) toggleBtn.textContent = fogEnabled ? '迷雾：开' : '迷雾：关';
+            if (valueEl) valueEl.textContent = `视野 ${fogRadius}`;
+            if (minusBtn) minusBtn.disabled = fogRadius <= FOG_MIN;
+            if (plusBtn) plusBtn.disabled = fogRadius >= FOG_MAX;
+        }
+
+        function changeFogRadius(delta) {
+            fogRadius = Math.min(FOG_MAX, Math.max(FOG_MIN, fogRadius + delta));
+            saveFogSettings();
+            updateFogControls();
+            updateFog();
+        }
+
+        function toggleFog() {
+            fogEnabled = !fogEnabled;
+            saveFogSettings();
+            updateFogControls();
+            updateFog();
+        }
+        // ==== fog END ====
+
         function setMazeSize(size) {
             currentSize = size;
             
@@ -1238,6 +1367,8 @@
         // Initialize with default size and generate initial maze
         window.addEventListener('DOMContentLoaded', function() {
             updateMazeGridCSS(currentSize);
+            loadFogSettings();
+            updateFogControls();
             generateMaze();
             initTouchEvents(); // 初始化触摸事件
         });
@@ -1263,6 +1394,8 @@
             if (cells[index]) {
                 cells[index].classList.add('player');
             }
+            displayPosition = { row: playerPosition.row, col: playerPosition.col };
+            updateFog();
         }
         
         // 检查两个相邻格子是否连通

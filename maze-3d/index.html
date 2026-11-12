@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>3D 迷宫</title>
+    <link rel="icon" href="data:,">
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            background: #f0f0f0;
+            color: #333;
+            padding: 10px;
+            overflow-x: hidden;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #home-link {
+            align-self: flex-start;
+            color: #2196F3;
+            text-decoration: none;
+            font-size: 16px;
+            padding: 4px 0;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(22px, 6vw, 32px);
+        }
+
+        .row {
+            width: 100%;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+        }
+
+        button {
+            padding: 10px 16px;
+            font-size: clamp(13px, 3.5vw, 15px);
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+            max-width: 100%;
+        }
+
+        button:hover {
+            background-color: #1976D2;
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        button:disabled {
+            background-color: #b0bec5;
+            cursor: default;
+            transform: none;
+        }
+
+        .size-btn {
+            background-color: #4CAF50;
+            min-width: 60px;
+        }
+
+        .size-btn:hover {
+            background-color: #45a049;
+        }
+
+        .size-btn.active {
+            background-color: #2196F3;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        #fog-minus, #fog-plus {
+            min-width: 44px;
+            font-size: 18px;
+            padding: 6px 12px;
+        }
+
+        #fog-radius {
+            min-width: 56px;
+            text-align: center;
+            font-size: 15px;
+        }
+
+        #stage {
+            position: relative;
+            width: 100%;
+            height: clamp(240px, 60vh, 640px);
+            background: #bfe3ff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        #stage > canvas {
+            display: block;
+        }
+
+        #minimap {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            width: 140px;
+            height: 140px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.85);
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        #minimap[hidden] {
+            display: none;
+        }
+
+        .dpad {
+            display: grid;
+            grid-template-columns: repeat(3, 60px);
+            grid-template-rows: repeat(2, 60px);
+            gap: 6px;
+            justify-content: center;
+        }
+
+        .dpad button {
+            min-width: 56px;
+            min-height: 56px;
+            width: 60px;
+            height: 60px;
+            padding: 0;
+            font-size: 22px;
+            touch-action: manipulation;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #btn-up {
+            grid-column: 2;
+            grid-row: 1;
+        }
+
+        #btn-left {
+            grid-column: 1;
+            grid-row: 2;
+        }
+
+        #btn-down {
+            grid-column: 2;
+            grid-row: 2;
+        }
+
+        #btn-right {
+            grid-column: 3;
+            grid-row: 2;
+        }
+
+        .hint {
+            margin: 0;
+            color: #666;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        #win {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.35);
+            z-index: 10;
+            padding: 16px;
+        }
+
+        #win[hidden] {
+            display: none;
+        }
+
+        .win-box {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+            max-width: 100%;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        #win-text {
+            font-size: 20px;
+            margin: 0 0 16px;
+        }
+
+        #no-webgl {
+            width: 100%;
+            background: white;
+            border-radius: 8px;
+            padding: 24px 16px;
+            text-align: center;
+            font-size: 18px;
+        }
+
+        #no-webgl[hidden] {
+            display: none;
+        }
+
+        #no-webgl a {
+            display: inline-block;
+            margin-top: 12px;
+            color: #2196F3;
+        }
+
+        #perf {
+            font-size: 12px;
+            color: #555;
+            font-family: ui-monospace, Menlo, Consolas, monospace;
+            text-align: center;
+        }
+
+        #perf[hidden] {
+            display: none;
+        }
+
+        @media (max-width: 480px) {
+            body {
+                padding: 6px;
+            }
+
+            .container {
+                gap: 8px;
+            }
+
+            .row {
+                gap: 6px;
+            }
+
+            button {
+                padding: 8px 10px;
+            }
+
+            .size-btn {
+                min-width: 50px;
+            }
+
+            #stage {
+                height: clamp(220px, 50vh, 640px);
+            }
+
+            .hint {
+                font-size: 13px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a id="home-link" href="../index.html">← 首页</a>
+        <h1>3D 迷宫</h1>
+
+        <div class="row" id="size-row">
+            <button class="size-btn active" id="size-10" data-size="10">10×10</button>
+            <button class="size-btn" id="size-15" data-size="15">15×15</button>
+            <button class="size-btn" id="size-20" data-size="20">20×20</button>
+        </div>
+
+        <div class="row" id="view-row">
+            <button id="view-btn">切换到第一人称</button>
+            <button id="fog-btn">迷雾：开</button>
+            <button id="fog-minus" aria-label="缩小视野">−</button>
+            <span id="fog-radius">视野 5</span>
+            <button id="fog-plus" aria-label="扩大视野">+</button>
+        </div>
+
+        <div id="no-webgl" hidden>
+            <p>这个设备不支持 3D，可以玩 2D 迷宫</p>
+            <a href="../maze-gen/maze.html">去玩 2D 迷宫</a>
+        </div>
+
+        <div id="stage">
+            <canvas id="minimap" hidden></canvas>
+        </div>
+
+        <div class="dpad">
+            <button id="btn-up" data-dir="up" aria-label="上">▲</button>
+            <button id="btn-left" data-dir="left" aria-label="左">◀</button>
+            <button id="btn-down" data-dir="down" aria-label="下">▼</button>
+            <button id="btn-right" data-dir="right" aria-label="右">▶</button>
+        </div>
+
+        <div class="row" id="action-row">
+            <button id="regen-btn">重新生成</button>
+            <button id="show-path-btn">显示道路</button>
+            <button id="hide-path-btn">隐藏道路</button>
+        </div>
+
+        <p class="hint">方向键 / WASD 或点下面的按钮走路</p>
+        <div id="perf" hidden></div>
+    </div>
+
+    <div id="win" hidden>
+        <div class="win-box">
+            <p id="win-text">恭喜！你成功走出了迷宫！</p>
+            <button id="again-btn">再来一局</button>
+        </div>
+    </div>
+
+    <script nomodule>
+        document.getElementById('no-webgl').hidden = false;
+        document.getElementById('stage').style.display = 'none';
+    </script>
+    <script type="module" src="main.js"></script>
+</body>
+</html>
