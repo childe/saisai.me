@@ -1,6 +1,7 @@
 // 电路求解：连通分量 + 节点分析（诺顿等效电池，无附加行）。
 import { PARTS, PHYS } from './parts.js';
 import { solveLinear } from './linalg.js';
+import { terminalPoint } from './geometry.js';
 
 export function brokenKeyOf(broken) {
   return [...broken].sort().join(',');
@@ -41,8 +42,23 @@ function failed(circuit, bk) {
   return { ok: false, rev: circuit.rev, topoRev: circuit.topoRev, brokenKey: bk, nodes: {}, parts: {}, wires: {} };
 }
 
-// 并查集分量。
-function components(circuit) {
+// 画在同一格点上的端点看起来接在一起，也就当作接在一起：补一根看不见的导线。
+function junctionWires(circuit) {
+  const out = [];
+  const byPoint = new Map();
+  for (const p of circuit.parts) {
+    for (const term of PARTS[p.type].terms) {
+      const pt = terminalPoint(p, term).join(',');
+      const end = { part: p.id, term };
+      if (byPoint.has(pt)) out.push({ id: `j${out.length}`, a: byPoint.get(pt), b: end });
+      else byPoint.set(pt, end);
+    }
+  }
+  return out;
+}
+
+// 并查集分量。wires 含隐含导线。
+function components(circuit, wires) {
   const parent = new Map();
   const find = x => {
     let r = x;
@@ -56,7 +72,7 @@ function components(circuit) {
     const ts = PARTS[p.type].terms;
     for (let i = 1; i < ts.length; i++) union(key(p.id, ts[0]), key(p.id, ts[i]));
   }
-  for (const w of circuit.wires) {
+  for (const w of wires) {
     const a = key(w.a.part, w.a.term), b = key(w.b.part, w.b.term);
     if (parent.has(a) && parent.has(b)) union(a, b);
   }
@@ -182,7 +198,8 @@ function readPart(p, V, broken) {
 
 export function solve(circuit, broken = new Set(), opts = { maxIter: 100 }) {
   const bk = brokenKeyOf(broken);
-  const { groups, find } = components(circuit);
+  const allWires = [...circuit.wires, ...junctionWires(circuit)];
+  const { groups, find } = components(circuit, allWires);
   const partsByRoot = new Map();
   for (const p of circuit.parts) {
     const r = find(key(p.id, PARTS[p.type].terms[0]));
@@ -190,7 +207,7 @@ export function solve(circuit, broken = new Set(), opts = { maxIter: 100 }) {
     partsByRoot.get(r).push(p);
   }
   const wiresByRoot = new Map();
-  for (const w of circuit.wires) {
+  for (const w of allWires) {
     const a = key(w.a.part, w.a.term);
     if (!circuit.parts.some(p => p.id === w.a.part)) continue;
     const r = find(a);
