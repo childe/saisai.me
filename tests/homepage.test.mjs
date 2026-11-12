@@ -153,3 +153,7 @@ test('equation art shows x = ?', () => {
   assert.match(s, /x\s*(=|＝)\s*\?|x\s*(=|＝)\s*？/);
   assert.ok(shapeCount(s) >= 5);
 });
+
+test('no placeholder-only svg remains', () => {
+  for (const c of cards()) assert.ok(shapeCount(c.svg) >= 5, c.tool);
+});
