@@ -18,6 +18,8 @@ import {
 } from './game-logic.js';
 
 const STEP_MS = 120;
+const TURN_MS = 200;
+const EYE_HEIGHT = 0.45;
 
 const COLORS = {
   background: 0xbfe3ff,
@@ -247,6 +249,8 @@ function start() {
       b.classList.toggle('active', Number(b.dataset.size) === size);
     });
 
+    camYaw = facingYaw(pos.facing);
+    updateSceneFog();
     recomputeFog();
     snapCamera();
   }
@@ -274,6 +278,7 @@ function start() {
     }
     applyWallVisibility();
     applyFloorColors();
+    drawMinimap();
   }
 
   function updateFogUi() {
@@ -289,6 +294,7 @@ function start() {
     storageSet('maze3d.fogOn', fogOn ? '1' : '0');
     storageSet('maze3d.fogRadius', String(fogRadius));
     updateFogUi();
+    updateSceneFog();
     recomputeFog();
   }
 
@@ -344,15 +350,117 @@ function start() {
     return out.set(player.position.x, player.position.y + off.h, player.position.z + off.d);
   }
 
+  // 第一人称当前显示的偏航角（转身动画期间在旧值与新值之间插值）
+  let camYaw = 0;
+
+  function placeFirstPerson() {
+    camera.position.set(player.position.x, EYE_HEIGHT, player.position.z);
+    camera.rotation.set(0, camYaw, 0);
+  }
+
   function snapCamera() {
+    if (view === 'first') {
+      placeFirstPerson();
+      return;
+    }
     followTarget(camera.position);
     camera.lookAt(player.position);
   }
 
   function updateCamera(dt) {
+    if (view === 'first') {
+      placeFirstPerson();
+      return;
+    }
     followTarget(camTarget);
     camera.position.lerp(camTarget, 1 - Math.pow(0.001, dt / 1000));
     camera.lookAt(player.position);
+  }
+
+  function updateSceneFog() {
+    if (view !== 'first') {
+      scene.fog = null;
+      return;
+    }
+    const far = fogOn ? fogRadius + 0.5 : size * 1.5;
+    if (scene.fog) {
+      scene.fog.near = 0.5;
+      scene.fog.far = far;
+    } else {
+      scene.fog = new THREE.Fog(COLORS.background, 0.5, far);
+    }
+  }
+
+  function setView(next) {
+    view = next;
+    const first = view === 'first';
+    $('view-btn').textContent = first ? '切换到跟随视角' : '切换到第一人称';
+    $('minimap').hidden = !first;
+    player.visible = !first;
+    camYaw = facingYaw(pos.facing);
+    updateSceneFog();
+    snapCamera();
+    if (first) drawMinimap();
+  }
+
+  $('view-btn').addEventListener('click', () => {
+    cancelAnimation();
+    setView(view === 'first' ? 'follow' : 'first');
+  });
+
+  // ---------- 小地图 ----------
+  const minimap = $('minimap');
+  const miniCtx = minimap.getContext('2d');
+
+  function drawMinimap() {
+    if (minimap.hidden || !connections) return;
+    const dpr = window.devicePixelRatio || 1;
+    const css = minimap.clientWidth || 140;
+    const px = Math.round(css * dpr);
+    if (minimap.width !== px || minimap.height !== px) {
+      minimap.width = px;
+      minimap.height = px;
+    }
+    const ctx = miniCtx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, px, px);
+    const pad = 6 * dpr;
+    const cell = (px - pad * 2) / size;
+    ctx.fillStyle = '#f2efe6';
+    ctx.fillRect(pad, pad, cell * size, cell * size);
+    ctx.fillStyle = '#e53935';
+    ctx.fillRect(pad + (size - 1) * cell, pad + (size - 1) * cell, cell, cell);
+    ctx.strokeStyle = '#7e57c2';
+    ctx.lineWidth = Math.max(1, 1.5 * dpr);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (const seg of segments) {
+      if (fogOn && !wallInView(seg, display, fogRadius)) continue;
+      if (seg.along === 'x') {
+        ctx.moveTo(pad + (seg.x - 0.5) * cell, pad + seg.z * cell);
+        ctx.lineTo(pad + (seg.x + 0.5) * cell, pad + seg.z * cell);
+      } else {
+        ctx.moveTo(pad + seg.x * cell, pad + (seg.z - 0.5) * cell);
+        ctx.lineTo(pad + seg.x * cell, pad + (seg.z + 0.5) * cell);
+      }
+    }
+    ctx.stroke();
+    const cx = pad + (display.col + 0.5) * cell;
+    const cy = pad + (display.row + 0.5) * cell;
+    const r = Math.max(2.5 * dpr, cell * 0.3);
+    ctx.fillStyle = '#ff9800';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    const [dr, dc] = DIRS[pos.facing];
+    const tip = r * 2.2;
+    ctx.fillStyle = '#d84315';
+    ctx.beginPath();
+    ctx.moveTo(cx + dc * tip, cy + dr * tip);
+    ctx.lineTo(cx + dr * r * 0.9 + dc * r * 0.6, cy - dc * r * 0.9 + dr * r * 0.6);
+    ctx.lineTo(cx - dr * r * 0.9 + dc * r * 0.6, cy + dc * r * 0.9 + dr * r * 0.6);
+    ctx.closePath();
+    ctx.fill();
   }
 
   // ---------- 移动与状态机 ----------
@@ -373,13 +481,34 @@ function start() {
     pos.col = display.col;
     placePlayer(cellCenter(display.row, display.col, tmpPos));
     player.rotation.y = facingYaw(pos.facing);
+    camYaw = facingYaw(pos.facing);
     if (state === 'moving' || state === 'turning') state = 'idle';
+  }
+
+  function shortestYaw(from, to) {
+    let delta = (to - from) % (Math.PI * 2);
+    if (delta > Math.PI) delta -= Math.PI * 2;
+    if (delta < -Math.PI) delta += Math.PI * 2;
+    return from + delta;
   }
 
   function handleDirection(key) {
     if (state !== 'idle' || !connections) return;
     const action = resolveInput(view, pos.facing, key);
-    if (action.type !== 'move') return;
+    if (action.type === 'turn') {
+      const fromYaw = camYaw;
+      pos.facing = action.facing;
+      state = 'turning';
+      anim = {
+        generation,
+        kind: 'turn',
+        fromYaw,
+        toYaw: shortestYaw(fromYaw, facingYaw(action.facing)),
+        startTime: performance.now(),
+      };
+      drawMinimap();
+      return;
+    }
     const dest = findNextIntersection(connections, pos, action.dir);
     if (!dest) return;
     const [dr, dc] = DIRS[action.dir];
@@ -393,6 +522,7 @@ function start() {
     }
     pos.facing = action.dir;
     player.rotation.y = facingYaw(pos.facing);
+    camYaw = facingYaw(pos.facing);
     state = 'moving';
     anim = { generation, kind: 'move', cells, startTime: performance.now(), reached: 0 };
   }
@@ -401,6 +531,18 @@ function start() {
     if (!anim) return;
     if (anim.generation !== generation) {
       anim = null;
+      return;
+    }
+    if (anim.kind === 'turn') {
+      const t = Math.min((now - anim.startTime) / TURN_MS, 1);
+      camYaw = anim.fromYaw + (anim.toYaw - anim.fromYaw) * t;
+      player.rotation.y = camYaw;
+      if (t >= 1) {
+        anim = null;
+        camYaw = facingYaw(pos.facing);
+        player.rotation.y = camYaw;
+        state = 'idle';
+      }
       return;
     }
     const { cells } = anim;

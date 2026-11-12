@@ -459,7 +459,39 @@ def check_11(browser, base):
     finally:
         close(page)
 
-    ok, msg = no_errors(errors + errors2 + errors3)
+    # (d) 第一人称前进途中切换视角：动画丢弃，小人落在点击时的显示格
+    page, errors4 = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    try:
+        wait_idle(page)
+        page.click("#view-btn")
+        facing = face_walkable(page)
+        if facing is None:
+            return False, " ".join(details) + " d: no walkable direction"
+        page.keyboard.press("ArrowUp")
+        at_click = page.evaluate(
+            "() => { const M = window.__maze3d; const s = M.state; const d = M.display;"
+            " document.getElementById('view-btn').click(); return { state: s, display: d }; }"
+        )
+        state = m3(page, "state")
+        p1 = pos(page)
+        page.wait_for_timeout(1000)
+        p2 = pos(page)
+        ok = (
+            at_click["state"] == "moving"
+            and state == "idle"
+            and p1 == at_click["display"]
+            and p2 == p1
+        )
+        details.append(
+            f"d:state_at_click={at_click['state']} display={at_click['display']}"
+            f" player={p1} later={p2} state={state}"
+        )
+        if not ok:
+            return False, " ".join(details)
+    finally:
+        close(page)
+
+    ok, msg = no_errors(errors + errors2 + errors3 + errors4)
     return ok, (" ".join(details) + " " + msg).strip()
 
 
@@ -671,6 +703,84 @@ def check_4b(browser, base):
     return True, " ".join(details)
 
 
+def minimap_data(page):
+    return page.evaluate("() => document.getElementById('minimap').toDataURL()")
+
+
+def face_walkable(page):
+    """第一人称下转身到一个可走的方向，返回该方向；找不到返回 None。"""
+    for _ in range(4):
+        facing = m3(page, "player")["facing"]
+        if next_stop(page, facing) is not None:
+            return facing
+        page.keyboard.press("ArrowLeft")
+        wait_idle(page)
+    return None
+
+
+def check_3(browser, base):
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    details = []
+    try:
+        wait_idle(page)
+        page.click("#view-btn")
+        page.wait_for_timeout(100)
+        view = m3(page, "view")
+        text = page.inner_text("#view-btn")
+        mini = page.is_visible("#minimap")
+        pv = m3(page, "playerVisible")
+        details.append(
+            f"first: view={view} btn={text} minimap={mini} playerVisible={pv}"
+        )
+        if not (view == "first" and text == "切换到跟随视角" and mini and pv is False):
+            return False, " ".join(details)
+        start = pos(page)
+        turns = []
+        for key, how in [
+            ("ArrowLeft", "left"),
+            ("ArrowRight", "right"),
+            ("ArrowDown", "back"),
+            ("ArrowDown", "back"),
+        ]:
+            before = m3(page, "player")["facing"]
+            want = logic(page, "L.turn(arg.f, arg.h)", {"f": before, "h": how})
+            page.keyboard.press(key)
+            wait_idle(page)
+            got = m3(page, "player")["facing"]
+            turns.append(f"{key}:{before}->{got}")
+            if got != want or pos(page) != start:
+                return False, " ".join(details + turns) + f" want={want}"
+        if turns[0] != "ArrowLeft:down->right":
+            return False, " ".join(details + turns)
+        details.append(" ".join(turns))
+        facing = face_walkable(page)
+        if facing is None:
+            return False, " ".join(details) + " no walkable direction"
+        before = pos(page)
+        exp = next_stop(page, facing)
+        img0 = minimap_data(page)
+        page.keyboard.press("ArrowUp")
+        wait_settled(page)
+        got = pos(page)
+        img1 = minimap_data(page)
+        details.append(
+            f"forward {facing}: {before}->{got} want={exp} minimapChanged={img0 != img1}"
+        )
+        if got != exp or img0 == img1:
+            return False, " ".join(details)
+        page.click("#view-btn")
+        page.wait_for_timeout(100)
+        view = m3(page, "view")
+        mini = page.is_visible("#minimap")
+        pv = m3(page, "playerVisible")
+        details.append(f"follow: view={view} minimap={mini} playerVisible={pv}")
+        ok = view == "follow" and not mini and pv is True
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
 # ---------------------------------------------------------------- runner
 
 CHECKS = {
@@ -685,6 +795,7 @@ CHECKS = {
     "4": check_4,
     "4b": check_4b,
     "5": check_5,
+    "3": check_3,
 }
 
 
