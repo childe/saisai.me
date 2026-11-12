@@ -5,157 +5,271 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>赛赛的工具箱</title>
     <style>
+        * {
+            box-sizing: border-box;
+        }
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
-            padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
+            background: #fff8ec;
+            color: #3a2e25;
+            font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
         }
-        .container {
-            max-width: 800px;
+        .page {
+            max-width: 1100px;
             margin: 0 auto;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            padding: 40px;
+            padding: 24px 16px 40px;
         }
-        h1 {
-            color: #333;
-            text-align: center;
-            margin-bottom: 40px;
-            font-size: 2.5em;
-        }
-        .folder-section {
-            margin-bottom: 30px;
-            border-left: 4px solid #667eea;
-            padding-left: 20px;
-        }
-        .folder-name {
-            font-size: 1.4em;
-            font-weight: bold;
-            color: #667eea;
-            margin-bottom: 15px;
+        header {
             display: flex;
             align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin: 8px 0 28px;
         }
-        .folder-icon {
-            margin-right: 10px;
-            font-size: 1.2em;
+        h1 {
+            margin: 0;
+            font-size: clamp(1.8rem, 6vw, 2.8rem);
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            color: #3a2e25;
         }
-        .file-list {
-            list-style: none;
-            padding: 0;
-        }
-        .file-item {
-            margin-bottom: 10px;
-        }
-        .file-link {
+        .logo {
             display: block;
-            padding: 12px 20px;
-            background: #f8f9fa;
-            border: 1px solid #e9ecef;
-            border-radius: 6px;
+            width: clamp(40px, 9vw, 60px);
+            height: auto;
+            flex: none;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 24px;
+        }
+        .card {
+            --accent: #ff7a59;
+            --tint: #ffe9e2;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            overflow: hidden;
+            background: #ffffff;
+            border-radius: 24px;
+            box-shadow: 0 6px 18px rgba(90, 60, 30, 0.12);
+            color: #3a2e25;
             text-decoration: none;
-            color: #495057;
-            transition: all 0.3s ease;
-            position: relative;
+            padding-bottom: 16px;
+            border-bottom: 6px solid var(--accent);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            -webkit-tap-highlight-color: transparent;
         }
-        .file-link:hover {
-            background: #667eea;
-            color: white;
-            transform: translateX(5px);
-            box-shadow: 0 2px 10px rgba(102, 126, 234, 0.3);
+        .card[data-tool="pinyin"]   { --accent: #ef5a5a; --tint: #ffe6e3; }
+        .card[data-tool="english"]  { --accent: #3d8bfd; --tint: #e3efff; }
+        .card[data-tool="equation"] { --accent: #f2a007; --tint: #fff1cf; }
+        .card[data-tool="plotter"]  { --accent: #1fae7a; --tint: #dcf6ea; }
+        .card[data-tool="maze"]     { --accent: #8b5cf6; --tint: #eee6ff; }
+        .card[data-tool="jump"]     { --accent: #ec4899; --tint: #ffe3f1; }
+        .card-art {
+            display: block;
+            aspect-ratio: 4 / 3;
+            background: var(--tint);
         }
-        .file-link::before {
-            content: "📄";
-            margin-right: 10px;
+        .art {
+            display: block;
+            width: 100%;
+            height: auto;
         }
-        .empty-message {
-            color: #6c757d;
-            font-style: italic;
-            padding: 20px;
+        .card-title {
+            display: block;
+            margin: 14px 12px 4px;
+            font-size: clamp(1.15rem, 4.6vw, 1.9rem);
+            font-weight: 800;
+            line-height: 1.25;
             text-align: center;
-            background: #f8f9fa;
-            border-radius: 6px;
+            color: #3a2e25;
+            overflow-wrap: anywhere;
+        }
+        .card-desc {
+            display: block;
+            margin: 0 12px;
+            font-size: clamp(0.8rem, 2.6vw, 1rem);
+            line-height: 1.4;
+            text-align: center;
+            color: #6b5d52;
+        }
+        .card:active {
+            transform: scale(0.98);
+        }
+        .card:focus-visible {
+            outline: 4px solid var(--accent);
+            outline-offset: 4px;
+        }
+        @media (hover: hover) {
+            .card:hover {
+                transform: translateY(-6px);
+                box-shadow: 0 12px 26px rgba(90, 60, 30, 0.18);
+            }
+        }
+        @media (max-width: 899px) {
+            .grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 16px;
+            }
+            .card {
+                border-radius: 18px;
+                padding-bottom: 12px;
+            }
+        }
+        @media (max-width: 359px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .card {
+                transition: none;
+            }
+            .card:hover,
+            .card:active {
+                transform: none;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>赛赛的工具箱</h1>
-        
-        <div class="folder-section">
-            <div class="folder-name">
-                <span class="folder-icon">📁</span>
-                x-y-line
-            </div>
-            <ul class="file-list">
-                <li class="file-item">
-                    <a href="x-y-line/coordinate-plotter.html" class="file-link">坐标绘图器</a>
-                </li>
-            </ul>
-        </div>
-
-        <div class="folder-section">
-            <div class="folder-name">
-                <span class="folder-icon">📁</span>
-                maze-gen
-            </div>
-            <ul class="file-list">
-                <li class="file-item">
-                    <a href="maze-gen/maze.html" class="file-link">迷宫生成器</a>
-                </li>
-            </ul>
-        </div>
-
-        <div class="folder-section">
-            <div class="folder-name">
-                <span class="folder-icon">📁</span>
-                jump-game
-            </div>
-            <ul class="file-list">
-                <li class="file-item">
-                    <a href="tiao-yi-tiao/game.html" class="file-link">跳一跳</a>
-                </li>
-            </ul>
-        </div>
-
-        <div class="folder-section">
-            <div class="folder-name">
-                <span class="folder-icon">📁</span>
-                solve-equation
-            </div>
-            <ul class="file-list">
-                <li class="file-item">
-                    <a href="solve-equation/index.html" class="file-link">一元一次方程求解</a>
-                </li>
-            </ul>
-        </div>
-
-        <div class="folder-section">
-            <div class="folder-name">
-                <span class="folder-icon">📁</span>
-                english-audio
-            </div>
-            <ul class="file-list">
-                <li class="file-item">
-                    <a href="english-audio/index.html" class="file-link">英语听力 · 一年级上册</a>
-                </li>
-            </ul>
-        </div>
-
-        <div class="folder-section">
-            <div class="folder-name">
-                <span class="folder-icon">📁</span>
-                pinyin
-            </div>
-            <ul class="file-list">
-                <li class="file-item">
-                    <a href="pinyin/index.html" class="file-link">学拼音</a>
-                </li>
-            </ul>
-        </div>
+    <div class="page">
+        <header>
+            <svg class="logo" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+                <rect x="6" y="22" width="52" height="34" rx="6" fill="#ff7a59"/>
+                <path d="M22 22v-6a4 4 0 0 1 4-4h12a4 4 0 0 1 4 4v6" fill="none" stroke="#3a2e25" stroke-width="5" stroke-linecap="round"/>
+                <rect x="6" y="32" width="52" height="5" fill="#e0603f"/>
+                <rect x="27" y="29" width="10" height="11" rx="2" fill="#ffd166"/>
+            </svg>
+            <h1>赛赛的工具箱</h1>
+        </header>
+        <main class="grid">
+            <a class="card" href="pinyin/index.html" data-tool="pinyin">
+                <span class="card-art"><svg class="art" viewBox="0 0 200 150" aria-hidden="true" focusable="false">
+                    <rect width="200" height="150" fill="var(--tint)"/>
+                    <rect x="88" y="16" width="10" height="16" rx="2" fill="#3a2e25"/>
+                    <polygon points="96,16 110,6 110,42 96,32" fill="#3a2e25"/>
+                    <path d="M117 14 Q124 24 117 34" fill="none" stroke="var(--accent)" stroke-width="4" stroke-linecap="round"/>
+                    <path d="M124 8 Q135 24 124 40" fill="none" stroke="var(--accent)" stroke-width="4" stroke-linecap="round"/>
+                    <rect x="12" y="52" width="176" height="86" rx="20" fill="#ffffff"/>
+                    <g font-size="52" font-weight="700" text-anchor="middle">
+                        <text x="36" y="118" fill="var(--accent)">ā</text>
+                        <text x="79" y="118" fill="#3a2e25">á</text>
+                        <text x="121" y="118" fill="var(--accent)">ǎ</text>
+                        <text x="164" y="118" fill="#3a2e25">à</text>
+                    </g>
+                </svg></span>
+                <span class="card-title">学拼音</span>
+                <span class="card-desc">声母 韵母 四声调</span>
+            </a>
+            <a class="card" href="english-audio/index.html" data-tool="english">
+                <span class="card-art"><svg class="art" viewBox="0 0 200 150" aria-hidden="true" focusable="false">
+                    <rect width="200" height="150" fill="var(--tint)"/>
+                    <path d="M48 98 A52 52 0 0 1 152 98" fill="none" stroke="var(--accent)" stroke-width="12" stroke-linecap="round"/>
+                    <rect x="34" y="84" width="28" height="48" rx="12" fill="var(--accent)"/>
+                    <rect x="138" y="84" width="28" height="48" rx="12" fill="var(--accent)"/>
+                    <rect x="54" y="92" width="10" height="32" rx="5" fill="#ffffff"/>
+                    <rect x="136" y="92" width="10" height="32" rx="5" fill="#ffffff"/>
+                    <path d="M24 96 Q16 108 24 120" fill="none" stroke="#3a2e25" stroke-width="5" stroke-linecap="round"/>
+                    <path d="M13 88 Q1 108 13 128" fill="none" stroke="#3a2e25" stroke-width="5" stroke-linecap="round"/>
+                    <path d="M176 96 Q184 108 176 120" fill="none" stroke="#3a2e25" stroke-width="5" stroke-linecap="round"/>
+                    <path d="M187 88 Q199 108 187 128" fill="none" stroke="#3a2e25" stroke-width="5" stroke-linecap="round"/>
+                    <rect x="70" y="94" width="60" height="36" rx="10" fill="#ffffff"/>
+                    <text x="100" y="122" text-anchor="middle" font-size="26" font-weight="800" fill="#3a2e25">ABC</text>
+                </svg></span>
+                <span class="card-title">英语听力</span>
+                <span class="card-desc">一年级上册</span>
+            </a>
+            <a class="card" href="solve-equation/index.html" data-tool="equation">
+                <span class="card-art"><svg class="art" viewBox="0 0 200 150" aria-hidden="true" focusable="false">
+                    <rect width="200" height="150" fill="var(--tint)"/>
+                    <text x="100" y="34" text-anchor="middle" font-size="28" font-weight="800" fill="#3a2e25">x = ?</text>
+                    <line x1="100" y1="58" x2="100" y2="130" stroke="#3a2e25" stroke-width="6" stroke-linecap="round"/>
+                    <rect x="72" y="128" width="56" height="10" rx="5" fill="#3a2e25"/>
+                    <line x1="36" y1="60" x2="164" y2="60" stroke="#3a2e25" stroke-width="6" stroke-linecap="round"/>
+                    <circle cx="100" cy="58" r="7" fill="var(--accent)"/>
+                    <line x1="36" y1="60" x2="18" y2="100" stroke="#3a2e25" stroke-width="3"/>
+                    <line x1="36" y1="60" x2="54" y2="100" stroke="#3a2e25" stroke-width="3"/>
+                    <line x1="164" y1="60" x2="146" y2="100" stroke="#3a2e25" stroke-width="3"/>
+                    <line x1="164" y1="60" x2="182" y2="100" stroke="#3a2e25" stroke-width="3"/>
+                    <rect x="22" y="72" width="28" height="28" rx="5" fill="var(--accent)"/>
+                    <text x="36" y="94" text-anchor="middle" font-size="22" font-weight="800" fill="#ffffff">x</text>
+                    <circle cx="156" cy="91" r="8" fill="#7a6a5d"/>
+                    <circle cx="172" cy="91" r="8" fill="#7a6a5d"/>
+                    <circle cx="164" cy="78" r="8" fill="#7a6a5d"/>
+                    <path d="M12 100 Q36 118 60 100 Z" fill="#3a2e25"/>
+                    <path d="M140 100 Q164 118 188 100 Z" fill="#3a2e25"/>
+                </svg></span>
+                <span class="card-title">解方程</span>
+                <span class="card-desc">一元一次方程求解</span>
+            </a>
+            <a class="card" href="x-y-line/coordinate-plotter.html" data-tool="plotter">
+                <span class="card-art"><svg class="art" viewBox="0 0 200 150" aria-hidden="true" focusable="false">
+                    <rect width="200" height="150" fill="var(--tint)"/>
+                    <line x1="55" y1="14" x2="55" y2="130" stroke="#b9e6d3" stroke-width="2"/>
+                    <line x1="80" y1="14" x2="80" y2="130" stroke="#b9e6d3" stroke-width="2"/>
+                    <line x1="105" y1="14" x2="105" y2="130" stroke="#b9e6d3" stroke-width="2"/>
+                    <line x1="130" y1="14" x2="130" y2="130" stroke="#b9e6d3" stroke-width="2"/>
+                    <line x1="155" y1="14" x2="155" y2="130" stroke="#b9e6d3" stroke-width="2"/>
+                    <line x1="180" y1="14" x2="180" y2="130" stroke="#b9e6d3" stroke-width="2"/>
+                    <line x1="30" y1="105" x2="185" y2="105" stroke="#b9e6d3" stroke-width="2"/>
+                    <line x1="30" y1="80" x2="185" y2="80" stroke="#b9e6d3" stroke-width="2"/>
+                    <line x1="30" y1="55" x2="185" y2="55" stroke="#b9e6d3" stroke-width="2"/>
+                    <line x1="30" y1="30" x2="185" y2="30" stroke="#b9e6d3" stroke-width="2"/>
+                    <line x1="30" y1="130" x2="186" y2="130" stroke="#3a2e25" stroke-width="5" stroke-linecap="round"/>
+                    <line x1="30" y1="130" x2="30" y2="10" stroke="#3a2e25" stroke-width="5" stroke-linecap="round"/>
+                    <polygon points="194,130 182,122 182,138" fill="#3a2e25"/>
+                    <polygon points="30,4 22,16 38,16" fill="#3a2e25"/>
+                    <line x1="40" y1="115" x2="170" y2="28.3" stroke="var(--accent)" stroke-width="5" stroke-linecap="round"/>
+                    <circle cx="55" cy="105" r="9" fill="var(--accent)" stroke="#ffffff" stroke-width="3"/>
+                    <circle cx="130" cy="55" r="9" fill="var(--accent)" stroke="#ffffff" stroke-width="3"/>
+                    <text x="188" y="148" text-anchor="middle" font-size="14" font-weight="700" fill="#3a2e25">x</text>
+                    <text x="16" y="14" text-anchor="middle" font-size="14" font-weight="700" fill="#3a2e25">y</text>
+                </svg></span>
+                <span class="card-title">坐标绘图器</span>
+                <span class="card-desc">描点 连成线</span>
+            </a>
+            <a class="card" href="maze-gen/maze.html" data-tool="maze">
+                <span class="card-art"><svg class="art" viewBox="0 0 200 150" aria-hidden="true" focusable="false">
+                    <rect width="200" height="150" fill="var(--tint)"/>
+                    <rect x="45" y="20" width="110" height="110" fill="#ffffff"/>
+                    <path d="M34 31 H78 V75 H56 V119 H78 V97 H144 V119 H166" fill="none" stroke="#c9b6f7" stroke-width="4" stroke-dasharray="4 6" stroke-linecap="round"/>
+                    <g fill="none" stroke="var(--accent)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M45 20 H155 V108"/>
+                        <path d="M45 42 V130 H155"/>
+                        <path d="M67 42 V64 H45"/>
+                        <path d="M89 20 V64 H111"/>
+                        <path d="M133 42 V86 H67 V108"/>
+                        <path d="M89 108 H133 V130"/>
+                        <path d="M111 42 H133"/>
+                    </g>
+                    <circle cx="30" cy="31" r="10" fill="#22c55e" stroke="#ffffff" stroke-width="3"/>
+                    <polygon points="172.0,107.0 174.9,115.0 183.4,115.3 176.8,120.5 179.1,128.7 172.0,124.0 164.9,128.7 167.2,120.5 160.6,115.3 169.1,115.0" fill="#facc15" stroke="#3a2e25" stroke-width="2" stroke-linejoin="round"/>
+                </svg></span>
+                <span class="card-title">迷宫生成器</span>
+                <span class="card-desc">从起点走到终点</span>
+            </a>
+            <a class="card" href="tiao-yi-tiao/game.html" data-tool="jump">
+                <span class="card-art"><svg class="art" viewBox="0 0 200 150" aria-hidden="true" focusable="false">
+                    <rect width="200" height="150" fill="var(--tint)"/>
+                    <path d="M60 58 Q105 -10 148 76" fill="none" stroke="#3a2e25" stroke-width="4" stroke-dasharray="7 7" stroke-linecap="round"/>
+                    <polygon points="148,84 140,70 154,72" fill="#3a2e25"/>
+                    <polygon points="30,104 55,92 80,104 55,116" fill="#ffffff"/>
+                    <polygon points="30,104 55,116 55,142 30,130" fill="var(--accent)"/>
+                    <polygon points="55,116 80,104 80,130 55,142" fill="#b8357a"/>
+                    <polygon points="118,96 150,82 182,96 150,110" fill="#ffe08a"/>
+                    <polygon points="118,96 150,110 150,138 118,124" fill="#f4a261"/>
+                    <polygon points="150,110 182,96 182,124 150,138" fill="#d9773a"/>
+                    <rect x="49" y="76" width="12" height="26" rx="6" fill="#3a2e25"/>
+                    <circle cx="55" cy="68" r="9" fill="#3a2e25"/>
+                </svg></span>
+                <span class="card-title">跳一跳</span>
+                <span class="card-desc">按住蓄力 跳过去</span>
+            </a>
+        </main>
     </div>
 </body>
 </html>
