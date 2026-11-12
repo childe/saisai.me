@@ -381,6 +381,86 @@ def check_7(browser, base):
     return True, " ".join(details)
 
 
+def check_13(browser, base):
+    """生成器不能复现的 seed：页面不报错，换成新 seed 写回 URL，刷新后迷宫不变。"""
+    details = []
+    for bad in ["-1000", "0", "9" * 400]:
+        page, errors = open_page(browser, f"{base}{PAGE}?seed={bad}&size=10")
+        try:
+            wait_idle(page)
+            seed_url = url_seed(page)
+            seed_m = str(m3(page, "seed"))
+            first = page.evaluate("() => JSON.stringify(window.__maze3d.connections)")
+            page.reload()
+            wait_idle(page)
+            seed_reload = url_seed(page)
+            again = page.evaluate("() => JSON.stringify(window.__maze3d.connections)")
+            ok_err, msg = no_errors(errors)
+            ok = (
+                ok_err
+                and seed_url != bad
+                and seed_url == seed_m
+                and int(seed_url) > 0
+                and seed_reload == seed_url
+                and first == again
+            )
+            details.append(
+                f"seed={bad[:8]}->{seed_url} reload={seed_reload} same={first == again} {msg}".strip()
+            )
+            if not ok:
+                return False, " ".join(details)
+        finally:
+            close(page)
+    return True, " ".join(details)
+
+
+def check_14(browser, base):
+    """跟随视角移动全过程中相机水平朝向保持朝北（偏航 0）。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    try:
+        wait_idle(page)
+        if m3(page, "view") != "follow":
+            return False, f"default view={m3(page, 'view')}"
+        # 南北移动不会让 lookAt 产生偏航，要找一次横向（东西）移动
+        d = None
+        for _ in range(50):
+            d = next(
+                (h for h in ["right", "left"] if next_stop(page, h) is not None), None
+            )
+            if d is not None:
+                break
+            step = path_dir(page)
+            if step is None:
+                break
+            page.keyboard.press(KEYS[step])
+            wait_settled(page)
+        if d is None:
+            return False, f"no horizontal move found, player={pos(page)}"
+        page.wait_for_timeout(1000)  # 等相机追上，从静止状态开始记录
+        start = pos(page)
+        # 每帧记录相机偏航，直到移动结束后再多记 1 秒（覆盖相机追赶阶段）
+        page.evaluate(
+            "() => { window.__yaws = []; const tick = () => {"
+            " window.__yaws.push(window.__maze3d.cameraYaw);"
+            " if (window.__yaws.length < 600) requestAnimationFrame(tick); };"
+            " requestAnimationFrame(tick); }"
+        )
+        page.keyboard.press(KEYS[d])
+        wait_settled(page)
+        page.wait_for_timeout(1000)
+        yaws = page.evaluate("() => window.__yaws.slice()")
+        worst = max(abs(y) for y in yaws) if yaws else None
+        moved = pos(page) != start
+        ok_err, msg = no_errors(errors)
+        ok = ok_err and moved and len(yaws) > 10 and worst < 1e-6
+        return (
+            ok,
+            f"dir={d} frames={len(yaws)} maxYaw={worst} moved={moved} {msg}".strip(),
+        )
+    finally:
+        close(page)
+
+
 def entrance_dir(page):
     for d in ["down", "right"]:
         if next_stop(page, d) is not None:
@@ -1060,6 +1140,8 @@ CHECKS = {
     "9": check_9,
     "9b": check_9b,
     "9c": check_9c,
+    "13": check_13,
+    "14": check_14,
 }
 
 

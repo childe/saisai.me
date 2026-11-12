@@ -181,6 +181,27 @@ test('parseSeed matches 2D getSeed', () => {
   assert.equal(L.parseSeed(''), null);
 });
 
+// 生成器只对正的有限数稳定：负数会让 LCG 产出负随机数并越界取下标，
+// 0 会被 `seed || Date.now()` 换成当前时间，Infinity 会变成 NaN。
+// 这些值一律视为没有 seed，由页面重新生成并写回 URL。
+test('parseSeed rejects seeds the generator cannot reproduce', () => {
+  for (const s of ['-1000', '-1', '0', '000', '9'.repeat(400)]) {
+    assert.equal(L.parseSeed(s), null, s);
+  }
+  // 字符串哈希恰好为 0 时同样不可复现
+  assert.equal(L.parseSeed('\u0000'), null);
+});
+
+test('parseSeed results always reproduce the same maze', () => {
+  for (const s of ['1', '123', '0042', 'abc', '迷宫', '1794488543858', '1'.repeat(25)]) {
+    const seed = L.parseSeed(s);
+    assert.ok(seed !== null, s);
+    const a = new MazeGenerator(10, 10, seed).generate().connections;
+    const b = new MazeGenerator(10, 10, seed).generate().connections;
+    assert.deepEqual(a, b, s);
+  }
+});
+
 test('parseSize falls back to 10', () => {
   assert.equal(L.parseSize('10'), 10);
   assert.equal(L.parseSize('15'), 15);

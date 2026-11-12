@@ -88,11 +88,17 @@ export function findPath(connections, start, end) {
   return path.reverse();
 }
 
-// 与 2D getSeed() 相同：数字直接用，否则取字符串哈希
+// 与 2D getSeed() 相同：数字直接用，否则取字符串哈希。
+// 生成器只对正的有限数可复现（负数会越界取下标，0 会被换成 Date.now()，Infinity 变 NaN），
+// 这类值返回 null，由调用方当作没有 seed 处理。
 export function parseSeed(str) {
   if (str === null || str === undefined || str === '') return null;
   const numeric = parseInt(str, 10);
-  if (!isNaN(numeric)) return numeric;
+  const seed = isNaN(numeric) ? hashSeed(str) : numeric;
+  return Number.isFinite(seed) && seed > 0 ? seed : null;
+}
+
+function hashSeed(str) {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     const char = str.charCodeAt(i);

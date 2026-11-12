@@ -153,6 +153,7 @@ function start() {
 
   const tmpMatrix = new THREE.Matrix4();
   const tmpColor = new THREE.Color();
+  const tmpDir = new THREE.Vector3();
   const tmpPos = new THREE.Vector3();
   const tmpQuat = new THREE.Quaternion();
   const tmpScale = new THREE.Vector3();
@@ -345,15 +346,18 @@ function start() {
   }
 
   // ---------- 相机 ----------
-  const camTarget = new THREE.Vector3();
+  // 跟随中心平滑追赶小人，偏移（高度、向南距离）平滑追赶视野半径对应的值；
+  // 相机位置与观察点都由「中心 + 偏移」得出，偏移没有东西分量，所以水平朝向始终朝北
+  const followCenter = new THREE.Vector3();
+  const followOff = { h: 0, d: 0 };
 
   function currentFollowOffset() {
     return followOffset(fogOn ? fogRadius : 10);
   }
 
-  function followTarget(out) {
-    const off = currentFollowOffset();
-    return out.set(player.position.x, player.position.y + off.h, player.position.z + off.d);
+  function placeFollow() {
+    camera.position.set(followCenter.x, followCenter.y + followOff.h, followCenter.z + followOff.d);
+    camera.lookAt(followCenter);
   }
 
   // 第一人称当前显示的偏航角（转身动画期间在旧值与新值之间插值）
@@ -369,8 +373,9 @@ function start() {
       placeFirstPerson();
       return;
     }
-    followTarget(camera.position);
-    camera.lookAt(player.position);
+    followCenter.copy(player.position);
+    Object.assign(followOff, currentFollowOffset());
+    placeFollow();
   }
 
   function updateCamera(dt) {
@@ -378,9 +383,12 @@ function start() {
       placeFirstPerson();
       return;
     }
-    followTarget(camTarget);
-    camera.position.lerp(camTarget, 1 - Math.pow(0.001, dt / 1000));
-    camera.lookAt(player.position);
+    const k = 1 - Math.pow(0.001, dt / 1000);
+    const want = currentFollowOffset();
+    followCenter.lerp(player.position, k);
+    followOff.h += (want.h - followOff.h) * k;
+    followOff.d += (want.d - followOff.d) * k;
+    placeFollow();
   }
 
   function updateSceneFog() {
@@ -820,6 +828,11 @@ function start() {
     },
     get threeRevision() {
       return THREE.REVISION;
+    },
+    // 相机视线在水平面上偏离正北（−z）的角度，弧度；朝北为 0
+    get cameraYaw() {
+      camera.getWorldDirection(tmpDir);
+      return Math.atan2(-tmpDir.x, -tmpDir.z);
     },
   };
 }
