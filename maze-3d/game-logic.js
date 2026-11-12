@@ -89,13 +89,14 @@ export function findPath(connections, start, end) {
 }
 
 // 与 2D getSeed() 相同：数字直接用，否则取字符串哈希。
-// 生成器只对正的有限数可复现（负数会越界取下标，0 会被换成 Date.now()，Infinity 变 NaN），
+// 生成器只对 1..Number.MAX_SAFE_INTEGER 的整数可复现：负数会越界取下标，0 会被换成 Date.now()，
+// 过大的数（如 1e308）在 LCG 乘法里溢出成 Infinity 再变 NaN；超过 MAX_SAFE_INTEGER 的数字也无法精确表示。
 // 这类值返回 null，由调用方当作没有 seed 处理。
 export function parseSeed(str) {
   if (str === null || str === undefined || str === '') return null;
   const numeric = parseInt(str, 10);
   const seed = isNaN(numeric) ? hashSeed(str) : numeric;
-  return Number.isFinite(seed) && seed > 0 ? seed : null;
+  return seed > 0 && seed <= Number.MAX_SAFE_INTEGER ? seed : null;
 }
 
 function hashSeed(str) {

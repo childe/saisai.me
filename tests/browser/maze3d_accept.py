@@ -384,7 +384,7 @@ def check_7(browser, base):
 def check_13(browser, base):
     """生成器不能复现的 seed：页面不报错，换成新 seed 写回 URL，刷新后迷宫不变。"""
     details = []
-    for bad in ["-1000", "0", "9" * 400]:
+    for bad in ["-1000", "0", "9" * 400, "1" + "0" * 308]:
         page, errors = open_page(browser, f"{base}{PAGE}?seed={bad}&size=10")
         try:
             wait_idle(page)

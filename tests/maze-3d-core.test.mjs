@@ -183,9 +183,11 @@ test('parseSeed matches 2D getSeed', () => {
 
 // 生成器只对正的有限数稳定：负数会让 LCG 产出负随机数并越界取下标，
 // 0 会被 `seed || Date.now()` 换成当前时间，Infinity 会变成 NaN。
+// 超过 Number.MAX_SAFE_INTEGER 的数字无法精确表示；更大时（如 1e308）LCG 乘法会溢出成 Infinity。
 // 这些值一律视为没有 seed，由页面重新生成并写回 URL。
 test('parseSeed rejects seeds the generator cannot reproduce', () => {
-  for (const s of ['-1000', '-1', '0', '000', '9'.repeat(400)]) {
+  const tooBig = ['1' + '0'.repeat(308), '1' + '0'.repeat(302), '9007199254740992', '1'.repeat(25)];
+  for (const s of ['-1000', '-1', '0', '000', '9'.repeat(400), ...tooBig]) {
     assert.equal(L.parseSeed(s), null, s);
   }
   // 字符串哈希恰好为 0 时同样不可复现
@@ -193,7 +195,7 @@ test('parseSeed rejects seeds the generator cannot reproduce', () => {
 });
 
 test('parseSeed results always reproduce the same maze', () => {
-  for (const s of ['1', '123', '0042', 'abc', '迷宫', '1794488543858', '1'.repeat(25)]) {
+  for (const s of ['1', '123', '0042', 'abc', '迷宫', '1794488543858', '9007199254740991']) {
     const seed = L.parseSeed(s);
     assert.ok(seed !== null, s);
     const a = new MazeGenerator(10, 10, seed).generate().connections;

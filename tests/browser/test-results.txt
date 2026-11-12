@@ -1,5 +1,5 @@
 # 3D 迷宫浏览器验收结果
-日期：2026-11-12T21:12:27
+日期：2026-11-12T21:16:47
 Chromium：148.0.7778.96
 命令：python tests/browser/maze3d_accept.py --write
 总体：PASS
@@ -10,15 +10,15 @@ PASS 3 first: view=first btn=切换到跟随视角 minimap=True playerVisible=Fa
 PASS 4 a:fog={'on': True, 'radius': 5} {'wallMismatch': 0, 'floorMismatch': 0, 'walls': 474} b:min=1(视野 1) max=25 c:btn=迷雾：关 allWalls=True dark=0 d:reload fog={'on': False, 'radius': 25} e:count 1->1 idle, ->2 after move (2.8s)
 PASS 4b blocked: fog={'on': True, 'radius': 5} after+=6 pageerrors=[] preset 'abc': fog={'on': True, 'radius': 5} preset '99': fog={'on': True, 'radius': 25} (1.5s)
 PASS 5 show:{'len': 20, 'bad': 0} showPath=True after-move(True) at {'row': 1, 'col': 1}:{'len': 19, 'bad': 0} hide:{'red': 0, 'start': '#4caf50', 'startWant': '#4caf50', 'end': '#333333', 'endWant': '#333333'} (0.7s)
-PASS 6 won; again: hidden=True gen 1->2 player={'row': 0, 'col': 0} seed 12345->1794489091263 (__maze3d.seed=1794489091263) (3.1s)
+PASS 6 won; again: hidden=True gen 1->2 player={'row': 0, 'col': 0} seed 12345->1794489349717 (__maze3d.seed=1794489349717) (3.2s)
 PASS 6b before={'row': 9, 'col': 9, 'facing': 'right'} after={'row': 9, 'col': 9, 'facing': 'right'} state=won (3.5s)
-PASS 7 seed=12345 size=10 equal=True seed=12345 size=20 equal=True seed=abc size=10 equal=True (18.1s)
-PASS 8 portrait: scrollWidth=375 dpadBad=[] minimapInside=True landscape: scrollWidth=667 canvas=647 stage=647 (1.6s)
-PASS 9 headless=True desktop: count=397 avg=8.4 p95=10.1 quality=high renderer='ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Pro, Unspecified Version)' | iPhone SE x4 CPU: count=405 avg=8.5 p95=9.9 quality=high renderer='ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Pro, Unspecified Version)' (9.3s)
-PASS 9b hidden count 19->19, visible ->79, quality=high p95=16.6 (1.8s)
-PASS 9c downgradeCount=1 canvas={'n': 1, 'w': 900, 'h': 432, 'cw': 900, 'ch': 432} colors=9 move down: {'row': 1, 'col': 0} want {'row': 1, 'col': 0} after 3s: count=1 quality=low perf='帧时间 平均 44.0 ms · p95 43.3 ms · 画质 low' no-debug quality=high (9.4s)
+PASS 7 seed=12345 size=10 equal=True seed=12345 size=20 equal=True seed=abc size=10 equal=True (18.2s)
+PASS 8 portrait: scrollWidth=375 dpadBad=[] minimapInside=True landscape: scrollWidth=667 canvas=647 stage=647 (2.0s)
+PASS 9 headless=True desktop: count=401 avg=8.4 p95=10.1 quality=high renderer='ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Pro, Unspecified Version)' | iPhone SE x4 CPU: count=407 avg=8.5 p95=10 quality=high renderer='ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Pro, Unspecified Version)' (9.4s)
+PASS 9b hidden count 17->17, visible ->77, quality=high p95=33.3 (1.8s)
+PASS 9c downgradeCount=1 canvas={'n': 1, 'w': 900, 'h': 432, 'cw': 900, 'ch': 432} colors=9 move down: {'row': 1, 'col': 0} want {'row': 1, 'col': 0} after 3s: count=1 quality=low perf='帧时间 平均 44.0 ms · p95 43.3 ms · 画质 low' no-debug quality=high (9.3s)
 PASS 10 no-webgl visible=True href=../maze-gen/maze.html pageerrors=[] (1.2s)
 PASS 11 a:#size-15 state_at_click=moving ok=True a:#regen-btn state_at_click=moving ok=True b:down got={'row': 1, 'col': 0} want={'row': 1, 'col': 0} c:down after_release={'row': 1, 'col': 0} later={'row': 1, 'col': 0} state=idle->idle d:state_at_click=moving display={'row': 0, 'col': 0} player={'row': 0, 'col': 0} later={'row': 0, 'col': 0} state=idle (6.2s)
 PASS 12 responses={'maze-3d/main.js': 200, 'maze-3d/maze-core.js': 200, 'maze-3d/game-logic.js': 200, 'maze-3d/vendor/three.module.js': 200, 'maze-3d/vendor/three.core.js': 200} blocked=[] colors=16 errors=[] (0.6s)
-PASS 13 seed=-1000->1794489142475 reload=1794489142475 same=True seed=0->1794489143408 reload=1794489143408 same=True seed=99999999->1794489144266 reload=1794489144266 same=True (2.7s)
-PASS 14 dir=right frames=136 maxYaw=0 moved=True (2.3s)
+PASS 13 seed=-1000->1794489401766 reload=1794489401766 same=True seed=0->1794489402681 reload=1794489402681 same=True seed=99999999->1794489403517 reload=1794489403517 same=True seed=10000000->1794489404452 reload=1794489404452 same=True (3.5s)
+PASS 14 dir=right frames=135 maxYaw=0 moved=True (2.3s)
