@@ -111,3 +111,99 @@ test('saveFogSettings writes both keys', () => {
   assert.equal(env.store['maze-fog-enabled'], 'false');
   assert.equal(env.store['maze-fog-radius'], '3');
 });
+
+const fogged = (env, r, c, size = 10) => env.cells[r * size + c].classList.contains('fog');
+function startMove(env, to) {
+  env.run(`animatePlayerMovement(playerPosition, ${JSON.stringify(to)}, () => { playerPosition = ${JSON.stringify(to)}; updatePlayerDisplay(); })`);
+}
+
+test('fog centers on displayed position when radius changes mid-animation', () => {
+  const env = createEnv();
+  env.run('updatePlayerDisplay()');
+  startMove(env, { row: 0, col: 6 });   // 第 1 步同步画在 (0,1)
+  env.tick(); env.tick();               // 画在 (0,3)
+  env.run('changeFogRadius(-10)');      // 夹到 1
+  assert.equal(env.run('fogRadius'), 1);
+  assert.equal(fogged(env, 0, 3), false);
+  assert.ok(env.cells[3].classList.contains('player'));
+  assert.equal(fogged(env, 0, 4), false);
+  assert.equal(fogged(env, 0, 0), true);
+  assert.equal(fogged(env, 0, 5), true);
+});
+
+test('toggling fog twice mid-animation keeps center on displayed position', () => {
+  const env = createEnv();
+  env.run('fogRadius = 1; updatePlayerDisplay()');
+  startMove(env, { row: 0, col: 6 });
+  env.tick(); env.tick();
+  env.run('toggleFog(); toggleFog();');
+  assert.equal(env.run('fogEnabled'), true);
+  assert.equal(fogged(env, 0, 3), false);
+  assert.equal(fogged(env, 0, 0), true);
+});
+
+test('after animation fog centers on destination', () => {
+  const env = createEnv();
+  env.run('fogRadius = 1; updatePlayerDisplay()');
+  startMove(env, { row: 0, col: 6 });
+  env.flush();
+  assert.deepEqual(JSON.parse(env.run('JSON.stringify(displayPosition)')), { row: 0, col: 6 });
+  assert.equal(fogged(env, 0, 6), false);
+  assert.equal(fogged(env, 1, 7), false);
+  assert.equal(fogged(env, 0, 4), true);
+});
+
+test('fog disabled leaves every cell clear, and radius changes still apply later', () => {
+  const env = createEnv();
+  env.run('updatePlayerDisplay(); toggleFog(); changeFogRadius(-3);');
+  assert.equal(env.cells.some((c) => c.classList.contains('fog')), false);
+  assert.equal(env.run('fogRadius'), 2);
+  env.run('toggleFog()');
+  assert.equal(fogged(env, 2, 2), false);
+  assert.equal(fogged(env, 3, 0), true);
+});
+
+test('radius larger than maze shows everything', () => {
+  const env = createEnv();
+  env.run('fogRadius = 25; updatePlayerDisplay()');
+  assert.equal(env.cells.some((c) => c.classList.contains('fog')), false);
+});
+
+test('radius clamps to [1, 25] and buttons disable at bounds', () => {
+  const env = createEnv();
+  env.run('changeFogRadius(-1); changeFogRadius(-1); changeFogRadius(-1); changeFogRadius(-1); changeFogRadius(-1);');
+  assert.equal(env.run('fogRadius'), 1);
+  assert.equal(env.els['fog-minus'].disabled, true);
+  assert.equal(env.els['fog-plus'].disabled, false);
+  assert.equal(env.els['fog-radius-value'].textContent, '视野 1');
+  env.run('changeFogRadius(100)');
+  assert.equal(env.run('fogRadius'), 25);
+  assert.equal(env.els['fog-plus'].disabled, true);
+  assert.equal(env.els['fog-minus'].disabled, false);
+  assert.equal(env.store['maze-fog-radius'], '25');
+});
+
+test('toggle updates label and storage', () => {
+  const env = createEnv();
+  env.run('toggleFog()');
+  assert.equal(env.els['fog-toggle'].textContent, '迷雾：关');
+  assert.equal(env.store['maze-fog-enabled'], 'false');
+  env.run('toggleFog()');
+  assert.equal(env.els['fog-toggle'].textContent, '迷雾：开');
+});
+
+test('regenerating resets fog center to entrance', () => {
+  const env = createEnv();
+  env.run('fogRadius = 1; updatePlayerDisplay()');
+  startMove(env, { row: 0, col: 6 });
+  env.flush();
+  env.run('playerPosition = { row: 0, col: 0 }; updatePlayerDisplay();'); // 同 generateMaze 的调用顺序
+  assert.equal(fogged(env, 0, 0), false);
+  assert.equal(fogged(env, 0, 6), true);
+});
+
+test('fog controls work when storage throws', () => {
+  const env = createEnv({ storageThrows: true });
+  assert.doesNotThrow(() => env.run('changeFogRadius(1); toggleFog();'));
+  assert.equal(env.run('fogRadius'), 6);
+});

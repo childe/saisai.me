@@ -1045,6 +1045,42 @@
                 // 存储不可用时忽略
             }
         }
+
+        // 按 displayPosition 刷新所有格子的迷雾状态
+        function updateFog() {
+            const cells = document.querySelectorAll('.cell');
+            for (let i = 0; i < cells.length; i++) {
+                const row = Math.floor(i / currentSize);
+                const col = i % currentSize;
+                cells[i].classList.toggle('fog',
+                    fogEnabled && !isInFogView(row, col, displayPosition.row, displayPosition.col, fogRadius));
+            }
+        }
+
+        function updateFogControls() {
+            const toggleBtn = document.getElementById('fog-toggle');
+            const minusBtn = document.getElementById('fog-minus');
+            const plusBtn = document.getElementById('fog-plus');
+            const valueEl = document.getElementById('fog-radius-value');
+            if (toggleBtn) toggleBtn.textContent = fogEnabled ? '迷雾：开' : '迷雾：关';
+            if (valueEl) valueEl.textContent = `视野 ${fogRadius}`;
+            if (minusBtn) minusBtn.disabled = fogRadius <= FOG_MIN;
+            if (plusBtn) plusBtn.disabled = fogRadius >= FOG_MAX;
+        }
+
+        function changeFogRadius(delta) {
+            fogRadius = Math.min(FOG_MAX, Math.max(FOG_MIN, fogRadius + delta));
+            saveFogSettings();
+            updateFogControls();
+            updateFog();
+        }
+
+        function toggleFog() {
+            fogEnabled = !fogEnabled;
+            saveFogSettings();
+            updateFogControls();
+            updateFog();
+        }
         // ==== fog END ====
 
         function setMazeSize(size) {
@@ -1301,6 +1337,8 @@
             if (cells[index]) {
                 cells[index].classList.add('player');
             }
+            displayPosition = { row: playerPosition.row, col: playerPosition.col };
+            updateFog();
         }
         
         // 检查两个相邻格子是否连通
