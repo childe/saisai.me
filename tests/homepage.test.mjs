@@ -157,3 +157,53 @@ test('equation art shows x = ?', () => {
 test('no placeholder-only svg remains', () => {
   for (const c of cards()) assert.ok(shapeCount(c.svg) >= 5, c.tool);
 });
+
+const hexLum = hex => {
+  const v = hex.replace('#', '');
+  const [r, g, b] = [0, 2, 4].map(i => parseInt(v.slice(i, i + 2), 16) / 255)
+    .map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a, b) => {
+  const [x, y] = [hexLum(a), hexLum(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+};
+
+test('card titles use a fixed dark text color with >= 4.5:1 contrast on white', () => {
+  const rule = html.match(/\.card-title\s*\{([^}]*)\}/)[1];
+  const m = rule.match(/(?:^|[\s;])color:\s*(#[0-9a-fA-F]{6})\s*;/);
+  assert.ok(m, 'card-title color must be a literal hex, not var(--accent)');
+  assert.ok(contrast(m[1], '#ffffff') >= 4.5, `contrast ${contrast(m[1], '#ffffff').toFixed(2)}`);
+});
+
+// 把只含 M/H/V 的 path 拆成轴对齐线段
+function segments(d) {
+  const segs = [];
+  let x = 0, y = 0;
+  for (const [, cmd, nums] of d.matchAll(/([MHV])\s*([-\d.\s,]+)/g)) {
+    const n = nums.trim().split(/[\s,]+/).map(Number);
+    if (cmd === 'M') { [x, y] = n; continue; }
+    const [nx, ny] = cmd === 'H' ? [n[0], y] : [x, n[0]];
+    segs.push([x, y, nx, ny]);
+    [x, y] = [nx, ny];
+  }
+  return segs;
+}
+
+test('maze dashed solution path never crosses a wall', () => {
+  const s = svgOf('maze');
+  const sol = s.match(/<path d="([^"]*)"[^>]*stroke-dasharray/);
+  if (!sol) return; // 虚线路径可选
+  const walls = [...s.match(/<g[^>]*>([\s\S]*?)<\/g>/)[1].matchAll(/<path d="([^"]*)"/g)]
+    .flatMap(m => segments(m[1]));
+  const within = (v, a, b) => v >= Math.min(a, b) && v <= Math.max(a, b);
+  for (const p of segments(sol[1])) {
+    for (const w of walls) {
+      const pH = p[1] === p[3], wH = w[1] === w[3];
+      if (pH === wH) continue;
+      const [h, v] = pH ? [p, w] : [w, p];
+      assert.ok(!(within(v[0], h[0], h[2]) && within(h[1], v[1], v[3])),
+        `solution ${p} crosses wall ${w}`);
+    }
+  }
+});
