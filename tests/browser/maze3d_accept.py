@@ -42,6 +42,7 @@ KEYS = {
     "right": "ArrowRight",
 }
 WASD = {"up": "w", "down": "s", "left": "a", "right": "d"}
+PW = None  # main() 中赋值，供需要设备描述的检查使用
 DIRS = {"up": (-1, 0), "down": (1, 0), "left": (0, -1), "right": (0, 1)}
 
 
@@ -781,6 +782,265 @@ def check_3(browser, base):
         close(page)
 
 
+def box_of(page, sel):
+    return page.locator(sel).bounding_box()
+
+
+def intersects(a, b):
+    return not (
+        a["x"] + a["width"] <= b["x"]
+        or b["x"] + b["width"] <= a["x"]
+        or a["y"] + a["height"] <= b["y"]
+        or b["y"] + b["height"] <= a["y"]
+    )
+
+
+def inside(inner, outer, eps=0.5):
+    return (
+        inner["x"] >= outer["x"] - eps
+        and inner["y"] >= outer["y"] - eps
+        and inner["x"] + inner["width"] <= outer["x"] + outer["width"] + eps
+        and inner["y"] + inner["height"] <= outer["y"] + outer["height"] + eps
+    )
+
+
+def check_8(browser, base):
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10",
+        viewport={"width": 375, "height": 667},
+        is_mobile=True,
+        has_touch=True,
+        device_scale_factor=2,
+    )
+    details = []
+    try:
+        wait_idle(page)
+        page.wait_for_timeout(300)
+        sw = page.evaluate("() => document.documentElement.scrollWidth")
+        canvas = box_of(page, "#stage > canvas:not(#minimap)")
+        cx = canvas["x"] + canvas["width"] / 2
+        cy = canvas["y"] + canvas["height"] / 2
+        center = {"x": cx - 60, "y": cy - 60, "width": 120, "height": 120}
+        bad = []
+        for d in ["up", "down", "left", "right"]:
+            b = box_of(page, f"#btn-{d}")
+            if intersects(b, center) or b["width"] < 56 or b["height"] < 56:
+                bad.append(f"{d}:{b}")
+        page.click("#view-btn")
+        page.wait_for_timeout(200)
+        mini = box_of(page, "#minimap")
+        mini_ok = inside(mini, canvas)
+        page.screenshot(path=str(SCRATCH / "maze3d-375x667.png"), full_page=True)
+        details.append(
+            f"portrait: scrollWidth={sw} dpadBad={bad} minimapInside={mini_ok}"
+        )
+        if sw > 375 or bad or not mini_ok:
+            return False, " ".join(details)
+        page.set_viewport_size({"width": 667, "height": 375})
+        page.wait_for_timeout(300)
+        sw2 = page.evaluate("() => document.documentElement.scrollWidth")
+        cw = box_of(page, "#stage > canvas:not(#minimap)")["width"]
+        stw = box_of(page, "#stage")["width"]
+        page.screenshot(path=str(SCRATCH / "maze3d-667x375.png"), full_page=True)
+        details.append(f"landscape: scrollWidth={sw2} canvas={cw} stage={stw}")
+        ok = sw2 <= 667 and abs(cw - stw) < 1
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def play_rounds(page):
+    """跟随视角走 10 步（赢了就再来一局），再切第一人称做 10 次前进 / 转身。"""
+    for _ in range(10):
+        if m3(page, "state") == "won":
+            page.click("#again-btn")
+            wait_idle(page)
+        d = path_dir(page)
+        if d is None:
+            page.click("#again-btn")
+            wait_idle(page)
+            d = path_dir(page)
+        page.keyboard.press(KEYS[d])
+        wait_settled(page, timeout=15000)
+    if m3(page, "state") == "won":
+        page.click("#again-btn")
+        wait_idle(page)
+    page.click("#view-btn")
+    for i in range(10):
+        if m3(page, "state") == "won":
+            page.click("#again-btn")
+            wait_idle(page)
+        facing = m3(page, "player")["facing"]
+        if i % 3 != 2 and next_stop(page, facing) is not None:
+            page.keyboard.press("ArrowUp")
+        else:
+            page.keyboard.press("ArrowLeft")
+        wait_settled(page, timeout=15000)
+
+
+def perf_round(browser, base, mobile):
+    if mobile:
+        dev = dict(PW.devices["iPhone SE"])
+        dev.pop("default_browser_type", None)
+        page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=20", **dev)
+        cdp = page.context.new_cdp_session(page)
+        cdp.send("Emulation.setCPUThrottlingRate", {"rate": 4})
+    else:
+        page, errors = open_page(
+            browser,
+            f"{base}{PAGE}?seed={S}&size=20",
+            viewport={"width": 1280, "height": 800},
+        )
+    try:
+        wait_idle(page, timeout=15000)
+        page.wait_for_timeout(500)
+        page.evaluate("() => window.__maze3d.resetFrameStats()")
+        play_rounds(page)
+        stats = m3(page, "frameStats()")
+        return {
+            "count": stats["count"],
+            "avg": round(stats["avg"], 1),
+            "p95": round(stats["p95"], 1),
+            "quality": m3(page, "quality"),
+            "renderer": m3(page, "rendererName"),
+            "errors": errors,
+        }
+    finally:
+        close(page)
+
+
+def fmt_round(name, r):
+    return (
+        f"{name}: count={r['count']} avg={r['avg']} p95={r['p95']}"
+        f" quality={r['quality']} renderer={r['renderer']!r}"
+    )
+
+
+def check_9(browser, base):
+    bt = browser.browser_type
+    attempts = []
+    for headless in [True, False]:
+        gb = bt.launch(
+            channel="chromium",
+            headless=headless,
+            args=["--use-angle=metal", "--enable-gpu"],
+        )
+        try:
+            desk = perf_round(gb, base, mobile=False)
+            if "swiftshader" in desk["renderer"].lower():
+                attempts.append(f"headless={headless} renderer={desk['renderer']!r}")
+                continue
+            mob = perf_round(gb, base, mobile=True)
+        finally:
+            gb.close()
+        detail = (
+            f"headless={headless} "
+            + fmt_round("desktop", desk)
+            + " | "
+            + fmt_round("iPhone SE x4 CPU", mob)
+        )
+        if "swiftshader" in mob["renderer"].lower():
+            return None, detail
+        errs = desk["errors"] + mob["errors"]
+        ok = mob["avg"] <= 33 and mob["p95"] <= 50 and not errs
+        if errs:
+            detail += " errors=" + " | ".join(errs[:3])
+        return ok, detail
+    return None, "still SwiftShader: " + "; ".join(attempts)
+
+
+def check_9b(browser, base):
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    try:
+        wait_idle(page)
+        page.wait_for_timeout(500)
+        page.evaluate(
+            "() => { Object.defineProperty(document, 'visibilityState',"
+            " { value: 'hidden', configurable: true });"
+            " document.dispatchEvent(new Event('visibilitychange')); }"
+        )
+        page.wait_for_timeout(100)
+        c0 = m3(page, "frameStats()")["count"]
+        page.wait_for_timeout(500)
+        c1 = m3(page, "frameStats()")["count"]
+        page.evaluate(
+            "() => { Object.defineProperty(document, 'visibilityState',"
+            " { value: 'visible', configurable: true });"
+            " document.dispatchEvent(new Event('visibilitychange')); }"
+        )
+        page.wait_for_timeout(500)
+        c2 = m3(page, "frameStats()")["count"]
+        quality = m3(page, "quality")
+        stats = m3(page, "frameStats()")
+        ok = c1 == c0 and c2 > c1 and quality == "high"
+        ok_err, msg = no_errors(errors)
+        return (
+            ok and ok_err,
+            (
+                f"hidden count {c0}->{c1}, visible ->{c2}, quality={quality}"
+                f" p95={stats['p95']:.1f} {msg}"
+            ).strip(),
+        )
+    finally:
+        close(page)
+
+
+def check_9c(browser, base):
+    details = []
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1&slow=40")
+    try:
+        wait_ready(page)
+        page.wait_for_function("() => window.__maze3d.quality === 'low'", timeout=10000)
+        page.wait_for_timeout(200)
+        n = m3(page, "downgradeCount")
+        canv = page.evaluate(
+            "() => { const st = document.getElementById('stage');"
+            " const cs = [...st.querySelectorAll('canvas')].filter((c) => c.id !== 'minimap');"
+            " return { n: cs.length, w: cs[0].width, h: cs[0].height,"
+            " cw: st.clientWidth, ch: st.clientHeight }; }"
+        )
+        colors = m3(page, "sampleDistinctColors()")
+        details.append(f"downgradeCount={n} canvas={canv} colors={colors}")
+        if not (
+            n == 1
+            and canv["n"] == 1
+            and canv["w"] == canv["cw"]
+            and canv["h"] == canv["ch"]
+            and colors >= 3
+        ):
+            return False, " ".join(details)
+        wait_idle(page, timeout=10000)
+        d = entrance_dir(page)
+        exp = next_stop(page, d)
+        page.keyboard.press(KEYS[d])
+        wait_settled(page, timeout=10000)
+        got = pos(page)
+        details.append(f"move {d}: {got} want {exp}")
+        if got != exp:
+            return False, " ".join(details)
+        page.wait_for_timeout(3000)
+        n2 = m3(page, "downgradeCount")
+        q2 = m3(page, "quality")
+        perf = page.inner_text("#perf")
+        details.append(f"after 3s: count={n2} quality={q2} perf={perf!r}")
+        ok_err, msg = no_errors(errors)
+        if not (n2 == 1 and q2 == "low" and ok_err):
+            return False, " ".join(details) + " " + msg
+    finally:
+        close(page)
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&slow=40")
+    try:
+        wait_idle(page)
+        page.wait_for_timeout(3000)
+        q = m3(page, "quality")
+        details.append(f"no-debug quality={q}")
+        return q == "high", " ".join(details)
+    finally:
+        close(page)
+
+
 # ---------------------------------------------------------------- runner
 
 CHECKS = {
@@ -796,6 +1056,10 @@ CHECKS = {
     "4b": check_4b,
     "5": check_5,
     "3": check_3,
+    "8": check_8,
+    "9": check_9,
+    "9b": check_9b,
+    "9c": check_9c,
 }
 
 
@@ -824,6 +1088,8 @@ def main():
     all_ok = True
     try:
         with sync_playwright() as p:
+            global PW
+            PW = p
             browser = p.chromium.launch(args=SWIFTSHADER_ARGS)
             version = browser.version
             for name in names:

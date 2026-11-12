@@ -320,3 +320,49 @@ test('floorKind priority', () => {
   assert.equal(L.floorKind({ row: 9, col: 9 }, 10, { onPath: false, inView: true }), 'end');
   assert.equal(L.floorKind({ row: 3, col: 3 }, 10, { onPath: false, inView: true }), 'floor');
 });
+
+// ---------- Task 7: 帧统计与自动降画质 ----------
+test('summarizeFrames', () => {
+  assert.deepEqual(L.summarizeFrames([]), { count: 0, avg: 0, p95: 0 });
+  const r = L.summarizeFrames(Array.from({ length: 20 }, (_, i) => i + 1));
+  assert.equal(r.count, 20);
+  assert.equal(r.avg, 10.5);
+  assert.equal(r.p95, 19);
+  const r2 = L.summarizeFrames([16, 16, 16, 100]);
+  assert.equal(r2.avg, 37);
+  assert.equal(r2.p95, 100);
+});
+
+test('frame meter skips the gap after reset', () => {
+  const m = L.createFrameMeter();
+  m.tick(0);
+  m.tick(16);
+  m.reset();
+  m.tick(10000);
+  m.tick(10016);
+  assert.deepEqual(m.deltas(), [16, 16]);
+  assert.deepEqual(m.window(), [16, 16]);
+});
+
+test('frame meter window keeps about 2 seconds', () => {
+  const m = L.createFrameMeter();
+  for (let i = 0; i <= 200; i++) m.tick(i * 20);
+  const w = m.window();
+  const sum = w.reduce((a, b) => a + b, 0);
+  assert.ok(sum >= 2000, `sum ${sum}`);
+  assert.ok(sum - w[0] < 2000, `sum minus oldest ${sum - w[0]}`);
+  assert.equal(m.deltas().length, 200);
+});
+
+test('frame meter keeps at most 600 deltas', () => {
+  const m = L.createFrameMeter();
+  for (let i = 0; i <= 1000; i++) m.tick(i * 16);
+  assert.equal(m.deltas().length, 600);
+});
+
+test('shouldDowngrade', () => {
+  assert.equal(L.shouldDowngrade(Array(60).fill(34)), true);
+  assert.equal(L.shouldDowngrade(Array(60).fill(33)), false);
+  assert.equal(L.shouldDowngrade(Array(10).fill(50)), false);
+  assert.equal(L.shouldDowngrade([]), false);
+});

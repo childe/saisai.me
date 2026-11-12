@@ -186,3 +186,55 @@ export function floorKind(cell, size, { inView, onPath }) {
   if (cell.row === size - 1 && cell.col === size - 1) return 'end';
   return 'floor';
 }
+
+// ---------- 帧统计 ----------
+export function summarizeFrames(deltas) {
+  const n = deltas.length;
+  if (n === 0) return { count: 0, avg: 0, p95: 0 };
+  const sum = deltas.reduce((a, b) => a + b, 0);
+  const sorted = [...deltas].sort((a, b) => a - b);
+  return { count: n, avg: sum / n, p95: sorted[Math.ceil(0.95 * n) - 1] };
+}
+
+const MAX_DELTAS = 600;
+const WINDOW_MS = 2000;
+
+// tick(t) 记录与上一次的间隔；reset() 之后的第一次 tick 不产生间隔（切回前台的长间隔不计入）
+export function createFrameMeter() {
+  let last = null;
+  let all = [];
+  let win = [];
+  let winSum = 0;
+  return {
+    tick(t) {
+      if (last !== null) {
+        const d = t - last;
+        all.push(d);
+        if (all.length > MAX_DELTAS) all = all.slice(all.length - MAX_DELTAS);
+        win.push(d);
+        winSum += d;
+        while (win.length > 1 && winSum - win[0] >= WINDOW_MS) {
+          winSum -= win.shift();
+        }
+      }
+      last = t;
+    },
+    reset() {
+      last = null;
+    },
+    deltas() {
+      return [...all];
+    },
+    window() {
+      return [...win];
+    },
+  };
+}
+
+// 最近约 2 秒的平均帧时间超过 33ms 时降画质
+export function shouldDowngrade(windowDeltas) {
+  const n = windowDeltas.length;
+  if (n === 0) return false;
+  const sum = windowDeltas.reduce((a, b) => a + b, 0);
+  return sum >= WINDOW_MS && sum / n > 33;
+}

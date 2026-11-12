@@ -15,6 +15,9 @@ import {
   clampRadius,
   findPath,
   wallInView,
+  summarizeFrames,
+  createFrameMeter,
+  shouldDowngrade,
 } from './game-logic.js';
 
 const STEP_MS = 120;
@@ -99,6 +102,9 @@ function start() {
     writeUrl({ seed });
   }
   let size = parseSize(params.get('size'));
+  // 调试参数：?debug=1 显示帧统计；&slow=<ms> 每帧在渲染前忙等，用来真实触发降画质
+  const debug = params.get('debug') === '1';
+  const slowMs = debug ? Math.max(0, parseInt(params.get('slow'), 10) || 0) : 0;
 
   function writeUrl(values) {
     const url = new URL(location.href);
@@ -639,19 +645,88 @@ function start() {
   resize();
 
   // ---------- 渲染循环 ----------
+  let meter = createFrameMeter();
+  let quality = 'high';
+  let downgradeCount = 0;
+  let rafId = null;
+
+  // 换成不抗锯齿、像素比 1 的新 renderer；只执行一次
+  function downgrade() {
+    const old = renderer;
+    let next;
+    try {
+      next = createRenderer(false);
+    } catch {
+      quality = 'low';
+      return;
+    }
+    next.setPixelRatio(1);
+    next.setSize(stage.clientWidth, stage.clientHeight, true);
+    stage.replaceChild(next.domElement, old.domElement);
+    old.dispose();
+    renderer = next;
+    quality = 'low';
+    downgradeCount += 1;
+    meter.reset();
+  }
+
   let lastTime = performance.now();
   function frame(now) {
+    rafId = null;
+    meter.tick(now);
+    if (quality === 'high' && shouldDowngrade(meter.window())) downgrade();
+    if (slowMs > 0) {
+      const t0 = performance.now();
+      while (performance.now() - t0 < slowMs) {
+        // 忙等，模拟慢设备
+      }
+    }
     const dt = Math.max(0, Math.min(now - lastTime, 100));
     lastTime = now;
     stepAnimation(performance.now());
     star.rotation.y += (dt / 1000) * 1;
     updateCamera(dt);
     renderer.render(scene, camera);
-    requestAnimationFrame(frame);
+    rafId = requestAnimationFrame(frame);
+  }
+
+  function startLoop() {
+    if (rafId !== null) return;
+    meter.reset();
+    lastTime = performance.now();
+    rafId = requestAnimationFrame(frame);
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      rafId = null;
+    } else {
+      startLoop();
+    }
+  });
+
+  if (debug) {
+    const perf = $('perf');
+    perf.hidden = false;
+    setInterval(() => {
+      const st = summarizeFrames(meter.deltas());
+      perf.textContent = `帧时间 平均 ${st.avg.toFixed(1)} ms · p95 ${st.p95.toFixed(1)} ms · 画质 ${quality}`;
+    }, 500);
+  }
+
+  function rendererName() {
+    try {
+      const gl = renderer.getContext();
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      return ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || '') : '';
+    } catch {
+      return '';
+    }
   }
 
   buildMaze(seed, size);
-  requestAnimationFrame(frame);
+  startLoop();
 
   // ---------- 调试对象 ----------
   function sampleDistinctColors() {
@@ -727,6 +802,21 @@ function start() {
     },
     get fogRecomputeCount() {
       return fogRecomputeCount;
+    },
+    frameStats() {
+      return summarizeFrames(meter.deltas());
+    },
+    resetFrameStats() {
+      meter = createFrameMeter();
+    },
+    get quality() {
+      return quality;
+    },
+    get downgradeCount() {
+      return downgradeCount;
+    },
+    get rendererName() {
+      return rendererName();
     },
     get threeRevision() {
       return THREE.REVISION;
