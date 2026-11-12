@@ -51,23 +51,26 @@
 ```
 maze-3d/
   index.html            页面骨架、样式、按钮；<script type="module" src="main.js">
-  maze-core.js          ES module：SeededRandom、MazeGenerator（从 2D 页面原样复制）、findPath
-  game-logic.js         ES module，纯函数：canMove、findNextIntersection、turn、isInFogView、clampRadius
+  maze-core.js          ES module：SeededRandom、MazeGenerator（从 2D 页面原样复制）
+  game-logic.js         ES module，纯函数：canMove、findNextIntersection、findPath、turn、isInFogView、clampRadius
   main.js               ES module：three.js 场景、相机、动画、UI 绑定、localStorage
-  vendor/three.module.min.js   three.js 官方构建，固定版本 0.187.0
-  vendor/LICENSE        three.js 的 MIT 许可证
+  vendor/three.module.js       three.js 官方构建入口，固定版本 0.187.0（r187）
+  vendor/three.core.js         同版本核心模块，被 three.module.js 以 `./three.core.js` 相对导入
+  vendor/LICENSE               three.js 的 MIT 许可证
   README.md             一句话说明
 ```
 
 - `maze-core.js` 与 `game-logic.js` 不碰 DOM 与 three.js，可在 node 中直接 `import` 测试。
-- `main.js` 用相对路径 `import * as THREE from './vendor/three.module.min.js'`。
+- `main.js` 用相对路径 `import * as THREE from './vendor/three.module.js'`。r187 的入口模块依赖同目录的 `three.core.js`，两个文件必须来自同一版本、一起放入 `vendor/`，不改动其内部 import 路径。
 - ES module 无法通过 `file://` 加载；站点经 GitHub Pages 以 http(s) 提供，本地测试用 `python3 -m http.server`。
 
 ### 与 2D 生成器保持一致
 
 `maze-core.js` 中的 `SeededRandom` 与 `MazeGenerator` 从 `maze-gen/maze.html` 原样复制（只加 `export`）。用测试锁定一致性：测试从 `maze.html` 源码中截取这两个类，在 `node:vm` 中求值，与 `maze-core.js` 对多组 (seed, size) 比较 `generate()` 的输出，必须深度相等。2D 以后改了生成器而 3D 没跟上，这个测试会失败。
 
-`findPath` 与 `findNextIntersection` 同理：复制 2D 的逻辑改为接收参数的纯函数，测试对多组 seed 比较结果与 2D 一致。
+`findNextIntersection` 复制 2D 的逻辑改为接收参数的纯函数，测试对多组 seed 比较结果与 2D 一致。
+
+`findPath` **不**照搬 2D：2D 的 `findPath` 固定从 `[0,0]` 出发，并额外拒绝 `maze !== 0` 的格子，而 2D 的移动只看双向 `connections`（例如 seed=1、size=10 时，从入口可走到的 `(3,6)` 的 `maze` 值为 1）。小人离开起点后照搬会找不到路。3D 定义 `findPath(connections, start, end)`：BFS，相邻判定与移动、墙体生成共用同一个 `canMove(connections, from, to)`（仅看双向 `connections` 与边界）。测试要求：对多组 seed，从入口出发经 `findNextIntersection` 实际走到的若干位置调用 `findPath`，结果首格为当前位置、末格为终点、每相邻两格 `canMove` 为真。不再要求与 2D 寻路逐格一致。
 
 ### 场景
 
@@ -78,6 +81,15 @@ maze-3d/
 - 光照：一盏环境光 + 一盏方向光；不开阴影。
 - 迷雾隐藏墙：视野外的墙实例把矩阵缩放设为 0。只在小人「所在格」变化、N 变化、开关变化、生成迷宫时重算一次，不是每帧都算。
 - 动画中途的格子位置：移动动画按格推进，每到达一个新格就更新「显示格」，迷雾按显示格计算（与 2D 设计中的 `displayPosition` 相同）。
+
+### 交互状态
+
+游戏状态只有四种：`idle`、`moving`、`turning`、`won`。
+
+- 只有 `idle` 接受方向输入；`moving` / `turning` 期间的方向输入直接丢弃（不排队），`won` 期间忽略方向输入。
+- 移动 / 转身动画结束时回到 `idle`；到达终点格时进入 `won` 并显示提示层。
+- 每次生成迷宫（切尺寸、重新生成、再来一局）递增一个 `generation` 计数，并把状态重置为 `idle`、小人回入口、朝向南。动画回调先比对自己启动时的 `generation`，不一致即放弃，不写回小人位置、迷雾或小地图。
+- 视角切换在任何状态下都可点：立即取消进行中的动画，小人落到当前「显示格」，状态回 `idle`，再切换相机。
 
 ### 相机
 
@@ -100,13 +112,14 @@ maze-3d/
 自动测试（`node --test tests/`，不加 npm 依赖）：
 
 - `tests/maze-3d-core.test.mjs`：
-  - 多组 (seed, size) 下 `maze-core.js` 与 `maze.html` 中的生成器输出深度相等；`findPath` 一致。
+  - 多组 (seed, size)（含 10、15、20）下 `maze-core.js` 与 `maze.html` 中的生成器输出深度相等。
+  - `findPath`：从多个实际可达位置出发，路径首格为起点、末格为终点、每一步 `canMove` 为真。
   - `canMove` / `findNextIntersection`：边界、墙、入口出口外沿不可走出迷宫。
   - 第一人称 `turn`：左转、右转、掉头四个朝向循环正确。
   - `isInFogView` 边界：距离 N 可见、N+1 不可见；`clampRadius` 夹在 [1, 25]，非法输入回退 5。
 - `tests/maze-3d-page.test.mjs`（读取源码的静态检查）：
   - `maze-3d/` 下所有文件不含 `http://`、`https://`、`//` 开头的外部引用。
-  - `vendor/three.module.min.js` 存在且 `main.js` 以相对路径引入；`vendor/LICENSE` 存在。
+  - `vendor/three.module.js` 与 `vendor/three.core.js` 存在且版本均为 r187；`three.module.js` 只以 `./three.core.js` 相对导入；`main.js` 以相对路径引入 `./vendor/three.module.js`；`vendor/LICENSE` 存在。
   - 页面含尺寸、视角、迷雾开关、「−」「+」、方向按钮、重新生成、显示 / 隐藏道路等控件；不含 `alert(`。
   - 存在 WebGL 不支持时的降级文案与指向 2D 迷宫的链接。
 - `tests/homepage.test.mjs`：卡片数改为 7，`EXPECTED` 与描述数组加上 `['maze3d', 'maze-3d/index.html', '3D 迷宫']` 与「立体迷宫 走出去」，其余首页约束（无外部请求、无脚本、SVG 有 viewBox 等）对新卡片同样成立。
@@ -119,7 +132,11 @@ maze-3d/
 4. 迷雾：视野外墙实例被隐藏、地板变深；「−」「+」到 1 / 25 禁用；关闭后全图可见；刷新后保持。
 5. 显示道路：路径格为红色；隐藏后恢复。
 6. 走到终点显示恭喜提示层，「再来一局」生成新迷宫并更新 URL。
-7. 同一 `?seed=&size=` 打开 2D 与 3D，用 `page.evaluate` 取出两边的 `connections`，深度相等。
+7. 同 seed 跨页面一致：用 `?seed=S` 打开 2D 页面，`page.evaluate` 调用其 `setMazeSize(size)`（size 取 2D 已有的 10 与 20）后读 `currentConnections`；用 `?seed=S&size=size` 打开 3D 页面取出 `connections`，两者深度相等。15×15 在 2D 页面无尺寸按钮，由自动测试中 `node:vm` 隔离求值两边生成器覆盖。不修改 2D 页面。
 8. 375px 宽：无横向滚动，方向按钮不遮挡画布中心。
-9. 性能：20×20、iPhone SE 设备模拟 + 4 倍 CPU 降速下，连续移动 10 步期间平均帧时间 ≤ 33ms；同时记录桌面数据。
+9. 性能（回归基线）：20×20、iPhone SE 设备模拟 + 4 倍 CPU 降速下，连续移动 10 步期间记录帧时间分布，平均 ≤ 33ms 且 p95 ≤ 50ms；同时记录桌面数据。
 10. 用 `--disable-webgl` 启动浏览器打开页面，显示降级文案与 2D 链接。
+11. 动画中途切尺寸 / 重新生成 / 切视角：旧动画不再改变新迷宫中小人的位置；连续快速按键时小人每次只走一段。
+12. 离线加载：所有模块请求（`main.js`、`maze-core.js`、`game-logic.js`、`vendor/three.module.js`、`vendor/three.core.js`）均为本地 200；拦截全部非本地请求后页面仍正常渲染。
+
+真机验收（人工，一次）：在至少一台实际 iPhone 或 iPad 上，20×20 迷宫在跟随视角与第一人称下各连续移动、转身 10 次，确认无明显卡顿；如触发自动降画质，确认降级后可正常游玩。在 test-results.txt 记录设备型号、系统与浏览器版本、是否触发降级，以及页面内统计的帧时间平均值与 p95。
