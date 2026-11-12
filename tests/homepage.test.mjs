@@ -50,6 +50,7 @@ const EXPECTED = [
   ['maze',     'maze-gen/maze.html',               '迷宫生成器'],
   ['jump',     'tiao-yi-tiao/game.html',           '跳一跳'],
   ['maze3d',   'maze-3d/index.html',               '3D 迷宫'],
+  ['circuit',  'circuit/index.html',              '电路实验室'],
 ];
 
 test('viewport meta kept', () => {
@@ -62,9 +63,9 @@ test('lang and title', () => {
   assert.match(html, /<h1[^>]*>[\s\S]*赛赛的工具箱[\s\S]*<\/h1>/);
 });
 
-test('seven cards in order with fixed links and titles', () => {
+test('eight cards in order with fixed links and titles', () => {
   const c = cards();
-  assert.equal(c.length, 7);
+  assert.equal(c.length, 8);
   assert.deepEqual(c.map(x => [x.tool, x.href, x.title]), EXPECTED);
 });
 
@@ -72,7 +73,7 @@ test('cards have the agreed descriptions', () => {
   assert.deepEqual(cards().map(x => x.desc), [
     '声母 韵母 四声调', '一年级上册', '一元一次方程求解',
     '描点 连成线', '从起点走到终点', '按住蓄力 跳过去',
-    '立体迷宫 走出去',
+    '立体迷宫 走出去', '连电线 点亮小灯',
   ]);
 });
 
