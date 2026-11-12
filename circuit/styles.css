@@ -226,3 +226,75 @@ body {
 }
 #ghost[hidden] { display: none; }
 #ghost svg { width: 100%; height: 100%; }
+
+/* 电流小点与风扇 */
+.flow {
+  fill: none;
+  stroke: #ffe066;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 2 14;
+  pointer-events: none;
+  animation-name: flow-move;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@keyframes flow-move {
+  from { stroke-dashoffset: 16; }
+  to { stroke-dashoffset: 0; }
+}
+#board.stale .flow { display: none; }
+
+.fan.spinning {
+  transform-origin: 0 0;
+  animation-name: fan-spin;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@keyframes fan-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.alarm .bubble { animation: pulse 0.6s ease-in-out infinite alternate; }
+@keyframes pulse {
+  from { opacity: 0.7; }
+  to { opacity: 1; }
+}
+
+/* 小任务 */
+.task-row { display: flex; align-items: center; gap: 12px; }
+.task-title { flex: 1; font-size: 1.1rem; font-weight: bold; }
+.hint { font-size: 1rem; color: #6a5a48; }
+.passed {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #2f8a3a;
+}
+
+#tasklist {
+  position: absolute;
+  inset: 0;
+  background: rgba(58, 46, 37, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+}
+#tasklist[hidden] { display: none; }
+.tasklist-box {
+  background: var(--card);
+  border: 2px solid var(--line);
+  border-radius: 18px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 90%;
+  overflow-y: auto;
+}
+.tasklist-box h2 { margin: 0; font-size: 1.2rem; }
+.tasklist-items { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tasklist-items .btn { justify-content: flex-start; }

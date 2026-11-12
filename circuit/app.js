@@ -1,7 +1,9 @@
 // 入口：指针事件 → action，state → render。
 import { createEditor, reduce, activeSpace } from './lib/editor.js';
 import { hitTest, terminalPoint, wireRoute, snap, GRID } from './lib/geometry.js';
-import { render, miniArt } from './view.js';
+import { render, miniArt, buzzerVolume } from './view.js';
+import { createBuzzer } from './sound.js';
+import { TASKS } from './lib/tasks.js';
 
 const $ = sel => document.querySelector(sel);
 const board = $('#board');
@@ -15,6 +17,7 @@ const dom = {
   banner: $('#banner'),
   confirm: $('#confirm'),
   taskbar: $('#taskbar'),
+  tasklist: $('#tasklist'),
   modeButtons: [...document.querySelectorAll('#modeSeg [data-mode]')],
   styleButtons: [...document.querySelectorAll('#styleSeg [data-style]')],
   muteBtn: $('#muteBtn'),
@@ -212,5 +215,38 @@ document.addEventListener('keydown', e => {
     dispatch({ type: sel.kind === 'part' ? 'deletePart' : 'deleteWire', id: sel.id });
   }
 });
+
+// ---------- 小任务 ----------
+dom.tasklist.querySelector('.tasklist-items').innerHTML = TASKS
+  .map((t, i) => `<button class="btn" data-task="${i}">第 ${t.id} 关 · ${t.name}</button>`).join('');
+function onTaskClick(e) {
+  const pick = e.target.closest('[data-task]');
+  if (pick) {
+    dom.tasklist.hidden = true;
+    dispatch({ type: 'chooseTask', index: Number(pick.dataset.task) });
+    return;
+  }
+  const b = e.target.closest('[data-task-action]');
+  if (!b) return;
+  if (b.dataset.taskAction === 'list') dom.tasklist.hidden = false;
+  else if (b.dataset.taskAction === 'close') dom.tasklist.hidden = true;
+  else if (b.dataset.taskAction === 'next') dispatch({ type: 'nextTask' });
+}
+dom.taskbar.addEventListener('click', onTaskClick);
+dom.tasklist.addEventListener('click', onTaskClick);
+
+// ---------- 声音与定时循环 ----------
+const buzzer = createBuzzer();
+window.addEventListener('pointerdown', () => buzzer.unlock(), { capture: true });
+
+let lastT = null;
+function frame(t) {
+  const dt = lastT === null ? 0 : Math.min(0.1, Math.max(0, (t - lastT) / 1000));
+  lastT = t;
+  if (dt > 0) dispatch({ type: 'tick', dt });
+  buzzer.update(buzzerVolume(state), state.muted);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
 
 render(dom, state);

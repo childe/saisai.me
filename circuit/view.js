@@ -2,7 +2,7 @@
 import { activeSpace } from './lib/editor.js';
 import { PARTS, PART_TYPES } from './lib/parts.js';
 import { GRID, wirePoints, LEVER_RECT } from './lib/geometry.js';
-import { partVisual } from './lib/viewmodel.js';
+import { partVisual, wireFlow } from './lib/viewmodel.js';
 import { drawPart } from './lib/drawings.js';
 import { TASKS, remainingPalette } from './lib/tasks.js';
 
@@ -81,12 +81,17 @@ function partItems(state, space) {
   return circuit.parts.map(p => {
     const vis = partVisual(p, result.ok ? result.parts[p.id] : undefined, damage, result.ok);
     const selected = sel?.kind === 'part' && sel.id === p.id;
+    let art = drawPart(p, state.style, vis);
+    if (p.type === 'motor' && Math.abs(vis.spin) >= 0.05) {
+      const period = Math.round((1 / Math.abs(vis.spin)) * 100) / 100;
+      art = art.replace('class="fan"', `class="fan spinning" style="animation-duration:${period}s;animation-direction:${vis.spin < 0 ? 'reverse' : 'normal'}"`);
+    }
     const selBox = selected ? `<rect class="sel" x="-74" y="-${p.type === 'rheostat' || PARTS[p.type].lever ? 84 : 46}" width="148" height="${p.type === 'rheostat' || PARTS[p.type].lever ? 130 : 92}" rx="12"/>` : '';
     return {
       id: p.id,
       vis,
       attrs: { 'data-id': p.id, class: `part ${p.type}`, transform: `translate(${p.x * GRID} ${p.y * GRID}) rotate(${p.rot * 90})` },
-      html: selBox + drawPart(p, state.style, vis),
+      html: selBox + art,
     };
   });
 }
@@ -169,13 +174,62 @@ function renderPanel(dom, state, space) {
   dom.panel.hidden = false;
 }
 
+// 导线上的电流小点：一个周期 16 单位，时长 16 / speed 秒。
+function flowMarkup(space) {
+  const { result } = space;
+  return (w, ptsAttr) => {
+    const f = wireFlow(result.ok ? result.wires[w.id] : undefined, result.ok);
+    if (!f) return '';
+    const dur = Math.round((16 / f.speed) * 1000) / 1000;
+    return `<polyline class="flow" points="${ptsAttr}" style="animation-duration:${dur}s;animation-direction:${f.dir < 0 ? 'reverse' : 'normal'}"/>`;
+  };
+}
+
+// 当前空间所有蜂鸣器音量的最大值。
+export function buzzerVolume(state) {
+  const { circuit, result, damage } = activeSpace(state);
+  let v = 0;
+  for (const p of circuit.parts) {
+    if (p.type !== 'buzzer') continue;
+    v = Math.max(v, partVisual(p, result.ok ? result.parts[p.id] : undefined, damage, result.ok).volume);
+  }
+  return v;
+}
+
+let taskbarKey = '';
+function renderTaskbar(dom, state) {
+  if (state.mode !== 'task') {
+    dom.taskbar.hidden = true;
+    if (dom.tasklist) dom.tasklist.hidden = true;
+    taskbarKey = '';
+    return;
+  }
+  const t = state.task;
+  const task = TASKS[t.index];
+  const key = JSON.stringify([t.index, t.hint, t.passed]);
+  dom.taskbar.hidden = false;
+  if (key === taskbarKey) return;
+  taskbarKey = key;
+  const pass = t.passed
+    ? `<div class="passed">🎉 完成啦！${t.index < TASKS.length - 1 ? '<button class="btn on" data-task-action="next">下一关 →</button>' : ''}</div>`
+    : '';
+  dom.taskbar.innerHTML =
+    `<div class="task-row"><span class="task-title">第 ${task.id} 关 · ${task.name}：${task.goal}</span>` +
+    `<button class="btn" data-task-action="list">选关</button></div>` +
+    (t.hint ? `<div class="hint">💡 ${t.hint}</div>` : '') + pass;
+  if (dom.tasklist) {
+    for (const b of dom.tasklist.querySelectorAll('[data-task]')) b.classList.toggle('on', Number(b.dataset.task) === t.index);
+  }
+}
+
 export function render(dom, state) {
   if (state === last) return;
   last = state;
   const space = activeSpace(state);
   renderToolbar(dom, state, space);
+  renderTaskbar(dom, state);
   renderPalette(dom, state, space);
-  sync(dom.wires, wireCache, wireItems(state, space));
+  sync(dom.wires, wireCache, wireItems(state, space, flowMarkup(space)));
   sync(dom.parts, partCache, partItems(state, space));
   dom.board.classList.toggle('stale', !space.result.ok);
   dom.banner.hidden = space.result.ok;

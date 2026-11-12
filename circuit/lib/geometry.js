@@ -8,6 +8,7 @@ export const LEVER_RECT = Object.freeze({ x0: -0.6, x1: 0.6, y0: -1.8, y1: -0.6 
 export const TERM_R = 0.55;
 export const WIRE_HIT = 0.5;
 export const MIN_TOUCH_PT = 44;
+const SELF_WIRE_OFFSET = 1.5;
 
 export function rotatePoint([x, y], rot) {
   let px = x, py = y;
@@ -44,6 +45,12 @@ export function wirePoints(circuit, wire) {
   const pa = circuit.parts.find(p => p.id === wire.a.part);
   const pb = circuit.parts.find(p => p.id === wire.b.part);
   if (!pa || !pb) return null;
+  if (pa === pb) {
+    // 同一元件两端之间的导线：往元件本地 +y 方向（拨片的反方向）绕出一个 U 形，不压在本体上。
+    const p1 = terminalPoint(pa, wire.a.term), p2 = terminalPoint(pa, wire.b.term);
+    const [ox, oy] = rotatePoint([0, SELF_WIRE_OFFSET], pa.rot);
+    return [p1, [p1[0] + ox, p1[1] + oy], [p2[0] + ox, p2[1] + oy], p2];
+  }
   return wireRoute(terminalPoint(pa, wire.a.term), terminalPoint(pb, wire.b.term));
 }
 

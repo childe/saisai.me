@@ -32,3 +32,15 @@ test('styles use toolbox background and block text selection', () => {
   assert.match(css, /touch-action:\s*none/);
   assert.match(css, /user-select:\s*none/);
 });
+
+test('effects and task UI are wired', () => {
+  const app = read('app.js');
+  assert.match(app, /requestAnimationFrame/);
+  assert.match(app, /type:\s*'tick'/);
+  assert.match(read('sound.js'), /export function createBuzzer/);
+  const css = read('styles.css');
+  assert.match(css, /@keyframes/);
+  assert.match(css, /\.flow/);
+  const html = read('index.html');
+  assert.match(html, /暂时无法计算/);
+});

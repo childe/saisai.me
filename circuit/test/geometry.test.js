@@ -60,3 +60,11 @@ test('hitTest finds a wire 0.3 grid from its midpoint', () => {
   assert.deepEqual(hitTest(c, [8, 5.3]), { kind: 'wire', id: 'w1' });
   assert.equal(hitTest(c, [8, 6.2]), null);
 });
+
+test('a wire across one part detours around the body so it stays selectable', () => {
+  const c = build({ parts: { B: ['battery'] }, wires: [['B.p', 'B.n']] });
+  c.parts[0].x = 6; c.parts[0].y = 8;
+  assert.deepEqual(hitTest(c, [6, 9.5]), { kind: 'wire', id: 'w1' });
+  c.parts[0].rot = 1;
+  assert.deepEqual(hitTest(c, [4.5, 8]), { kind: 'wire', id: 'w1' });
+});
