@@ -250,5 +250,35 @@ function meter(letter, style, vis) {
 export function drawPart(part, style, visual) {
   const draw = DRAW[part.type];
   if (!draw) return '';
-  return `<g class="part-art ${style}">${draw(part, style, visual)}${terms(part)}</g>`;
+  return `<g class="part-art ${style}">${upright(draw(part, style, visual), part.rot)}${terms(part)}</g>`;
+}
+
+// 文字基线到字形中心的大致偏移（约 0.35em），按 styles.css 里的字号。
+const TEXT_MID = { label: 5, pol: 6, sym: 8, reading: 6 };
+const BUBBLE_RE = /<g class="bubble">[\s\S]*?<\/g>/;
+
+// 元件整体随 rot 旋转；文字绕自己的字形中心转回来保持正向；
+// 报警气泡整体绕元件中心转回来，始终在元件上方。
+function upright(svg, rot) {
+  const deg = -((rot % 4) * 90);
+  if (!deg) return svg;
+  const bubble = svg.match(BUBBLE_RE)?.[0];
+  const odd = rot % 2 === 1;
+  const body = svg.replace(BUBBLE_RE, '\u0000').replace(/<text\b[^>]*>([^<]*)/g, (el, content) => {
+    const tag = el.slice(0, el.length - content.length);
+    const x = Number(tag.match(/\bx="([-\d.]+)"/)?.[1] ?? 0), y = Number(tag.match(/\by="([-\d.]+)"/)?.[1] ?? 0);
+    const mid = TEXT_MID[tag.match(/\bclass="(\w+)"/)?.[1]] ?? 6;
+    const middle = /text-anchor="middle"/.test(tag);
+    const cx = middle ? x : x + mid;
+    let cy = y - mid;
+    // 竖放时，元件上下方的长文字会横着压到元件本体上：沿离开中心的方向再推开半个字宽。
+    const push = middle && odd && Math.abs(cy) > Math.abs(cx) ? Math.max(0, content.length * mid * 0.85 - mid) : 0;
+    const dy = Math.sign(cy) * push;
+    cy += dy;
+    const move = dy ? `translate(0 ${n(dy)}) ` : '';
+    return tag.replace(/>$/, ` transform="${move}rotate(${deg} ${n(cx)} ${n(cy - dy)})">`) + content;
+  });
+  // 竖放时元件上下各伸出约 2 格，气泡再往上挪一格多。
+  const lift = odd ? ' translate(0 -50)' : '';
+  return bubble ? body.replace('\u0000', `<g transform="rotate(${deg})${lift}">${bubble}</g>`) : body;
 }

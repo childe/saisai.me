@@ -24,3 +24,18 @@ test('state shows up in drawing', () => {
   assert.notEqual(drawPart(mk('spdt', { to: 'b' }), 'cartoon', vis()), drawPart(mk('spdt'), 'cartoon', vis()));
   assert.match(drawPart(mk('resistor', { ohms: 220 }), 'cartoon', vis()), /red/);
 });
+
+test('text stays upright when the part is rotated', () => {
+  for (const rot of [1, 2, 3]) {
+    const s = drawPart({ ...mk('battery'), rot }, 'cartoon', vis({ alarm: true }));
+    // 气泡整体转回来，气泡里的文字不再单独转。
+    const bubble = s.match(/<g transform="rotate\(([-\d]+)\)[^"]*"><g class="bubble">[\s\S]*?<\/g><\/g>/);
+    assert.ok(bubble, s);
+    assert.equal(Number(bubble[1]), -rot * 90);
+    assert.doesNotMatch(bubble[0], /<text[^>]*transform=/);
+    const texts = s.replace(bubble[0], '').match(/<text\b[^>]*>/g);
+    assert.ok(texts.length >= 2);
+    for (const t of texts) assert.match(t, new RegExp(`transform="[^"]*rotate\\(${-rot * 90} `), t);
+  }
+  assert.doesNotMatch(drawPart(mk('battery'), 'cartoon', vis({ alarm: true })), /<text[^>]*transform=/);
+});
