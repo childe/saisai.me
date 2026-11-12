@@ -68,6 +68,7 @@
         .card[data-tool="plotter"]  { --accent: #1fae7a; --tint: #dcf6ea; }
         .card[data-tool="maze"]     { --accent: #8b5cf6; --tint: #eee6ff; }
         .card[data-tool="jump"]     { --accent: #ec4899; --tint: #ffe3f1; }
+        .card[data-tool="maze3d"]   { --accent: #0ea5a4; --tint: #d9f6f4; }
         .card-art {
             display: block;
             aspect-ratio: 4 / 3;
@@ -268,6 +269,31 @@
                 </svg></span>
                 <span class="card-title">跳一跳</span>
                 <span class="card-desc">按住蓄力 跳过去</span>
+            </a>
+            <a class="card" href="maze-3d/index.html" data-tool="maze3d">
+                <span class="card-art"><svg class="art" viewBox="0 0 200 150" aria-hidden="true" focusable="false">
+                    <rect width="200" height="150" fill="var(--tint)"/>
+                    <polygon points="100,50 170,85 100,120 30,85" fill="#ffffff" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
+                    <polygon points="100,102.5 117.5,111.25 100,120 82.5,111.25" fill="#fca5a5"/>
+                    <polygon points="47.5,62.25 65,71 65,85 47.5,76.25" fill="var(--accent)"/>
+                    <polygon points="82.5,62.25 65,71 65,85 82.5,76.25" fill="#0b7d7c"/>
+                    <polygon points="65,53.5 82.5,62.25 65,71 47.5,62.25" fill="#7fe0de"/>
+                    <polygon points="117.5,62.25 135,71 135,85 117.5,76.25" fill="var(--accent)"/>
+                    <polygon points="152.5,62.25 135,71 135,85 152.5,76.25" fill="#0b7d7c"/>
+                    <polygon points="135,53.5 152.5,62.25 135,71 117.5,62.25" fill="#7fe0de"/>
+                    <polygon points="65,71 82.5,79.75 82.5,93.75 65,85" fill="var(--accent)"/>
+                    <polygon points="100,71 82.5,79.75 82.5,93.75 100,85" fill="#0b7d7c"/>
+                    <polygon points="82.5,62.25 100,71 82.5,79.75 65,71" fill="#7fe0de"/>
+                    <polygon points="100,71 117.5,79.75 117.5,93.75 100,85" fill="var(--accent)"/>
+                    <polygon points="135,71 117.5,79.75 117.5,93.75 135,85" fill="#0b7d7c"/>
+                    <polygon points="117.5,62.25 135,71 117.5,79.75 100,71" fill="#7fe0de"/>
+                    <polygon points="65,88.5 82.5,97.25 82.5,111.25 65,102.5" fill="var(--accent)"/>
+                    <polygon points="100,88.5 82.5,97.25 82.5,111.25 100,102.5" fill="#0b7d7c"/>
+                    <polygon points="82.5,79.75 100,88.5 82.5,97.25 65,88.5" fill="#7fe0de"/>
+                    <circle cx="100" cy="53.75" r="7" fill="#ff9800" stroke="#ffffff" stroke-width="2"/>
+                </svg></span>
+                <span class="card-title">3D 迷宫</span>
+                <span class="card-desc">立体迷宫 走出去</span>
             </a>
         </main>
     </div>
