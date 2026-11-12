@@ -91,7 +91,16 @@
             background-color: #45a049;
         }
 
-        .size-btn.active {
+        .theme-btn {
+            background-color: #4CAF50;
+            min-height: 44px;
+        }
+
+        .theme-btn:hover {
+            background-color: #45a049;
+        }
+
+        .size-btn.active, .theme-btn.active {
             background-color: #2196F3;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
         }
@@ -293,6 +302,13 @@
             <button id="fog-minus" aria-label="缩小视野">−</button>
             <span id="fog-radius">视野 5</span>
             <button id="fog-plus" aria-label="扩大视野">+</button>
+        </div>
+
+        <div class="row" id="theme-row">
+            <button class="theme-btn" id="theme-garden" data-theme="garden">🌳 花园</button>
+            <button class="theme-btn" id="theme-brick" data-theme="brick">🧱 砖墙</button>
+            <button class="theme-btn" id="theme-blocks" data-theme="blocks">🧸 积木</button>
+            <button class="theme-btn" id="theme-castle" data-theme="castle">🏰 城堡</button>
         </div>
 
         <div id="no-webgl" hidden>

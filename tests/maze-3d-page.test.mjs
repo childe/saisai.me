@@ -1,13 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dir = join(here, '..', 'maze-3d');
 const read = (name) => readFileSync(join(dir, name), 'utf8');
-const OWN = ['index.html', 'main.js', 'maze-core.js', 'game-logic.js', 'README.md'];
+const OWN = [
+  'index.html',
+  'main.js',
+  'maze-core.js',
+  'game-logic.js',
+  'themes.js',
+  'wall-geometry.js',
+  'README.md',
+];
 
 test('no external references', () => {
   for (const name of OWN) {
@@ -93,4 +101,30 @@ test('viewport meta', () => {
       '<meta name="viewport" content="width=device-width, initial-scale=1">',
     ),
   );
+});
+
+test('theme buttons', () => {
+  const html = read('index.html');
+  const ids = ['garden', 'brick', 'blocks', 'castle'];
+  const labels = ['🌳 花园', '🧱 砖墙', '🧸 积木', '🏰 城堡'];
+  const last = html.indexOf('id="view-row"');
+  assert.ok(last > 0);
+  const rowAt = html.indexOf('id="theme-row"');
+  assert.ok(rowAt > last);
+  ids.forEach((id, i) => {
+    const re = new RegExp(`<button class="theme-btn" id="theme-${id}" data-theme="${id}">${labels[i]}</button>`);
+    const m = html.match(re);
+    assert.ok(m, id);
+    assert.ok(m.index > rowAt);
+  });
+  const rule = html.match(/\.theme-btn\s*\{([^}]*)\}/);
+  assert.ok(rule && /min-height\s*:\s*(4[4-9]|[5-9]\d)px/.test(rule[1]), 'min-height >= 44px');
+  assert.match(html, /\.theme-btn\.active/);
+});
+
+test('no image files in maze-3d', () => {
+  const walk = (d) =>
+    readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(d, e.name)) : [e.name]));
+  const imgs = walk(dir).filter((n) => /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i.test(n));
+  assert.deepEqual(imgs, []);
 });
