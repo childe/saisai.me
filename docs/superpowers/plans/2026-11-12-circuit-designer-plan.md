@@ -72,6 +72,7 @@
   - `Wire = { id: string, a: {part: string, term: string}, b: {part: string, term: string} }`
   - `createCircuit()`、`addPart(c, type, x, y, params?) → {circuit, id}`、`movePart(c, id, x, y)`、`rotatePart(c, id)`、`removePart(c, id)`、`setParam(c, id, key, value)`、`addWire(c, a, b) → {circuit, id} | null`、`removeWire(c, id)`、`findPart(c, id)`、`cloneCircuit(c)`
   - 测试构造器 `build({ parts: {ID: [type, params?, extra?]}, wires: [['ID.term','ID.term'], ...] }) → Circuit`（元件 id 就是给出的 ID，导线 id 为 `w1, w2…`，`rev: 1, topoRev: 1`）
+  - 测试构造器 `loop(parts, chain) → Circuit`：`chain` 按电流路径列出端点，**两两成对**生成外部导线 `[chain[0],chain[1]]、[chain[2],chain[3]]…`；元件自身的两个端点（如 `L.a`、`L.b`）在 chain 中相邻但**不**连导线。`chain` 长度为奇数时抛错。例：`loop(ps, ['B.p','L.a','L.b','B.n'])` 只生成 `B.p→L.a`、`L.b→B.n` 两根导线。Task 2–4 的测试统一从 `helpers.js` 导入 `loop`，不在各测试文件里重复定义。
 
 元件表（端点名与本地网格坐标，旋转前）：
 
@@ -101,7 +102,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PART_TYPES, PARTS, defaultParams, isValidParam, PHYS } from '../lib/parts.js';
 import { createCircuit, addPart, movePart, rotatePart, removePart, setParam, addWire, removeWire } from '../lib/circuit.js';
-import { build } from './helpers.js';
+import { build, loop } from './helpers.js';
 
 test('catalog has 12 types with terms', () => {
   assert.equal(PART_TYPES.length, 12);
@@ -145,6 +146,12 @@ test('removePart drops attached wires', () => {
   assert.equal(d.topoRev, c.topoRev + 1);
   assert.equal(removeWire(c, 'w1').wires.length, 1);
 });
+
+test('loop pairs chain into external wires only', () => {
+  const c = loop({ B: ['battery'], L: ['lamp'] }, ['B.p', 'L.a', 'L.b', 'B.n']);
+  assert.deepEqual(c.wires.map(w => [`${w.a.part}.${w.a.term}`, `${w.b.part}.${w.b.term}`]), [['B.p', 'L.a'], ['L.b', 'B.n']]);
+  assert.throws(() => loop({ B: ['battery'] }, ['B.p', 'B.n', 'B.p']));
+});
 ```
 
 - [ ] **Step 2: 运行确认失败**
@@ -154,7 +161,7 @@ Expected: FAIL，`Cannot find module '../lib/parts.js'`
 
 - [ ] **Step 3: 实现 `circuit/lib/parts.js`、`circuit/lib/circuit.js`、`circuit/test/helpers.js`**
 
-按上面 Interfaces 与表格实现。`build` 里每个元件位置随意（如 x = 序号×6，y = 5），`params` = `defaultParams(type)` 合并给定值，`extra` 合并进 Part 本身（用于 `{preset: true}`）。
+按上面 Interfaces 与表格实现。`build` 里每个元件位置随意（如 x = 序号×6，y = 5），`params` = `defaultParams(type)` 合并给定值，`extra` 合并进 Part 本身（用于 `{preset: true}`）。`loop(parts, chain)` 先校验 chain 长度为偶数，再取 `[chain[2k], chain[2k+1]]` 作导线调用 `build`。
 
 - [ ] **Step 4: 运行确认通过**
 
@@ -199,10 +206,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { solve } from '../lib/solve.js';
 import { solveLinear } from '../lib/linalg.js';
-import { build } from './helpers.js';
+import { build, loop } from './helpers.js';
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} ${a} vs ${b}`);
-const loop = (parts, chain) => build({ parts, wires: chain.slice(0, -1).map((t, k) => [t, chain[k + 1]]) });
 
 test('solveLinear basic and singular', () => {
   assert.deepEqual(solveLinear([[2, 0], [0, 4]], [2, 8]), [1, 2]);
@@ -282,7 +288,7 @@ test('floating parts: unwired parts and dangling wires stay ok, no NaN', () => {
 });
 
 test('no battery component: all zero', () => {
-  const r = solve(loop({ L: ['lamp'], M: ['motor'] }, ['L.a', 'L.b', 'M.a', 'M.b', 'L.a']));
+  const r = solve(build({ parts: { L: ['lamp'], M: ['motor'] }, wires: [['L.b', 'M.a'], ['M.b', 'L.a']] }));
   assert.equal(r.ok, true);
   assert.ok(Object.values(r.nodes).every(v => v === 0));
 });
@@ -354,9 +360,8 @@ function pnjlim(vnew, vold, vt, vcrit) {
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { solve } from '../lib/solve.js';
-import { build } from './helpers.js';
+import { build, loop } from './helpers.js';
 
-const loop = (parts, chain) => build({ parts, wires: chain.slice(0, -1).map((t, k) => [t, chain[k + 1]]) });
 const finite = r => [...Object.values(r.nodes), ...Object.values(r.parts).flatMap(x => [x.v, x.i, x.p])].every(Number.isFinite);
 
 test('LED forward with 220 ohm on 2 cells: 3-6 mA', () => {
@@ -454,9 +459,7 @@ import { createDamage, advance, repair, brokenKey } from '../lib/damage.js';
 import { settle, tick } from '../lib/engine.js';
 import { solve } from '../lib/solve.js';
 import { setParam, removeWire } from '../lib/circuit.js';
-import { build } from './helpers.js';
-
-const loop = (parts, chain) => build({ parts, wires: chain.slice(0, -1).map((t, k) => [t, chain[k + 1]]) });
+import { build, loop } from './helpers.js';
 
 test('advance ignores invalid or stale results', () => {
   const c = loop({ B: ['battery', { cells: 4 }], D: ['led'] }, ['B.p', 'D.a', 'D.k', 'B.n']);
@@ -565,7 +568,7 @@ git commit -m "feat(circuit): 损坏判定与 settle/tick 引擎"
 | id | name | goal | palette / 其他 | check |
 |---|---|---|---|---|
 | 1 | 点亮一盏灯 | 让灯亮起来 | battery 1, lamp 1 | 任一灯亮 |
-| 2 | 加个开关 | 用开关控制灯 | battery 1, lamp 1, switch 1 | 存在开关 s：副本 s 闭合时所有灯亮、断开时所有灯都不亮 |
+| 2 | 加个开关 | 用开关控制灯 | battery 1, lamp 1, switch 1 | 存在开关 s 和灯 l（画布上至少一盏灯）：副本 s 闭合时 l 亮、s 断开时 l 不亮。没有灯时一律不通过 |
 | 3 | 串联和并联 | 两种接法都试，比一比亮度 | battery 1, lamp 2；`defaults.battery = {cells: 2}`；`locked.battery = ['cells']` | 见下 |
 | 4 | 一个亮一个灭 | 一个开关只控制其中一个灯 | battery 1, lamp 2, switch 1 | 存在开关 s：断开时恰好一亮一灭；闭合时两灯都亮 |
 | 5 | 让 LED 亮起来 | 点亮 LED，别烧坏它 | battery 2, led 1, resistor 1 | 任一 LED 亮（当前真实结果） |
@@ -606,6 +609,9 @@ test('task 2: switch must control lamp', () => {
   assert.equal(run(2, good).passed, true);
   const bypass = build({ parts: { B: ['battery'], S: ['switch'], L: ['lamp'] }, wires: [['B.p', 'L.a'], ['L.b', 'B.n'], ['S.a', 'B.p']] });
   assert.equal(run(2, bypass).passed, false);
+  const noLamp = build({ parts: { B: ['battery'], S: ['switch'] }, wires: [['B.p', 'S.a'], ['S.b', 'B.n']] });
+  assert.equal(run(2, noLamp).passed, false);
+  assert.equal(run(2, build({ parts: { S: ['switch'] }, wires: [] })).passed, false);
 });
 
 test('task 2 evaluator does not mutate the real circuit', () => {
@@ -821,6 +827,9 @@ test('task 3 locks battery cells; task 1 passes when wired', () => {
   s = play(s, { type: 'connect', from: { part: bb, term: 'p' }, to: { part: l, term: 'a' } },
     { type: 'connect', from: { part: l, term: 'b' }, to: { part: bb, term: 'n' } });
   assert.equal(s.task.passed, true);
+  s = play(createEditor(), { type: 'setMode', mode: 'task' }, { type: 'chooseTask', index: 1 },
+    { type: 'place', partType: 'switch', x: 5, y: 5 });
+  assert.equal(s.task.passed, false); // 第 2 关只放开关不能通过
 });
 
 test('free and task spaces are independent; toggle flips switches', () => {
@@ -871,7 +880,9 @@ git commit -m "feat(circuit): 编辑器 reducer（撤销、清空、元件栏上
   - `terminalPoint(part, term) → [gx, gy]`（绝对网格坐标）
   - `BODY_RECT = { x0: -1.6, x1: 1.6, y0: -0.6, y1: 0.6 }`，`LEVER_RECT = { x0: -0.6, x1: 0.6, y0: -1.8, y1: -0.6 }`（本地、旋转前；半开区间，y = −0.6 属于 body）
   - `TERM_R = 0.55`、`WIRE_HIT = 0.5`（格）
-  - `hitTest(circuit, [gx, gy]) → null | {kind:'terminal', part, term} | {kind:'lever', id} | {kind:'part', id} | {kind:'wire', id}`；优先级 terminal > lever > part > wire；元件按 `parts` 逆序（后放的在上）。命中矩形时先把点转到元件本地坐标（反向旋转）。
+  - `MIN_TOUCH_PT = 44`
+  - `touchAreas(k) → { termR, lever: Rect, body: Rect }`：`k` = 1 个 SVG 单位在屏幕上的像素数（app 里取 `board.getScreenCTM().a`）。令 `m = MIN_TOUCH_PT / (k·GRID)`（44 屏幕像素折合的格数）。`termR = max(TERM_R, m/2)`；`lever = { x0: −max(0.6, m/2), x1: max(0.6, m/2), y0: min(−1.8, −0.6 − m), y1: −0.6 }`（只向两侧、向上扩）；`body = { x0: −max(1.6, m/2), x1: max(1.6, m/2), y0: −0.6, y1: max(0.6, −0.6 + m) }`（只向两侧、向下扩）。两者始终以 `y = −0.6` 为界，互不重叠。`k ≥ 1` 时结果等于 `TERM_R / LEVER_RECT / BODY_RECT`。
+  - `hitTest(circuit, [gx, gy], k = 1) → null | {kind:'terminal', part, term} | {kind:'lever', id} | {kind:'part', id} | {kind:'wire', id}`：用 `touchAreas(k)` 判定；优先级 terminal > lever > part > wire；元件按 `parts` 逆序（后放的在上）。命中矩形时先把点转到元件本地坐标（反向旋转）。
   - `wireRoute(p1, p2) → [x, y][]`：先水平后竖直的直角折线 `[p1, [p2.x, p1.y], p2]`，共线时去掉拐点
   - `snap([x, y]) → [round(x), round(y)]`，并把元件中心钳在 `x ∈ [3, BOARD.w − 3]`、`y ∈ [3, BOARD.h − 3]`
 
@@ -880,7 +891,7 @@ git commit -m "feat(circuit): 编辑器 reducer（撤销、清空、元件栏上
 ```js
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GRID, rotatePoint, terminalPoint, hitTest, wireRoute, snap, BODY_RECT, LEVER_RECT, TERM_R } from '../lib/geometry.js';
+import { GRID, rotatePoint, terminalPoint, hitTest, wireRoute, snap, touchAreas } from '../lib/geometry.js';
 import { build } from './helpers.js';
 
 test('rotation is clockwise in screen coords', () => {
@@ -894,12 +905,24 @@ test('terminalPoint follows position and rotation', () => {
   assert.deepEqual(terminalPoint(p, 'a').map(v => v + 0), [10, 6]);
 });
 
-test('lever and body touch areas are >= 44pt and disjoint', () => {
-  const size = r => [(r.x1 - r.x0) * GRID, (r.y1 - r.y0) * GRID];
-  assert.ok(size(LEVER_RECT).every(v => v >= 44));
-  assert.ok(size(BODY_RECT).every(v => v >= 44));
-  assert.ok(LEVER_RECT.y1 <= BODY_RECT.y0);
-  assert.ok(TERM_R * 2 * GRID >= 44);
+test('touch areas stay >= 44 screen px at any scale and never overlap', () => {
+  for (const k of [1.2, 1, 0.9, 0.8, 0.6]) {
+    const { termR, lever, body } = touchAreas(k);
+    const px = g => g * GRID * k; // 格 → 屏幕像素
+    for (const r of [lever, body]) {
+      assert.ok(px(r.x1 - r.x0) >= 44 - 1e-9 && px(r.y1 - r.y0) >= 44 - 1e-9, `k=${k}`);
+    }
+    assert.ok(px(termR * 2) >= 44 - 1e-9, `k=${k} term`);
+    assert.ok(lever.y1 <= body.y0, `k=${k} disjoint`);
+  }
+});
+
+test('hitTest honours scale: point outside base rect but inside scaled area hits at k=0.6', () => {
+  const c = build({ parts: { S: ['switch'] }, wires: [] });
+  c.parts[0].x = 5; c.parts[0].y = 5;
+  assert.equal(hitTest(c, [5, 3.1]), null);                      // k=1：拨片 y0 = −1.8 → 绝对 3.2，点在外
+  assert.deepEqual(hitTest(c, [5, 3.1], 0.6), { kind: 'lever', id: 'S' });
+  assert.deepEqual(hitTest(c, [5, 6.1], 0.6), { kind: 'part', id: 'S' });
 });
 
 test('hitTest priority and lever only on switches', () => {
@@ -1127,6 +1150,7 @@ git commit -m "feat(circuit): 元件实物与符号两种画法"
 
 触控（`app.js`，全部用 Pointer Events + `setPointerCapture`）：
 - 屏幕坐标 → 网格坐标：`svg.getScreenCTM().inverse()` 变换后除以 `GRID`
+- 每次调用 `hitTest` 都传 `k = svg.getScreenCTM().a`（当前缩放），让触控区在缩放后仍不小于 44 屏幕像素
 - 元件栏按下 → 跟手的幽灵图 → 在画布上松手 → `snap` → `place`
 - 画布按下：`hitTest` 结果为
   - terminal：画拖线预览；松手时 `hitTest` 到另一个 terminal → `connect`
@@ -1200,6 +1224,7 @@ Run: `python3 -m http.server 8765` 后打开 `http://localhost:8765/circuit/`（
 6. 点导线选中后删除；「清空」弹出页内确认，取消后电路仍在。
 7. 切换「实物 / 符号」，位置和连线不变。
 8. 双指捏合不缩放页面，长按不出现选字。
+9. 触控尺寸：分别用 1180×820 和 1133×744（iPad mini 横屏）视口打开，在控制台执行 `const k = board.getScreenCTM().a; import('./lib/geometry.js').then(g => { const t = g.touchAreas(k); console.log(k, t.termR*2*g.GRID*k, (t.lever.x1-t.lever.x0)*g.GRID*k, (t.lever.y1-t.lever.y0)*g.GRID*k, (t.body.y1-t.body.y0)*g.GRID*k) })`。预期：后四个数都 ≥ 44。再在开关拨片上方、距画出的拨片边缘 2px 处点一下，开关切换。
 
 - [ ] **Step 6: Commit**
 
