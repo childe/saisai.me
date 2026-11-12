@@ -235,12 +235,245 @@ def check_12(browser, base):
         context.close()
 
 
+def press_dir(page, mode, d):
+    if mode == "keys":
+        page.keyboard.press(KEYS[d])
+    elif mode == "wasd":
+        page.keyboard.press(WASD[d])
+    else:
+        page.click(f"#btn-{d}")
+
+
+def check_2(browser, base):
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    try:
+        wait_idle(page)
+        log = []
+        for mode in ["keys", "wasd", "buttons"]:
+            for d in ["right", "down", "left", "up"]:
+                before = pos(page)
+                exp = next_stop(page, d)
+                press_dir(page, mode, d)
+                wait_settled(page)
+                page.wait_for_timeout(50)
+                now = m3(page, "player")
+                got = {"row": now["row"], "col": now["col"]}
+                want = exp if exp else before
+                if got != want:
+                    return False, f"{mode} {d} from {before}: got {got} want {want}"
+                if exp and now["facing"] != d:
+                    return False, f"{mode} {d}: facing {now['facing']}"
+                log.append(f"{mode}:{d}->{got['row']},{got['col']}")
+        # 往墙走：找一个走不动的方向
+        blocked = None
+        for d in ["up", "left", "down", "right"]:
+            if next_stop(page, d) is None:
+                blocked = d
+                break
+        if blocked is None:
+            return False, "no blocked direction found at " + str(pos(page))
+        before = pos(page)
+        page.keyboard.press(KEYS[blocked])
+        page.wait_for_timeout(300)
+        if pos(page) != before or m3(page, "state") != "idle":
+            return False, f"walked into wall {blocked}"
+        ok, msg = no_errors(errors)
+        return ok, f"{' '.join(log)} wall={blocked} {msg}".strip()
+    finally:
+        close(page)
+
+
+def walk_to_win(page, limit=200):
+    for _ in range(limit):
+        if m3(page, "state") == "won":
+            return True
+        d = path_dir(page)
+        if d is None:
+            return m3(page, "state") == "won"
+        page.keyboard.press(KEYS[d])
+        wait_settled(page)
+    return m3(page, "state") == "won"
+
+
+def check_6(browser, base):
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    try:
+        wait_idle(page)
+        if not walk_to_win(page):
+            return False, f"did not win, player={m3(page, 'player')}"
+        page.wait_for_timeout(100)
+        win_visible = page.is_visible("#win")
+        text = page.inner_text("#win")
+        if not win_visible or "恭喜！你成功走出了迷宫！" not in text:
+            return False, f"win visible={win_visible} text={text!r}"
+        seed_before = url_seed(page)
+        gen = m3(page, "generation")
+        page.click("#again-btn")
+        wait_idle(page)
+        page.wait_for_timeout(100)
+        hidden = not page.is_visible("#win")
+        gen2 = m3(page, "generation")
+        p = pos(page)
+        seed_after = url_seed(page)
+        seed_m = str(m3(page, "seed"))
+        ok = (
+            hidden
+            and gen2 == gen + 1
+            and p == {"row": 0, "col": 0}
+            and seed_after != seed_before
+            and seed_after == seed_m
+        )
+        ok_err, msg = no_errors(errors)
+        return (
+            ok and ok_err,
+            (
+                f"won; again: hidden={hidden} gen {gen}->{gen2} player={p} "
+                f"seed {seed_before}->{seed_after} (__maze3d.seed={seed_m}) {msg}"
+            ).strip(),
+        )
+    finally:
+        close(page)
+
+
+def check_6b(browser, base):
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    try:
+        wait_idle(page)
+        if not walk_to_win(page):
+            return False, "did not win"
+        before = m3(page, "player")
+        page.keyboard.press("ArrowUp")
+        page.wait_for_timeout(300)
+        # 胜利遮罩盖住了方向按钮，直接派发 pointerdown 验证处理函数本身会丢弃输入
+        page.dispatch_event("#btn-left", "pointerdown")
+        page.wait_for_timeout(300)
+        after = m3(page, "player")
+        state = m3(page, "state")
+        ok = after == before and state == "won"
+        return ok, f"before={before} after={after} state={state}"
+    finally:
+        close(page)
+
+
+def check_7(browser, base):
+    details = []
+    for seed, size in [(S, 10), (S, 20), ("abc", 10)]:
+        p2, _ = open_page(browser, f"{base}/maze-gen/maze.html?seed={seed}")
+        try:
+            p2.wait_for_timeout(300)
+            two = p2.evaluate(
+                "s => { setMazeSize(s); return JSON.stringify(currentConnections); }",
+                size,
+            )
+        finally:
+            close(p2)
+        p3, _ = open_page(browser, f"{base}{PAGE}?seed={seed}&size={size}")
+        try:
+            wait_idle(p3)
+            three = p3.evaluate("() => JSON.stringify(window.__maze3d.connections)")
+        finally:
+            close(p3)
+        same = json.loads(two) == json.loads(three)
+        details.append(f"seed={seed} size={size} equal={same}")
+        if not same:
+            return False, " ".join(details)
+    return True, " ".join(details)
+
+
+def entrance_dir(page):
+    for d in ["down", "right"]:
+        if next_stop(page, d) is not None:
+            return d
+    return None
+
+
+def check_11(browser, base):
+    details = []
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    try:
+        wait_idle(page)
+        # (a) 动画中途切换尺寸 / 重新生成
+        for target, want_size in [("#size-15", 15), ("#regen-btn", 15)]:
+            d = entrance_dir(page)
+            gen = m3(page, "generation")
+            page.keyboard.press(KEYS[d])
+            state_at_click = page.evaluate(
+                "sel => { const s = window.__maze3d.state;"
+                " document.querySelector(sel).click(); return s; }",
+                target,
+            )
+            page.wait_for_timeout(1000)
+            ok = (
+                state_at_click == "moving"
+                and m3(page, "size") == want_size
+                and pos(page) == {"row": 0, "col": 0}
+                and m3(page, "generation") == gen + 1
+                and m3(page, "state") == "idle"
+            )
+            details.append(f"a:{target} state_at_click={state_at_click} ok={ok}")
+            if not ok:
+                return False, " ".join(details) + f" player={pos(page)}"
+    finally:
+        close(page)
+
+    # (b) 20ms 内连按 5 次，只走一次
+    page, errors2 = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    try:
+        wait_idle(page)
+        d = entrance_dir(page)
+        exp = next_stop(page, d)
+        for _ in range(5):
+            page.keyboard.press(KEYS[d])
+        wait_settled(page)
+        page.wait_for_timeout(500)
+        got = pos(page)
+        ok = got == exp
+        details.append(f"b:{d} got={got} want={exp}")
+        if not ok:
+            return False, " ".join(details)
+    finally:
+        close(page)
+
+    # (c) 按住 800ms（自动连发），松开后不再多走
+    page, errors3 = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    try:
+        wait_idle(page)
+        d = entrance_dir(page)
+        key = KEYS[d]
+        page.keyboard.down(key)
+        t0 = time.time()
+        while time.time() - t0 < 0.8:
+            page.wait_for_timeout(33)
+            page.keyboard.down(key)  # 再次 down = repeat 事件
+        page.keyboard.up(key)
+        wait_settled(page)
+        p1 = pos(page)
+        s1 = m3(page, "state")
+        page.wait_for_timeout(500)
+        p2 = pos(page)
+        s2 = m3(page, "state")
+        ok = p1 == p2 and s1 == s2
+        details.append(f"c:{d} after_release={p1} later={p2} state={s1}->{s2}")
+        if not ok:
+            return False, " ".join(details)
+    finally:
+        close(page)
+
+    ok, msg = no_errors(errors + errors2 + errors3)
+    return ok, (" ".join(details) + " " + msg).strip()
+
+
 # ---------------------------------------------------------------- runner
 
 CHECKS = {
     "1": check_1,
     "10": check_10,
     "12": check_12,
+    "2": check_2,
+    "6": check_6,
+    "6b": check_6b,
+    "7": check_7,
+    "11": check_11,
 }
 
 

@@ -2,12 +2,18 @@
 import * as THREE from './vendor/three.module.js';
 import { MazeGenerator } from './maze-core.js';
 import {
+  DIRS,
   parseSeed,
   parseSize,
   facingYaw,
   wallSegments,
   floorKind,
+  findNextIntersection,
+  resolveInput,
+  followOffset,
 } from './game-logic.js';
+
+const STEP_MS = 120;
 
 const COLORS = {
   background: 0xbfe3ff,
@@ -173,6 +179,8 @@ function start() {
   }
 
   function buildMaze(newSeed, newSize) {
+    cancelAnimation();
+    $('win').hidden = true;
     seed = newSeed;
     size = newSize;
     disposeMaze();
@@ -256,21 +264,154 @@ function start() {
   }
 
   // ---------- 相机 ----------
-  const FOLLOW_OFFSET = { h: 7, d: 5 };
   const camTarget = new THREE.Vector3();
 
+  function currentFollowOffset() {
+    return followOffset(5);
+  }
+
   function followTarget(out) {
-    return out.set(
-      player.position.x,
-      player.position.y + FOLLOW_OFFSET.h,
-      player.position.z + FOLLOW_OFFSET.d,
-    );
+    const off = currentFollowOffset();
+    return out.set(player.position.x, player.position.y + off.h, player.position.z + off.d);
   }
 
   function snapCamera() {
     followTarget(camera.position);
     camera.lookAt(player.position);
   }
+
+  function updateCamera(dt) {
+    followTarget(camTarget);
+    camera.position.lerp(camTarget, 1 - Math.pow(0.001, dt / 1000));
+    camera.lookAt(player.position);
+  }
+
+  // ---------- 移动与状态机 ----------
+  let anim = null;
+
+  function newSeed() {
+    return Date.now() + Math.floor(Math.random() * 1000);
+  }
+
+  function onDisplayCellChanged() {}
+
+  function cancelAnimation() {
+    anim = null;
+    if (!connections) return;
+    pos.row = display.row;
+    pos.col = display.col;
+    placePlayer(cellCenter(display.row, display.col, tmpPos));
+    player.rotation.y = facingYaw(pos.facing);
+    if (state === 'moving' || state === 'turning') state = 'idle';
+  }
+
+  function handleDirection(key) {
+    if (state !== 'idle' || !connections) return;
+    const action = resolveInput(view, pos.facing, key);
+    if (action.type !== 'move') return;
+    const dest = findNextIntersection(connections, pos, action.dir);
+    if (!dest) return;
+    const [dr, dc] = DIRS[action.dir];
+    const cells = [{ row: pos.row, col: pos.col }];
+    let r = pos.row;
+    let c = pos.col;
+    while (r !== dest.row || c !== dest.col) {
+      r += dr;
+      c += dc;
+      cells.push({ row: r, col: c });
+    }
+    pos.facing = action.dir;
+    player.rotation.y = facingYaw(pos.facing);
+    state = 'moving';
+    anim = { generation, kind: 'move', cells, startTime: performance.now(), reached: 0 };
+  }
+
+  function stepAnimation(now) {
+    if (!anim) return;
+    if (anim.generation !== generation) {
+      anim = null;
+      return;
+    }
+    const { cells } = anim;
+    const last = cells.length - 1;
+    const t = Math.min((now - anim.startTime) / STEP_MS, last);
+    const reached = Math.floor(t);
+    while (anim.reached < reached) {
+      anim.reached += 1;
+      display.row = cells[anim.reached].row;
+      display.col = cells[anim.reached].col;
+      onDisplayCellChanged();
+    }
+    if (t >= last) {
+      const end = cells[last];
+      anim = null;
+      pos.row = end.row;
+      pos.col = end.col;
+      placePlayer(cellCenter(end.row, end.col, tmpPos));
+      if (end.row === size - 1 && end.col === size - 1) {
+        state = 'won';
+        $('win').hidden = false;
+      } else {
+        state = 'idle';
+      }
+      return;
+    }
+    const a = cells[reached];
+    const b = cells[reached + 1];
+    const f = t - reached;
+    player.position.set(
+      a.col + 0.5 + (b.col - a.col) * f,
+      0,
+      a.row + 0.5 + (b.row - a.row) * f,
+    );
+  }
+
+  // ---------- 输入 ----------
+  const KEY_DIRS = {
+    ArrowUp: 'up',
+    w: 'up',
+    W: 'up',
+    ArrowDown: 'down',
+    s: 'down',
+    S: 'down',
+    ArrowLeft: 'left',
+    a: 'left',
+    A: 'left',
+    ArrowRight: 'right',
+    d: 'right',
+    D: 'right',
+  };
+
+  window.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const dir = KEY_DIRS[e.key];
+    if (!dir) return;
+    if (e.key.startsWith('Arrow')) e.preventDefault();
+    handleDirection(dir);
+  });
+
+  document.querySelectorAll('.dpad button[data-dir]').forEach((btn) => {
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      handleDirection(btn.dataset.dir);
+    });
+  });
+
+  document.querySelectorAll('.size-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const newSize = parseSize(btn.dataset.size);
+      writeUrl({ size: newSize });
+      buildMaze(seed, newSize);
+    });
+  });
+
+  function regenerate() {
+    const s = newSeed();
+    writeUrl({ seed: s });
+    buildMaze(s, size);
+  }
+  $('regen-btn').addEventListener('click', regenerate);
+  $('again-btn').addEventListener('click', regenerate);
 
   // ---------- 尺寸 ----------
   function resize() {
@@ -287,12 +428,11 @@ function start() {
   // ---------- 渲染循环 ----------
   let lastTime = performance.now();
   function frame(now) {
-    const dt = Math.min(now - lastTime, 100);
+    const dt = Math.max(0, Math.min(now - lastTime, 100));
     lastTime = now;
+    stepAnimation(performance.now());
     star.rotation.y += (dt / 1000) * 1;
-    followTarget(camTarget);
-    camera.position.copy(camTarget);
-    camera.lookAt(player.position);
+    updateCamera(dt);
     renderer.render(scene, camera);
     requestAnimationFrame(frame);
   }
