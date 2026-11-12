@@ -149,3 +149,40 @@ export function followOffset(radius) {
   const r = Math.min(radius, 10);
   return { h: 3 + 0.8 * r, d: 2 + 0.6 * r };
 }
+
+// 墙段：along 'x' 沿 x 延伸（分隔南北），'z' 沿 z 延伸（分隔东西）；cells 是紧邻的迷宫内格子
+export function wallSegments(connections) {
+  const size = connections.length;
+  const segs = [];
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      if (r + 1 < size && !canMove(connections, { row: r, col: c }, { row: r + 1, col: c })) {
+        segs.push({ x: c + 0.5, z: r + 1, along: 'x', cells: [[r, c], [r + 1, c]] });
+      }
+      if (c + 1 < size && !canMove(connections, { row: r, col: c }, { row: r, col: c + 1 })) {
+        segs.push({ x: c + 1, z: r + 0.5, along: 'z', cells: [[r, c], [r, c + 1]] });
+      }
+    }
+  }
+  for (let c = 0; c < size; c++) {
+    if (c !== 0) segs.push({ x: c + 0.5, z: 0, along: 'x', cells: [[0, c]] });
+    if (c !== size - 1) segs.push({ x: c + 0.5, z: size, along: 'x', cells: [[size - 1, c]] });
+  }
+  for (let r = 0; r < size; r++) {
+    if (r !== 0) segs.push({ x: 0, z: r + 0.5, along: 'z', cells: [[r, 0]] });
+    if (r !== size - 1) segs.push({ x: size, z: r + 0.5, along: 'z', cells: [[r, size - 1]] });
+  }
+  return segs;
+}
+
+export function wallInView(seg, center, radius) {
+  return seg.cells.some(([row, col]) => isInFogView(center, { row, col }, radius));
+}
+
+export function floorKind(cell, size, { inView, onPath }) {
+  if (onPath) return 'path';
+  if (!inView) return 'fog';
+  if (cell.row === 0 && cell.col === 0) return 'start';
+  if (cell.row === size - 1 && cell.col === size - 1) return 'end';
+  return 'floor';
+}

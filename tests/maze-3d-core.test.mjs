@@ -260,3 +260,63 @@ test('followOffset', () => {
   near(L.followOffset(10), { h: 11, d: 8 });
   near(L.followOffset(25), { h: 11, d: 8 });
 });
+
+// ---------- Task 3: 墙段、视野与地板着色 ----------
+test('wallSegments match canMove', () => {
+  for (const seed of [1, 42])
+    for (const size of [10, 20]) {
+      const { connections: c } = new MazeGenerator(size, size, seed).generate();
+      const segs = L.wallSegments(c);
+      const keyOf = (s) => `${s.x},${s.z},${s.along}`;
+      const byKey = new Map(segs.map((s) => [keyOf(s), s]));
+      const msg = `seed=${seed} size=${size}`;
+      for (let r = 0; r < size; r++)
+        for (let col = 0; col < size; col++) {
+          if (r + 1 < size) {
+            const blocked = !L.canMove(c, { row: r, col }, { row: r + 1, col });
+            const s = byKey.get(`${col + 0.5},${r + 1},x`);
+            assert.equal(Boolean(s), blocked, `${msg} south of (${r},${col})`);
+            if (s) assert.deepEqual(s.cells, [[r, col], [r + 1, col]]);
+          }
+          if (col + 1 < size) {
+            const blocked = !L.canMove(c, { row: r, col }, { row: r, col: col + 1 });
+            const s = byKey.get(`${col + 1},${r + 0.5},z`);
+            assert.equal(Boolean(s), blocked, `${msg} east of (${r},${col})`);
+            if (s) assert.deepEqual(s.cells, [[r, col], [r, col + 1]]);
+          }
+        }
+      const outer = segs.filter(
+        (s) =>
+          (s.along === 'x' && (s.z === 0 || s.z === size)) ||
+          (s.along === 'z' && (s.x === 0 || s.x === size)),
+      );
+      assert.equal(outer.length, 4 * size - 4, msg);
+      for (const s of outer) assert.equal(s.cells.length, 1, msg);
+      for (const s of segs) {
+        if (s.along === 'x') {
+          assert.ok(Number.isInteger(s.z) && !Number.isInteger(s.x), msg);
+        } else {
+          assert.equal(s.along, 'z');
+          assert.ok(Number.isInteger(s.x) && !Number.isInteger(s.z), msg);
+        }
+      }
+      assert.equal(byKey.has(`0.5,0,x`), false, msg);
+      assert.equal(byKey.has(`0,0.5,z`), false, msg);
+      assert.equal(byKey.has(`${size - 0.5},${size},x`), false, msg);
+      assert.equal(byKey.has(`${size},${size - 0.5},z`), false, msg);
+    }
+});
+
+test('wallInView uses either neighbor', () => {
+  const seg = { cells: [[0, 0], [0, 1]] };
+  assert.equal(L.wallInView(seg, { row: 0, col: 4 }, 3), true);
+  assert.equal(L.wallInView(seg, { row: 0, col: 4 }, 2), false);
+});
+
+test('floorKind priority', () => {
+  assert.equal(L.floorKind({ row: 3, col: 3 }, 10, { onPath: true, inView: false }), 'path');
+  assert.equal(L.floorKind({ row: 0, col: 0 }, 10, { onPath: false, inView: false }), 'fog');
+  assert.equal(L.floorKind({ row: 0, col: 0 }, 10, { onPath: false, inView: true }), 'start');
+  assert.equal(L.floorKind({ row: 9, col: 9 }, 10, { onPath: false, inView: true }), 'end');
+  assert.equal(L.floorKind({ row: 3, col: 3 }, 10, { onPath: false, inView: true }), 'floor');
+});
