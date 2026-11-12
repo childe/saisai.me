@@ -118,6 +118,19 @@
             background-color: #ff0000 !important;
             opacity: 0.8;
         }
+
+        /* 迷雾：视野外的格子 */
+        .fog {
+            background-color: #444 !important;
+        }
+
+        .cell.fog > * {
+            visibility: hidden;
+        }
+
+        .cell.fog.solution {
+            background-color: #ff0000 !important;
+        }
         
         .entrance {
             background-color: #4CAF50;
@@ -145,6 +158,39 @@
             line-height: 1;
         }
         
+        .fog-controls {
+            margin: 15px 0;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+        }
+
+        .fog-toggle {
+            flex: 0 1 auto;
+        }
+
+        .fog-step {
+            flex: 0 0 44px;
+            width: 44px;
+            min-width: 44px;
+            height: 44px;
+            padding: 0;
+        }
+
+        .fog-step:disabled {
+            background-color: #9e9e9e;
+            cursor: not-allowed;
+        }
+
+        .fog-radius {
+            min-width: 4em;
+            text-align: center;
+            color: #333;
+        }
+
         .action-buttons {
             display: flex;
             gap: 10px;
@@ -192,7 +238,8 @@
                 margin-bottom: 10px;
             }
             
-            .size-controls {
+            .size-controls,
+            .fog-controls {
                 margin: 10px 0;
                 gap: 6px;
             }
@@ -252,6 +299,13 @@
             <button class="size-btn" onclick="setMazeSize(40)" id="size-40">40×40</button>
             <button class="size-btn active" onclick="setMazeSize(50)" id="size-50">50×50</button>
         </div>
+
+        <div class="fog-controls">
+            <button id="fog-toggle" class="fog-toggle" onclick="toggleFog()">迷雾：开</button>
+            <button id="fog-minus" class="fog-step" onclick="changeFogRadius(-1)" aria-label="缩小视野">−</button>
+            <span id="fog-radius-value" class="fog-radius">视野 5</span>
+            <button id="fog-plus" class="fog-step" onclick="changeFogRadius(1)" aria-label="扩大视野">+</button>
+        </div>
         
         <div id="maze">
             <div class="swipe-indicator" id="swipeIndicator"></div>
@@ -265,6 +319,7 @@
         
         <div style="margin-top: 15px; text-align: center; color: #666; font-size: clamp(12px, 2.5vw, 14px);">
             <p>使用键盘方向键或在迷宫上滑动手势控制小人移动</p>
+            <p>开启迷雾后只能看到小人周围的格子，可用 − / + 调节视野</p>
         </div>
     </div>
 
@@ -1312,6 +1367,8 @@
         // Initialize with default size and generate initial maze
         window.addEventListener('DOMContentLoaded', function() {
             updateMazeGridCSS(currentSize);
+            loadFogSettings();
+            updateFogControls();
             generateMaze();
             initTouchEvents(); // 初始化触摸事件
         });

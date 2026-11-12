@@ -207,3 +207,38 @@ test('fog controls work when storage throws', () => {
   assert.doesNotThrow(() => env.run('changeFogRadius(1); toggleFog();'));
   assert.equal(env.run('fogRadius'), 6);
 });
+
+test('fog controls markup sits between size controls and maze', () => {
+  const sizeIdx = html.indexOf('class="size-controls"');
+  const fogIdx = html.indexOf('class="fog-controls"');
+  const mazeIdx = html.indexOf('id="maze"');
+  assert.ok(sizeIdx >= 0 && fogIdx > sizeIdx && mazeIdx > fogIdx);
+  assert.match(html, /<button[^>]*id="fog-toggle"[^>]*onclick="toggleFog\(\)"[^>]*>迷雾：开<\/button>/);
+  assert.match(html, /<button[^>]*id="fog-minus"[^>]*onclick="changeFogRadius\(-1\)"[^>]*>−<\/button>/);
+  assert.match(html, /<button[^>]*id="fog-plus"[^>]*onclick="changeFogRadius\(1\)"[^>]*>\+<\/button>/);
+  assert.match(html, /id="fog-radius-value"[^>]*>视野 5</);
+});
+
+test('fog CSS rules', () => {
+  assert.match(html, /\.fog\s*\{[^}]*background-color:\s*#444\s*!important/);
+  assert.match(html, /\.cell\.fog\s*>\s*\*\s*\{[^}]*visibility:\s*hidden/);
+  assert.match(html, /\.cell\.fog\.solution\s*\{[^}]*background-color:\s*#ff0000\s*!important/);
+  assert.match(html, /\.fog-controls\s*\{[^}]*display:\s*flex[^}]*\}/);
+  assert.match(html, /\.fog-controls\s*\{[^}]*flex-wrap:\s*wrap/);
+  assert.match(html, /\.fog-step\s*\{[^}]*min-width:\s*44px/);
+  assert.match(html, /\.fog-step\s*\{[^}]*height:\s*44px/);
+});
+
+test('init loads fog settings before generating maze', () => {
+  const m = html.match(/addEventListener\('DOMContentLoaded',\s*function\(\)\s*\{([\s\S]*?)\}\);/);
+  assert.ok(m);
+  const body = m[1];
+  const load = body.indexOf('loadFogSettings()');
+  const ctrl = body.indexOf('updateFogControls()');
+  const gen = body.indexOf('generateMaze()');
+  assert.ok(load >= 0 && ctrl > load && gen > ctrl);
+});
+
+test('hint mentions fog', () => {
+  assert.match(html, /<p>开启迷雾后只能看到小人周围的格子，可用 − \/ \+ 调节视野<\/p>/);
+});
