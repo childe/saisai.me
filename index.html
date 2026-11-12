@@ -5,157 +5,179 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>赛赛的工具箱</title>
     <style>
+        * {
+            box-sizing: border-box;
+        }
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
-            padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
+            background: #fff8ec;
+            color: #3a2e25;
+            font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
         }
-        .container {
-            max-width: 800px;
+        .page {
+            max-width: 1100px;
             margin: 0 auto;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            padding: 40px;
+            padding: 24px 16px 40px;
         }
-        h1 {
-            color: #333;
-            text-align: center;
-            margin-bottom: 40px;
-            font-size: 2.5em;
-        }
-        .folder-section {
-            margin-bottom: 30px;
-            border-left: 4px solid #667eea;
-            padding-left: 20px;
-        }
-        .folder-name {
-            font-size: 1.4em;
-            font-weight: bold;
-            color: #667eea;
-            margin-bottom: 15px;
+        header {
             display: flex;
             align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin: 8px 0 28px;
         }
-        .folder-icon {
-            margin-right: 10px;
-            font-size: 1.2em;
+        h1 {
+            margin: 0;
+            font-size: clamp(1.8rem, 6vw, 2.8rem);
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            color: #3a2e25;
         }
-        .file-list {
-            list-style: none;
-            padding: 0;
-        }
-        .file-item {
-            margin-bottom: 10px;
-        }
-        .file-link {
+        .logo {
             display: block;
-            padding: 12px 20px;
-            background: #f8f9fa;
-            border: 1px solid #e9ecef;
-            border-radius: 6px;
+            width: clamp(40px, 9vw, 60px);
+            height: auto;
+            flex: none;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 24px;
+        }
+        .card {
+            --accent: #ff7a59;
+            --tint: #ffe9e2;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            overflow: hidden;
+            background: #ffffff;
+            border-radius: 24px;
+            box-shadow: 0 6px 18px rgba(90, 60, 30, 0.12);
+            color: #3a2e25;
             text-decoration: none;
-            color: #495057;
-            transition: all 0.3s ease;
-            position: relative;
+            padding-bottom: 16px;
+            border-bottom: 6px solid var(--accent);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            -webkit-tap-highlight-color: transparent;
         }
-        .file-link:hover {
-            background: #667eea;
-            color: white;
-            transform: translateX(5px);
-            box-shadow: 0 2px 10px rgba(102, 126, 234, 0.3);
+        .card[data-tool="pinyin"]   { --accent: #ef5a5a; --tint: #ffe6e3; }
+        .card[data-tool="english"]  { --accent: #3d8bfd; --tint: #e3efff; }
+        .card[data-tool="equation"] { --accent: #f2a007; --tint: #fff1cf; }
+        .card[data-tool="plotter"]  { --accent: #1fae7a; --tint: #dcf6ea; }
+        .card[data-tool="maze"]     { --accent: #8b5cf6; --tint: #eee6ff; }
+        .card[data-tool="jump"]     { --accent: #ec4899; --tint: #ffe3f1; }
+        .card-art {
+            display: block;
+            aspect-ratio: 4 / 3;
+            background: var(--tint);
         }
-        .file-link::before {
-            content: "📄";
-            margin-right: 10px;
+        .art {
+            display: block;
+            width: 100%;
+            height: auto;
         }
-        .empty-message {
-            color: #6c757d;
-            font-style: italic;
-            padding: 20px;
+        .card-title {
+            display: block;
+            margin: 14px 12px 4px;
+            font-size: clamp(1.15rem, 4.6vw, 1.9rem);
+            font-weight: 800;
+            line-height: 1.25;
             text-align: center;
-            background: #f8f9fa;
-            border-radius: 6px;
+            color: var(--accent);
+            overflow-wrap: anywhere;
+        }
+        .card-desc {
+            display: block;
+            margin: 0 12px;
+            font-size: clamp(0.8rem, 2.6vw, 1rem);
+            line-height: 1.4;
+            text-align: center;
+            color: #6b5d52;
+        }
+        .card:active {
+            transform: scale(0.98);
+        }
+        .card:focus-visible {
+            outline: 4px solid var(--accent);
+            outline-offset: 4px;
+        }
+        @media (hover: hover) {
+            .card:hover {
+                transform: translateY(-6px);
+                box-shadow: 0 12px 26px rgba(90, 60, 30, 0.18);
+            }
+        }
+        @media (max-width: 899px) {
+            .grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 16px;
+            }
+            .card {
+                border-radius: 18px;
+                padding-bottom: 12px;
+            }
+        }
+        @media (max-width: 359px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .card {
+                transition: none;
+            }
+            .card:hover,
+            .card:active {
+                transform: none;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>赛赛的工具箱</h1>
-        
-        <div class="folder-section">
-            <div class="folder-name">
-                <span class="folder-icon">📁</span>
-                x-y-line
-            </div>
-            <ul class="file-list">
-                <li class="file-item">
-                    <a href="x-y-line/coordinate-plotter.html" class="file-link">坐标绘图器</a>
-                </li>
-            </ul>
-        </div>
-
-        <div class="folder-section">
-            <div class="folder-name">
-                <span class="folder-icon">📁</span>
-                maze-gen
-            </div>
-            <ul class="file-list">
-                <li class="file-item">
-                    <a href="maze-gen/maze.html" class="file-link">迷宫生成器</a>
-                </li>
-            </ul>
-        </div>
-
-        <div class="folder-section">
-            <div class="folder-name">
-                <span class="folder-icon">📁</span>
-                jump-game
-            </div>
-            <ul class="file-list">
-                <li class="file-item">
-                    <a href="tiao-yi-tiao/game.html" class="file-link">跳一跳</a>
-                </li>
-            </ul>
-        </div>
-
-        <div class="folder-section">
-            <div class="folder-name">
-                <span class="folder-icon">📁</span>
-                solve-equation
-            </div>
-            <ul class="file-list">
-                <li class="file-item">
-                    <a href="solve-equation/index.html" class="file-link">一元一次方程求解</a>
-                </li>
-            </ul>
-        </div>
-
-        <div class="folder-section">
-            <div class="folder-name">
-                <span class="folder-icon">📁</span>
-                english-audio
-            </div>
-            <ul class="file-list">
-                <li class="file-item">
-                    <a href="english-audio/index.html" class="file-link">英语听力 · 一年级上册</a>
-                </li>
-            </ul>
-        </div>
-
-        <div class="folder-section">
-            <div class="folder-name">
-                <span class="folder-icon">📁</span>
-                pinyin
-            </div>
-            <ul class="file-list">
-                <li class="file-item">
-                    <a href="pinyin/index.html" class="file-link">学拼音</a>
-                </li>
-            </ul>
-        </div>
+    <div class="page">
+        <header>
+            <svg class="logo" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+                <rect x="6" y="22" width="52" height="34" rx="6" fill="#ff7a59"/>
+                <path d="M22 22v-6a4 4 0 0 1 4-4h12a4 4 0 0 1 4 4v6" fill="none" stroke="#3a2e25" stroke-width="5" stroke-linecap="round"/>
+                <rect x="6" y="32" width="52" height="5" fill="#e0603f"/>
+                <rect x="27" y="29" width="10" height="11" rx="2" fill="#ffd166"/>
+            </svg>
+            <h1>赛赛的工具箱</h1>
+        </header>
+        <main class="grid">
+            <a class="card" href="pinyin/index.html" data-tool="pinyin">
+                <span class="card-art"><svg class="art" viewBox="0 0 200 150" aria-hidden="true" focusable="false"><rect width="200" height="150" fill="var(--tint)"/></svg></span>
+                <span class="card-title">学拼音</span>
+                <span class="card-desc">声母 韵母 四声调</span>
+            </a>
+            <a class="card" href="english-audio/index.html" data-tool="english">
+                <span class="card-art"><svg class="art" viewBox="0 0 200 150" aria-hidden="true" focusable="false"><rect width="200" height="150" fill="var(--tint)"/></svg></span>
+                <span class="card-title">英语听力</span>
+                <span class="card-desc">一年级上册</span>
+            </a>
+            <a class="card" href="solve-equation/index.html" data-tool="equation">
+                <span class="card-art"><svg class="art" viewBox="0 0 200 150" aria-hidden="true" focusable="false"><rect width="200" height="150" fill="var(--tint)"/></svg></span>
+                <span class="card-title">解方程</span>
+                <span class="card-desc">一元一次方程求解</span>
+            </a>
+            <a class="card" href="x-y-line/coordinate-plotter.html" data-tool="plotter">
+                <span class="card-art"><svg class="art" viewBox="0 0 200 150" aria-hidden="true" focusable="false"><rect width="200" height="150" fill="var(--tint)"/></svg></span>
+                <span class="card-title">坐标绘图器</span>
+                <span class="card-desc">描点 连成线</span>
+            </a>
+            <a class="card" href="maze-gen/maze.html" data-tool="maze">
+                <span class="card-art"><svg class="art" viewBox="0 0 200 150" aria-hidden="true" focusable="false"><rect width="200" height="150" fill="var(--tint)"/></svg></span>
+                <span class="card-title">迷宫生成器</span>
+                <span class="card-desc">从起点走到终点</span>
+            </a>
+            <a class="card" href="tiao-yi-tiao/game.html" data-tool="jump">
+                <span class="card-art"><svg class="art" viewBox="0 0 200 150" aria-hidden="true" focusable="false"><rect width="200" height="150" fill="var(--tint)"/></svg></span>
+                <span class="card-title">跳一跳</span>
+                <span class="card-desc">按住蓄力 跳过去</span>
+            </a>
+        </main>
     </div>
 </body>
 </html>
