@@ -10,6 +10,7 @@ Chromium 逐项检查，打印 PASS / FAIL；任一项失败时退出码为 1。
 
 import argparse
 import datetime
+import io
 import json
 import os
 import socket
@@ -20,6 +21,7 @@ import traceback
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from PIL import Image
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -43,6 +45,7 @@ KEYS = {
 }
 WASD = {"up": "w", "down": "s", "left": "a", "right": "d"}
 PW = None  # main() 中赋值，供需要设备描述的检查使用
+BASELINE_ROOT = None  # --baseline-root：改动前代码的副本，供对比检查使用
 DIRS = {"up": (-1, 0), "down": (1, 0), "left": (0, -1), "right": (0, 1)}
 
 
@@ -55,11 +58,11 @@ def free_port():
         return s.getsockname()[1]
 
 
-def start_server():
+def start_server(root=ROOT):
     port = free_port()
     proc = subprocess.Popen(
         [sys.executable, "-m", "http.server", str(port), "--bind", "127.0.0.1"],
-        cwd=str(ROOT),
+        cwd=str(root),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -1407,6 +1410,300 @@ def check_t8(browser, base):
         close(page)
 
 
+def canvas_image(page, attempts=3):
+    """3D canvas 的截图。自动降画质会换掉 canvas 元素，截图途中被换掉时重试。"""
+    for i in range(attempts):
+        try:
+            data = page.locator("#stage > canvas:not(#minimap)").screenshot()
+            return Image.open(io.BytesIO(data)).convert("RGB")
+        except Exception as exc:
+            if "not attached" not in str(exc) or i == attempts - 1:
+                raise
+            page.wait_for_timeout(200)
+
+
+def screen_metrics(img):
+    """与 __maze3d.wallContrast 相同的网格与公式：中心 50% 区域 16×16 取样。"""
+    w, h = img.size
+    px = img.load()
+    seen = set()
+    lumas = []
+    for i in range(16):
+        for j in range(16):
+            x = int(w * (0.25 + 0.5 * (i + 0.5) / 16))
+            y = int(h * (0.25 + 0.5 * (j + 0.5) / 16))
+            r, g, b = px[x, y]
+            seen.add((r, g, b))
+            lumas.append(0.299 * r + 0.587 * g + 0.114 * b)
+    mean = sum(lumas) / len(lumas)
+    std = (sum((v - mean) ** 2 for v in lumas) / len(lumas)) ** 0.5
+    lumas.sort()
+    spread = lumas[int(0.95 * 255)] - lumas[int(0.05 * 255)]
+    return {"colors": len(seen), "std": std, "spread": spread}
+
+
+def face_wall(page, max_moves=10):
+    """第一人称下转身到正前方是一段墙（迷宫内部的墙，不是外边界）；返回朝向，找不到返回 None。
+
+    迷宫外边界不画墙，所以要求前方的相邻格在迷宫内。当前格没有这样的墙时，
+    朝可走的方向前进一站再找，最多前进 max_moves 次。
+    """
+    for _ in range(max_moves + 1):
+        n = m3(page, "size")
+        for i in range(4):
+            p = m3(page, "player")
+            dr, dc = DIRS[p["facing"]]
+            r, c = p["row"] + dr, p["col"] + dc
+            inside_maze = 0 <= r < n and 0 <= c < n
+            if inside_maze and next_stop(page, p["facing"]) is None:
+                return p["facing"]
+            if i < 3:
+                page.keyboard.press("ArrowLeft")
+                wait_idle(page)
+        if face_walkable(page) is None:
+            return None
+        page.keyboard.press("ArrowUp")
+        wait_settled(page)
+        if m3(page, "state") != "idle":
+            return None
+    return None
+
+
+def fmt_metrics(m):
+    return f"colors={m['colors']} spread={m['spread']:.1f} std={m['std']:.1f}"
+
+
+def contrast_ok(m):
+    return m["colors"] >= 12 and m["spread"] >= 40 and m["std"] >= 10
+
+
+def check_t2(browser, base):
+    """第一人称面墙时墙面有纹理：取样颜色数、亮度分位差、标准差都够大。"""
+    if not BASELINE_ROOT:
+        return None, "need --baseline-root"
+    details = []
+    proc, bbase = start_server(BASELINE_ROOT)
+    try:
+        page, errors = open_page(browser, f"{bbase}{PAGE}?seed={S}&size=10")
+        try:
+            wait_idle(page)
+            page.click("#view-btn")
+            facing = face_wall(page)
+            page.wait_for_timeout(300)
+            base_m = screen_metrics(canvas_image(page))
+            details.append(f"baseline(facing={facing}): {fmt_metrics(base_m)}")
+        finally:
+            close(page)
+    finally:
+        proc.terminate()
+        proc.wait()
+    all_ok = True
+    for tid in THEME_IDS:
+        page, errors = open_page(
+            browser, f"{base}{PAGE}?seed={S}&size=10", init_script=theme_init(tid)
+        )
+        try:
+            wait_idle(page)
+            page.click("#view-btn")
+            facing = face_wall(page)
+            page.wait_for_timeout(300)
+            wc = m3(page, "wallContrast()")
+            sm = screen_metrics(canvas_image(page))
+            th = m3(page, "theme")
+            ok_err, msg = no_errors(errors)
+            ok = (
+                facing is not None
+                and contrast_ok(wc)
+                and contrast_ok(sm)
+                and ok_err
+                and th == tid
+            )
+            all_ok = all_ok and ok
+            details.append(
+                f"{tid}(facing={facing} ok={ok}): gl[{fmt_metrics(wc)}]"
+                f" screen[{fmt_metrics(sm)}] {msg}".strip()
+            )
+        finally:
+            close(page)
+    return all_ok, " | ".join(details)
+
+
+def chebyshev(a, b):
+    return max(abs(a["row"] - b["row"]), abs(a["col"] - b["col"]))
+
+
+def sample_kind(page, img, cells, want):
+    """在候选格里找第一个种类为 want、且有未遮挡取样点的格，返回取样像素各通道中位数。"""
+    cw = page.evaluate(
+        "() => document.querySelector('#stage > canvas:not(#minimap)').clientWidth"
+    )
+    ratio = img.size[0] / cw
+    px = img.load()
+    for r, c in cells:
+        if m3(page, f"floorKindAt({r}, {c})") != want:
+            continue
+        pts = m3(page, f"floorSamplePoints({r}, {c})")
+        if not pts:
+            continue
+        rgb = []
+        for p in pts:
+            x = min(img.size[0] - 1, max(0, int(p["x"] * ratio)))
+            y = min(img.size[1] - 1, max(0, int(p["y"] * ratio)))
+            rgb.append(px[x, y])
+        med = []
+        for ch in range(3):
+            vals = sorted(v[ch] for v in rgb)
+            med.append(vals[len(vals) // 2])
+        return tuple(med), (r, c)
+    return None, None
+
+
+def cells_by_distance(page, keep=lambda cell, dist: True):
+    n = m3(page, "size")
+    here = pos(page)
+    out = []
+    for r in range(n):
+        for c in range(n):
+            dist = chebyshev(here, {"row": r, "col": c})
+            if keep((r, c), dist):
+                out.append((dist, r, c))
+    out.sort()
+    return [(r, c) for _, r, c in out]
+
+
+def settle_camera(page):
+    wait_settled(page)
+    page.wait_for_timeout(1200)
+
+
+def rgb_dist(a, b):
+    return sum((x - y) ** 2 for x, y in zip(a, b)) ** 0.5
+
+
+def check_t5(browser, base):
+    """各主题下五类地板格（普通、起点、终点、道路、迷雾）在屏幕上两两颜色距离 ≥ 60。"""
+    details = []
+    all_ok = True
+    for tid in THEME_IDS:
+        page, errors = open_page(
+            browser,
+            f"{base}{PAGE}?seed={S}&size=10",
+            init_script=theme_init(tid) + preset_storage("0", "1"),
+        )
+        got = {}
+        notes = []
+        try:
+            wait_idle(page)
+            n = m3(page, "size")
+            end = {"row": n - 1, "col": n - 1}
+            # 场景 A：迷雾关、道路关
+            page.keyboard.press(KEYS[entrance_dir(page)])
+            settle_camera(page)
+            img = canvas_image(page)
+            got["start"], _ = sample_kind(page, img, [(0, 0)], "start")
+            got["floor"], at = sample_kind(page, img, cells_by_distance(page), "floor")
+            notes.append(f"floor@{at}")
+            for _ in range(60):
+                if chebyshev(pos(page), end) <= 2:
+                    break
+                d = path_dir(page)
+                if d is None or next_stop(page, d) == end:
+                    break
+                page.keyboard.press(KEYS[d])
+                wait_settled(page)
+            settle_camera(page)
+            img = canvas_image(page)
+            end_a, _ = sample_kind(page, img, [(n - 1, n - 1)], "end")
+            notes.append(f"A at {pos(page)} endA={end_a}")
+            # 场景 B：显示道路
+            page.click("#show-path-btn")
+            page.wait_for_timeout(300)
+            img = canvas_image(page)
+            got["path"], at = sample_kind(
+                page,
+                img,
+                cells_by_distance(
+                    page, lambda cell, dist: cell not in [(0, 0), (n - 1, n - 1)]
+                ),
+                "path",
+            )
+            notes.append(f"path@{at}")
+            # 场景 C：迷雾开、视野 1、道路关
+            page.click("#hide-path-btn")
+            page.click("#fog-btn")
+            fog_state = m3(page, "fog")
+            settle_camera(page)
+            img = canvas_image(page)
+            got["fog"], at = sample_kind(
+                page,
+                img,
+                cells_by_distance(page, lambda cell, dist: 2 <= dist <= 3),
+                "fog",
+            )
+            floor_c, _ = sample_kind(
+                page,
+                img,
+                cells_by_distance(page, lambda cell, dist: dist <= 1),
+                "floor",
+            )
+            end_kind_c = m3(page, f"floorKindAt({n - 1}, {n - 1})")
+            notes.append(
+                f"fog@{at} C fog={fog_state} floorC={floor_c} endKindC={end_kind_c}"
+            )
+            # 场景 D：继续前进到终点旁边（不进终点）
+            for _ in range(60):
+                here = pos(page)
+                if chebyshev(here, end) <= 1 and here != end:
+                    break
+                d = path_dir(page)
+                if d is None:
+                    break
+                page.keyboard.press(KEYS[d])
+                wait_settled(page)
+            here = pos(page)
+            settle_camera(page)
+            img = canvas_image(page)
+            end_kind_d = m3(page, f"floorKindAt({n - 1}, {n - 1})")
+            got["end"], _ = sample_kind(page, img, [(n - 1, n - 1)], "end")
+            notes.append(f"D at {here} endKindD={end_kind_d}")
+            missing = [
+                k
+                for k in ["floor", "start", "end", "path", "fog"]
+                if got.get(k) is None
+            ]
+            pairs = []
+            keys = [k for k in ["floor", "start", "end", "path", "fog"] if got.get(k)]
+            for i, a in enumerate(keys):
+                for b in keys[i + 1 :]:
+                    pairs.append((rgb_dist(got[a], got[b]), a, b))
+            pairs.sort()
+            worst = pairs[0] if pairs else None
+            ok_err, msg = no_errors(errors)
+            ok = (
+                not missing
+                and worst is not None
+                and worst[0] >= 60
+                and end_kind_c == "fog"
+                and end_kind_d == "end"
+                and here != end
+                and fog_state == {"on": True, "radius": 1}
+                and ok_err
+                and m3(page, "theme") == tid
+            )
+            all_ok = all_ok and ok
+            colors = " ".join(
+                f"{k}={got.get(k)}" for k in ["floor", "start", "end", "path", "fog"]
+            )
+            worst_s = f"{worst[1]}-{worst[2]}={worst[0]:.1f}" if worst else "n/a"
+            details.append(
+                f"{tid}(ok={ok}): {colors} min={worst_s} missing={missing}"
+                f" [{'; '.join(notes)}] {msg}".strip()
+            )
+        finally:
+            close(page)
+    return all_ok, " | ".join(details)
+
+
 # ---------------------------------------------------------------- runner
 
 CHECKS = {
@@ -1433,6 +1730,8 @@ CHECKS = {
     "t4": check_t4,
     "t6": check_t6,
     "t8": check_t8,
+    "t2": check_t2,
+    "t5": check_t5,
 }
 
 
@@ -1445,7 +1744,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", default="")
     ap.add_argument("--write", action="store_true")
+    ap.add_argument("--baseline-root", default="")
     args = ap.parse_args()
+    global BASELINE_ROOT
+    BASELINE_ROOT = Path(args.baseline_root) if args.baseline_root else None
     names = (
         [n.strip() for n in args.only.split(",") if n.strip()]
         if args.only

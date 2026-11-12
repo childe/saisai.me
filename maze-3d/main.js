@@ -909,6 +909,81 @@ function start() {
     return seen.size;
   }
 
+  function instanceHidden(mesh, i) {
+    mesh.getMatrixAt(i, tmpMatrix);
+    // 不用 decompose：r187 对行列式为 0 的矩阵直接返回缩放 1
+    const e = tmpMatrix.elements;
+    const scale = Math.hypot(e[0], e[1], e[2]) * Math.hypot(e[4], e[5], e[6]);
+    return scale * Math.hypot(e[8], e[9], e[10]) === 0;
+  }
+
+  function isPlayerPart(obj) {
+    for (let o = obj; o; o = o.parent) if (o === player) return true;
+    return false;
+  }
+
+  const raycaster = new THREE.Raycaster();
+
+  // 地板格顶面上 5 个取样点（格心与四个内缩点）中，相机看得到、没被墙 / 星星 / 小人挡住的点；
+  // 返回相对 renderer canvas 左上角的 CSS 像素坐标
+  function floorSamplePoints(row, col) {
+    camera.updateMatrixWorld();
+    walls.boundingSphere = null;
+    const canvas = renderer.domElement;
+    const out = [];
+    const offsets = [
+      [0, 0],
+      [-0.3, -0.3],
+      [0.3, -0.3],
+      [-0.3, 0.3],
+      [0.3, 0.3],
+    ];
+    for (const [dx, dz] of offsets) {
+      const point = new THREE.Vector3(col + 0.5 + dx, 0.001, row + 0.5 + dz);
+      const ndc = point.clone().project(camera);
+      if (Math.abs(ndc.x) > 1 || Math.abs(ndc.y) > 1 || ndc.z > 1) continue;
+      const dist = camera.position.distanceTo(point);
+      const dir = point.clone().sub(camera.position).normalize();
+      raycaster.set(camera.position, dir);
+      raycaster.far = dist;
+      const hits = raycaster.intersectObjects([walls, star, player], true);
+      const blocked = hits.some((h) => {
+        if (h.distance >= dist - 0.01) return false;
+        if (!player.visible && isPlayerPart(h.object)) return false;
+        if (h.object === walls && h.instanceId !== undefined && instanceHidden(walls, h.instanceId)) return false;
+        return true;
+      });
+      if (blocked) continue;
+      out.push({ x: ((ndc.x + 1) / 2) * canvas.clientWidth, y: ((1 - ndc.y) / 2) * canvas.clientHeight });
+    }
+    return out;
+  }
+
+  // 画面中心 50% 区域 16×16 网格取样：不同颜色数、亮度总体标准差、5%–95% 分位差
+  function wallContrast() {
+    renderer.render(scene, camera);
+    const gl = renderer.getContext();
+    const w = gl.drawingBufferWidth;
+    const h = gl.drawingBufferHeight;
+    const px = new Uint8Array(4);
+    const seen = new Set();
+    const lumas = [];
+    for (let i = 0; i < 16; i++) {
+      for (let j = 0; j < 16; j++) {
+        const x = Math.floor(w * (0.25 + (0.5 * (i + 0.5)) / 16));
+        const y = Math.floor(h * (0.25 + (0.5 * (j + 0.5)) / 16));
+        gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        seen.add((px[0] << 16) | (px[1] << 8) | px[2]);
+        lumas.push(0.299 * px[0] + 0.587 * px[1] + 0.114 * px[2]);
+      }
+    }
+    const mean = lumas.reduce((a, b) => a + b, 0) / lumas.length;
+    const std = Math.sqrt(lumas.reduce((a, b) => a + (b - mean) ** 2, 0) / lumas.length);
+    lumas.sort((a, b) => a - b);
+    const spread = lumas[Math.floor(0.95 * 255)] - lumas[Math.floor(0.05 * 255)];
+    return { colors: seen.size, std, spread };
+  }
+
   window.__maze3d = {
     get seed() {
       return seed;
@@ -942,15 +1017,14 @@ function start() {
     },
     wallsVisible() {
       const out = [];
-      for (let i = 0; i < segments.length; i++) {
-        walls.getMatrixAt(i, tmpMatrix);
-        // 不用 decompose：r187 对行列式为 0 的矩阵直接返回缩放 1
-        const e = tmpMatrix.elements;
-        const scale = Math.hypot(e[0], e[1], e[2]) * Math.hypot(e[4], e[5], e[6]);
-        out.push(scale * Math.hypot(e[8], e[9], e[10]) !== 0);
-      }
+      for (let i = 0; i < segments.length; i++) out.push(!instanceHidden(walls, i));
       return out;
     },
+    floorKindAt(row, col) {
+      return kindAt(row, col);
+    },
+    floorSamplePoints,
+    wallContrast,
     floorColorHex(row, col) {
       floor.getColorAt(row * size + col, tmpColor);
       return '#' + tmpColor.getHexString();

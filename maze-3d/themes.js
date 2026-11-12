@@ -188,7 +188,7 @@ function wallBrick(ctx, size, rand) {
       const y = r * bh;
       const color = pick(rand, reds);
       const speckles = [];
-      for (let s = 0; s < 4; s++) speckles.push([rand(), rand(), between(rand, 1, 2.5) * k]);
+      for (let s = 0; s < 8; s++) speckles.push([rand(), rand(), between(rand, 1, 2.5) * k, s % 2 === 0]);
       const draw = (xx) => {
         ctx.fillStyle = color;
         ctx.fillRect(xx + gap / 2, y + gap / 2, bw - gap, bh - gap);
@@ -196,7 +196,10 @@ function wallBrick(ctx, size, rand) {
         ctx.fillRect(xx + gap / 2, y + gap / 2, bw - gap, 3 * k);
         ctx.fillStyle = 'rgba(40,10,0,0.3)';
         ctx.fillRect(xx + gap / 2, y + bh - gap / 2 - 3 * k, bw - gap, 3 * k);
-        for (const [sx, sy, sr] of speckles) {
+        ctx.fillStyle = 'rgba(255,225,200,0.12)';
+        ctx.fillRect(xx + gap / 2, y + bh * 0.35, bw - gap, bh * 0.25);
+        for (const [sx, sy, sr, dark] of speckles) {
+          ctx.fillStyle = dark ? 'rgba(40,10,0,0.3)' : 'rgba(255,210,180,0.3)';
           circleAt(ctx, xx + gap + sx * (bw - 2 * gap), y + gap + sy * (bh - 2 * gap), sr);
         }
       };
@@ -207,7 +210,7 @@ function wallBrick(ctx, size, rand) {
   }
 }
 
-function wallBlocks(ctx, size) {
+function wallBlocks(ctx, size, rand) {
   const half = size / 2;
   const k = size / 256;
   const line = 3 * k;
@@ -218,10 +221,21 @@ function wallBlocks(ctx, size) {
     ctx.fillStyle = gray(90);
     ctx.fillRect(x0 + half - 14 * k, 0, 14 * k, size);
     ctx.fillRect(x0, size - 16 * k, half, 16 * k);
-    // 主体
+    // 主体：自上而下略微变暗的塑料光泽
     ctx.fillStyle = gray(228);
     roundRectPath(ctx, x0 + 6 * k, 6 * k, half - 22 * k, size - 24 * k, 10 * k);
     ctx.fill();
+    const bands = 12;
+    const bandH = (size - 44 * k) / bands;
+    for (let b = 0; b < bands; b++) {
+      ctx.fillStyle = gray(240 - b * 2.5);
+      ctx.fillRect(x0 + 12 * k, 16 * k + b * bandH, half - 34 * k, bandH);
+    }
+    // 细小的颗粒
+    for (let s = 0; s < 220; s++) {
+      ctx.fillStyle = gray(between(rand, 200, 250));
+      circleAt(ctx, x0 + between(rand, 14, half / k - 26) * k, between(rand, 18, 228) * k, between(rand, 1, 2.5) * k);
+    }
     // 左上高光
     ctx.fillStyle = gray(255);
     roundRectPath(ctx, x0 + 10 * k, 10 * k, half - 34 * k, 10 * k, 5 * k);
