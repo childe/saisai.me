@@ -151,11 +151,61 @@
             display: none;
         }
 
+        #stick {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100px;
+            height: 100px;
+            margin: -50px 0 0 -50px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.25);
+            border: 2px solid rgba(255, 255, 255, 0.6);
+            box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        #stick[hidden] {
+            display: none;
+        }
+
+        #stick-knob {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 44px;
+            height: 44px;
+            margin: -22px 0 0 -22px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.85);
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+            pointer-events: none;
+        }
+
+        #fullscreen-btn[hidden] {
+            display: none;
+        }
+
         .hint {
             margin: 0;
             color: #666;
             font-size: 14px;
             text-align: center;
+        }
+
+        .hint-touch {
+            display: none;
+        }
+
+        @media (pointer: coarse) {
+            .hint-touch {
+                display: block;
+            }
+
+            .hint-desktop {
+                display: none;
+            }
         }
 
         #win {
@@ -265,6 +315,7 @@
             <button id="fog-minus" aria-label="缩小视野">−</button>
             <span id="fog-radius">视野 5</span>
             <button id="fog-plus" aria-label="扩大视野">+</button>
+            <button id="fullscreen-btn" hidden>全屏</button>
         </div>
 
         <div class="row" id="theme-row">
@@ -281,6 +332,7 @@
 
         <div id="stage">
             <canvas id="minimap" hidden></canvas>
+            <div id="stick" hidden><div id="stick-knob"></div></div>
         </div>
 
         <div class="row" id="action-row">
@@ -289,7 +341,8 @@
             <button id="hide-path-btn">隐藏道路</button>
         </div>
 
-        <p class="hint">WASD / 方向键移动，拖动鼠标转视角</p>
+        <p class="hint hint-desktop">WASD / 方向键移动，拖动鼠标转视角</p>
+        <p class="hint hint-touch">左边拖动走路，右边拖动转视角</p>
         <div id="perf" hidden></div>
     </div>
 

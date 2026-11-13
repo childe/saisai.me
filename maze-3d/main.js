@@ -593,12 +593,15 @@ function start() {
   // ---------- 输入 ----------
   const keys = new Set();
   const router = createPointerRouter();
+  const stickEl = $('stick');
+  const knobEl = $('stick-knob');
   let testInput = null; // setInputForTest 注入的输入（仅 ?debug=1）
 
   // 清空按键、指针角色、摇杆与捏合状态；失焦、切后台、重建迷宫时调用
   function resetInput() {
     keys.clear();
     router.reset();
+    stickEl.hidden = true;
   }
 
   function onKey(e) {
@@ -610,6 +613,79 @@ function start() {
   window.addEventListener('keydown', onKey);
   window.addEventListener('keyup', onKey);
   window.addEventListener('blur', resetInput);
+
+  // 指针监听绑在 #stage 上：降画质会替换 canvas，绑在 canvas 上的监听会丢
+  function sideOf(clientX) {
+    const r = stage.getBoundingClientRect();
+    return clientX - r.left < r.width / 2 ? 'left' : 'right';
+  }
+
+  stage.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const ok = router.down({
+      id: e.pointerId,
+      kind: e.pointerType || 'mouse',
+      x: e.clientX,
+      y: e.clientY,
+      side: sideOf(e.clientX),
+    });
+    if (!ok) return;
+    try {
+      stage.setPointerCapture(e.pointerId);
+    } catch {
+      // 指针已失效时 setPointerCapture 会抛异常，忽略
+    }
+    e.preventDefault();
+  });
+  stage.addEventListener('pointermove', (e) => {
+    router.move({ id: e.pointerId, x: e.clientX, y: e.clientY });
+  });
+
+  // 按该指针的角色清除状态；pointerup / pointercancel / lostpointercapture 都走这里，重复调用无副作用
+  function releasePointer(id) {
+    router.up(id);
+  }
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+    stage.addEventListener(type, (e) => releasePointer(e.pointerId));
+  }
+
+  stage.addEventListener(
+    'wheel',
+    (e) => {
+      e.preventDefault();
+      cameraZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, cameraZoom * Math.exp(e.deltaY * 0.001)));
+    },
+    { passive: false },
+  );
+
+  // 摇杆显示：底座中心在按下点，摇杆头偏移钳到底座半径
+  function updateStick() {
+    const st = router.stick;
+    if (!st.active) {
+      if (!stickEl.hidden) stickEl.hidden = true;
+      return;
+    }
+    const r = stage.getBoundingClientRect();
+    stickEl.hidden = false;
+    stickEl.style.left = `${st.originX - r.left}px`;
+    stickEl.style.top = `${st.originY - r.top}px`;
+    const len = Math.hypot(st.dx, st.dy);
+    const f = len > STICK_RADIUS ? STICK_RADIUS / len : 1;
+    knobEl.style.transform = `translate(${st.dx * f}px, ${st.dy * f}px)`;
+  }
+
+  // ---------- 全屏 ----------
+  const fsBtn = $('fullscreen-btn');
+  if (document.fullscreenEnabled) fsBtn.hidden = false;
+  fsBtn.addEventListener('click', () => {
+    const p = document.fullscreenElement
+      ? document.exitFullscreen()
+      : document.documentElement.requestFullscreen();
+    if (p && p.catch) p.catch(() => {});
+  });
+  document.addEventListener('fullscreenchange', () => {
+    fsBtn.textContent = document.fullscreenElement ? '退出全屏' : '全屏';
+  });
 
   function currentInput() {
     if (testInput) {
@@ -849,6 +925,7 @@ function start() {
     const dt = Math.max(0, Math.min(now - lastTime, 100)) / 1000;
     lastTime = now;
     updatePlayer(dt);
+    updateStick();
     star.rotation.y += dt;
     updateCamera(dt);
     if (view === 'first') drawMinimap();

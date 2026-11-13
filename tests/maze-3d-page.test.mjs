@@ -126,3 +126,23 @@ test('no image files in maze-3d', () => {
   const imgs = walk(dir).filter((n) => /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i.test(n));
   assert.deepEqual(imgs, []);
 });
+
+test('joystick overlay does not take pointer events', () => {
+  const html = read('index.html');
+  assert.ok(html.includes('id="stick"') && html.includes('id="stick-knob"'));
+  const m = html.match(/#stick\s*\{([^}]*)\}/);
+  assert.ok(m && /pointer-events\s*:\s*none/.test(m[1]));
+  // #stick 直接位于 #stage 内：stage 开标签与 #stick 之间没有闭合标签，#stick 闭合后紧跟 stage 闭合
+  assert.match(
+    html,
+    /<div id="stage">(?:(?!<\/div>)[\s\S])*<div id="stick"[^>]*>\s*<div id="stick-knob"><\/div>\s*<\/div>\s*<\/div>/,
+  );
+});
+
+test('fullscreen button and two hint texts', () => {
+  const html = read('index.html');
+  assert.match(html, /id="fullscreen-btn"[^>]*hidden[^>]*>全屏</);
+  assert.ok(html.includes('WASD / 方向键移动，拖动鼠标转视角'));
+  assert.ok(html.includes('左边拖动走路，右边拖动转视角'));
+  assert.match(html, /@media\s*\(pointer:\s*coarse\)/);
+});
