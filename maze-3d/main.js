@@ -64,6 +64,8 @@ import {
   startYaw,
   LOOK_AHEAD,
   lookAheadTarget,
+  followLookAhead,
+  avoidRect,
   SHADOW_RADIUS,
   shadowLook,
   FOOT_STRIP_WIDTH,
@@ -661,13 +663,13 @@ function start() {
       feet.setMatrixAt(i, tmpMatrix);
     }
     feet.instanceMatrix.needsUpdate = true;
-    // 终点方向提示的遮挡判断只算看得见的墙（不外扩）
-    hintBoxes = wallBoxes3d(segmentBoxes(visibleSegs), WALL_HEIGHT, 0);
+    // 遮挡判断（终点方向提示、跟随视角能否看见小人）只算看得见的墙（不外扩）
+    sightBoxes = wallBoxes3d(segmentBoxes(visibleSegs), WALL_HEIGHT, 0);
   }
 
   // ---------- 终点方向提示 ----------
   // 光柱采样点都看不见时提示终点方向：都在画面外 → 边框箭头；在画面内但被墙挡住 → 标记
-  let hintBoxes = [];
+  let sightBoxes = [];
   const endArrowEl = $('end-arrow');
   const endArrowHead = endArrowEl.querySelector('.end-arrow-head');
   const endMarkerEl = $('end-marker');
@@ -699,7 +701,7 @@ function start() {
         inView = Math.abs(hintNdc.x) <= 1 && Math.abs(hintNdc.y) <= 1;
         if (inView) top = { x: ((hintNdc.x + 1) / 2) * W, y: ((1 - hintNdc.y) / 2) * H };
       }
-      samples.push({ inView, occluded: segmentBlocked(camera.position, hintWorld, hintBoxes) });
+      samples.push({ inView, occluded: segmentBlocked(camera.position, hintWorld, sightBoxes) });
     }
     const mode = state === 'won' ? 'hidden' : endHintMode(samples);
     const arrow = edgeArrow(low, W, H, HINT_INSET);
@@ -710,8 +712,10 @@ function start() {
       endHint.x = Math.min(W - HINT_INSET, Math.max(HINT_INSET, top.x));
       endHint.y = Math.min(H - HINT_INSET, Math.max(HINT_INSET, top.y));
     } else {
-      endHint.x = arrow.x;
-      endHint.y = arrow.y;
+      // 第一人称时右上角有小地图（z-index 更高），箭头落在它上面就沿边框移开
+      const at = avoidRect(arrow, minimap.hidden ? null : miniRect(), HINT_INSET);
+      endHint.x = at.x;
+      endHint.y = at.y;
     }
 
     if (mode !== shownHintMode) {
@@ -730,6 +734,13 @@ function start() {
     } else if (mode === 'marker') {
       endMarkerEl.style.transform = at;
     }
+  }
+
+  // 小地图相对 #stage 左上角的 CSS 像素矩形
+  function miniRect() {
+    const left = minimap.offsetLeft;
+    const top = minimap.offsetTop;
+    return { left, top, right: left + minimap.offsetWidth, bottom: top + minimap.offsetHeight };
   }
 
   function kindAt(row, col) {
@@ -781,6 +792,7 @@ function start() {
   const tmpWant = new THREE.Vector3();
   let dCur = 0;
   let camPitch = 0;
+  let lookAheadNow = LOOK_AHEAD;
 
   function idealDistance() {
     const o = followOffset(fogOn ? fogRadius : 10);
@@ -797,8 +809,10 @@ function start() {
   }
 
   function placeFollow(k, snap) {
-    // 平滑的是偏移向量而不是观察点本身：长度始终 ≤ LOOK_AHEAD，小人移动时观察点不拖尾
-    const want = lookAheadTarget({ x: 0, z: 0 }, yaw, LOOK_AHEAD);
+    // 平滑的是偏移向量而不是观察点本身：长度始终 ≤ LOOK_AHEAD，小人移动时观察点不拖尾。
+    // 前瞻距离按「相机看得见小人」逐级缩短，最短为 0（观察点回到小人身上）
+    lookAheadNow = followLookAhead(playerState, yaw, pitch, idealDistance(), boxes3d, sightBoxes);
+    const want = lookAheadTarget({ x: 0, z: 0 }, yaw, lookAheadNow);
     tmpWant.set(want.x, 0, want.z);
     if (snap) lookOff.copy(tmpWant);
     else lookOff.lerp(tmpWant, k);
@@ -1548,8 +1562,13 @@ function start() {
       if (view === 'first') return { x: playerState.x, y: TARGET_HEIGHT, z: playerState.z };
       return { x: camTarget.x, y: camTarget.y, z: camTarget.z };
     },
+    // 前瞻距离上限（用于估算范围）
     get lookAhead() {
       return LOOK_AHEAD;
+    },
+    // 跟随视角当前想要的前瞻距离（看不见小人时会缩短）
+    get lookAheadNow() {
+      return lookAheadNow;
     },
     get wallBoxes3d() {
       return boxes3d.map((b) => ({ ...b }));

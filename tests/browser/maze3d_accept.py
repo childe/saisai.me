@@ -3795,6 +3795,102 @@ def p5_marker(browser, base):
         close(page)
 
 
+def player_sight(page):
+    """相机到小人身体中心、观察点高度的连线是否被看得见的墙挡住（与 effects.js 同一判定）。"""
+    return page.evaluate(
+        "async () => {"
+        " const E = await import('/maze-3d/effects.js');"
+        " const V = await import('/maze-3d/movement.js');"
+        " const M = window.__maze3d;"
+        " const vis = M.wallsVisible();"
+        " const segs = M.segments.filter((_, i) => vis[i]);"
+        " const boxes = V.wallBoxes3d(V.segmentBoxes(segs), V.WALL_HEIGHT, 0);"
+        " const cam = M.cameraPos; const p = M.playerPos;"
+        " const blocked = E.PLAYER_SIGHT_HEIGHTS.map((y) =>"
+        "  E.segmentBlocked(cam, { x: p.x, y, z: p.z }, boxes));"
+        " return { blocked, cam, ahead: M.lookAheadNow, max: M.lookAhead }; }"
+    )
+
+
+def check_p1b(browser, base):
+    """评审 r1：前瞻不能让墙挡住小人。seed 12345、10×10、视野 1、(0,1)、yaw 225°、pitch 15°、
+    缩放 0.7 时前瞻缩短、相机看得见小人；开局默认视角仍是完整前瞻。"""
+    page, errors = hint_page(browser, base, "1", "1")
+    try:
+        wait_camera_still(page)
+        start = player_sight(page)
+        page.evaluate("() => window.__maze3d.teleportForTest(0, 1)")
+        page.evaluate("() => window.__maze3d.setZoomForTest(0.7)")
+        set_test_input(page, yaw=math.radians(225), pitch=math.radians(15))
+        set_test_input(page)
+        page.wait_for_timeout(300)
+        wait_frames(page, 5)
+        wait_camera_still(page)
+        wait_frames(page)
+        r = player_sight(page)
+        ok = (
+            start["ahead"] == start["max"]
+            and not any(start["blocked"])
+            and r["ahead"] < r["max"]
+            and not any(r["blocked"])
+        )
+        cam = r["cam"]
+        detail = (
+            f"start: ahead={start['ahead']} blocked={start['blocked']}"
+            f" | (0,1) yaw225 pitch15 zoom0.7: ahead={r['ahead']} blocked={r['blocked']}"
+            f" cam=({cam['x']:.3f},{cam['y']:.3f},{cam['z']:.3f})"
+        )
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (detail + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_p5m(browser, base):
+    """评审 r1：第一人称时终点箭头不能落在右上角小地图上。起点格第一人称扫一圈 yaw × pitch，
+    每个 edge 状态下箭头元素与小地图的矩形不相交；且至少有一次箭头是被移开的（原位置在小地图上）。"""
+    page, errors = hint_page(browser, base, "0", "5")
+    try:
+        page.click("#view-btn")
+        bad = []
+        moved = 0
+        edges = 0
+        for yd in range(0, 360, 15):
+            for pd in (30, 0, -30):
+                set_test_input(page, yaw=math.radians(yd), pitch=math.radians(pd))
+                wait_frames(page, 3)
+                r = page.evaluate(
+                    "() => { const M = window.__maze3d; const h = M.endHint;"
+                    " const st = document.getElementById('stage').getBoundingClientRect();"
+                    " const mm = document.getElementById('minimap');"
+                    " const a = document.getElementById('end-arrow').getBoundingClientRect();"
+                    " const m = mm.getBoundingClientRect();"
+                    " const hit = !(a.right <= m.left || a.left >= m.right || a.bottom <= m.top || a.top >= m.bottom);"
+                    " return { h, hit, mini: !mm.hidden,"
+                    "  rect: { left: m.left - st.left, top: m.top - st.top, right: m.right - st.left, bottom: m.bottom - st.top } }; }"
+                )
+                h = r["h"]
+                if h["mode"] != "edge":
+                    continue
+                edges += 1
+                if r["hit"]:
+                    bad.append((yd, pd, round(h["x"]), round(h["y"])))
+                rc = r["rect"]
+                if (
+                    abs(h["y"] - (rc["bottom"] + HINT_INSET)) < 0.5
+                    or abs(h["x"] - (rc["left"] - HINT_INSET)) < 0.5
+                ):
+                    moved += 1
+        set_test_input(page)
+        mini = page.is_visible("#minimap")
+        ok = mini and edges > 0 and moved > 0 and not bad
+        detail = f"minimap={mini} edges={edges} moved={moved} overlaps={bad[:5]}"
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (detail + " " + msg).strip()
+    finally:
+        close(page)
+
+
 def pixels_changed(a, b, thresh=20):
     import numpy as np
 
@@ -4135,11 +4231,13 @@ CHECKS = {
     "g7": check_g7,
     "g8": check_g8,
     "p1": check_p1,
+    "p1b": check_p1b,
     "p2": check_p2,
     "p3": check_p3,
     "p4a": check_p4a,
     "p4b": check_p4b,
     "p5": check_p5,
+    "p5m": check_p5m,
     "p6": check_p6,
     "p8": check_p8,
 }

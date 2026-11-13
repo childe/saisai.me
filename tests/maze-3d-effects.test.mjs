@@ -22,9 +22,14 @@ import {
   CONFETTI_FADE,
   createConfetti,
   confettiStep,
+  LOOK_AHEAD_STEPS,
+  PLAYER_SIGHT_HEIGHTS,
+  followCameraFor,
+  followLookAhead,
+  avoidRect,
 } from '../maze-3d/effects.js';
 import { MazeGenerator } from '../maze-3d/maze-core.js';
-import { wallSegments } from '../maze-3d/game-logic.js';
+import { wallSegments, wallInView, followOffset } from '../maze-3d/game-logic.js';
 import { slabInterval, wallBoxes3d, segmentBoxes, WALL_HEIGHT, PLAYER_RADIUS } from '../maze-3d/movement.js';
 
 // ---------- Task 1: 开局朝向 ----------
@@ -222,4 +227,90 @@ test('confettiStep does not mutate its input', () => {
   assert.equal(s.pieces[0].y, y0);
   assert.equal(s.t, t0);
   assert.notEqual(n.pieces[0].y, y0);
+});
+
+// ---------- 评审 r1：前瞻不能让墙挡住小人 ----------
+const SIGHT_DEG = Math.PI / 180;
+
+function sightSetup(seed, size, row, col, fogRadius) {
+  const conn = new MazeGenerator(size, size, seed).generate().connections;
+  const segs = wallSegments(conn);
+  const boxes3d = wallBoxes3d(segmentBoxes(segs));
+  const visible = segs.filter((s) => wallInView(s, { row, col }, fogRadius));
+  const sight = wallBoxes3d(segmentBoxes(visible), WALL_HEIGHT, 0);
+  return { boxes3d, sight, player: { x: col + 0.5, z: row + 0.5 } };
+}
+
+function followDist(fogRadius, zoom) {
+  const o = followOffset(fogRadius);
+  return Math.hypot(o.h, o.d) * zoom;
+}
+
+function playerSeen(player, ahead, yaw, pitch, dist, boxes3d, sight) {
+  const cam = followCameraFor(lookAheadTarget(player, yaw, ahead), yaw, pitch, dist, boxes3d);
+  return PLAYER_SIGHT_HEIGHTS.every((y) => !segmentBlocked(cam, { x: player.x, y, z: player.z }, sight));
+}
+
+test('followLookAhead shortens look-ahead when a wall would hide the player', () => {
+  // 评审给出的场景：seed 12345、10×10、(0,1)、yaw 225°、pitch 15°、视野 1、缩放 0.7
+  const { boxes3d, sight, player } = sightSetup(12345, 10, 0, 1, 1);
+  const yaw = 225 * SIGHT_DEG;
+  const pitch = 15 * SIGHT_DEG;
+  const dist = followDist(1, 0.7);
+  assert.equal(playerSeen(player, LOOK_AHEAD, yaw, pitch, dist, boxes3d, sight), false); // 原实现被挡
+  const ahead = followLookAhead(player, yaw, pitch, dist, boxes3d, sight);
+  assert.ok(ahead < LOOK_AHEAD);
+  assert.equal(playerSeen(player, ahead, yaw, pitch, dist, boxes3d, sight), true);
+});
+
+test('followLookAhead keeps full look-ahead in the open start view', () => {
+  const { boxes3d, sight, player } = sightSetup(12345, 10, 0, 0, 5);
+  assert.equal(followLookAhead(player, startYaw(10), 40 * SIGHT_DEG, followDist(5, 1), boxes3d, sight), LOOK_AHEAD);
+});
+
+test('followLookAhead result always sees the player (sweep)', () => {
+  const steps = new Set(LOOK_AHEAD_STEPS);
+  assert.equal(LOOK_AHEAD_STEPS[0], LOOK_AHEAD);
+  assert.equal(LOOK_AHEAD_STEPS[LOOK_AHEAD_STEPS.length - 1], 0);
+  let shortened = 0;
+  for (const [fogRadius, zoom] of [[1, 0.7], [5, 1], [25, 1.5]]) {
+    for (let row = 0; row < 10; row += 3) {
+      for (let col = 0; col < 10; col += 3) {
+        const { boxes3d, sight, player } = sightSetup(12345, 10, row, col, fogRadius);
+        const dist = followDist(fogRadius, zoom);
+        for (let yd = 0; yd < 360; yd += 45) {
+          for (const pd of [15, 40, 75]) {
+            const yaw = yd * SIGHT_DEG;
+            const pitch = pd * SIGHT_DEG;
+            const ahead = followLookAhead(player, yaw, pitch, dist, boxes3d, sight);
+            assert.ok(steps.has(ahead));
+            if (ahead < LOOK_AHEAD) shortened += 1;
+            if (ahead > 0) {
+              assert.ok(
+                playerSeen(player, ahead, yaw, pitch, dist, boxes3d, sight),
+                `(${row},${col}) yaw ${yd} pitch ${pd} r ${fogRadius}`,
+              );
+            }
+          }
+        }
+      }
+    }
+  }
+  assert.ok(shortened > 0);
+});
+
+// ---------- 评审 r1：终点箭头避开小地图 ----------
+test('avoidRect moves a point out of the rect along the shorter way', () => {
+  const rect = { left: 752, top: 8, right: 892, bottom: 148 };
+  // 右边框上的箭头：向下移出更近，仍在右边框上
+  assert.deepEqual(avoidRect({ x: 872, y: 31 }, rect, 28), { x: 872, y: 176 });
+  // 上边框上的箭头：向左移出更近，仍在上边框上
+  assert.deepEqual(avoidRect({ x: 800, y: 28 }, rect, 28), { x: 724, y: 28 });
+  // 外扩 pad 之后才算碰到
+  assert.deepEqual(avoidRect({ x: 730, y: 100 }, rect, 28), { x: 724, y: 100 });
+  // 不碰到就原样返回，且不改入参
+  const p = { x: 500, y: 31 };
+  assert.deepEqual(avoidRect(p, rect, 28), { x: 500, y: 31 });
+  assert.deepEqual(avoidRect(p, null, 28), { x: 500, y: 31 });
+  assert.deepEqual(p, { x: 500, y: 31 });
 });

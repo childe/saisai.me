@@ -1,6 +1,14 @@
 // 3D 迷宫的画面效果：开局朝向、遮挡判断、终点方向提示、阴影 / 暗边 / 光柱 / 彩带的数据步进。
 // 纯逻辑，不依赖 three.js 和 DOM，可以直接用 node --test 测试。角度与坐标约定见 movement.js。
-import { slabInterval, PLAYER_RADIUS, WALL_THICKNESS } from './movement.js';
+import {
+  slabInterval,
+  PLAYER_RADIUS,
+  WALL_THICKNESS,
+  TARGET_HEIGHT,
+  followCameraPos,
+  cameraPullIn,
+  liftPitch,
+} from './movement.js';
 
 // ---------- 开局朝向 ----------
 // 从起点格中心 (0.5, 0.5) 指向迷宫中心 (size/2, size/2) 的 yaw
@@ -17,6 +25,40 @@ export const LOOK_AHEAD = 1.5;
 // 沿 yaw 前方 (sin yaw, −cos yaw) 偏移 dist，不改入参
 export function lookAheadTarget(playerPos, yaw, dist) {
   return { x: playerPos.x + Math.sin(yaw) * dist, z: playerPos.z - Math.cos(yaw) * dist };
+}
+
+// 前瞻距离的候选，从大到小；最后的 0 就是不前瞻（观察点 = 小人），此时 cameraPullIn 保证看得见小人
+export const LOOK_AHEAD_STEPS = [LOOK_AHEAD, 1, 0.5, 0];
+// 判断「看得见小人」时检查的高度：身体中心、观察点高度（接近头顶）
+export const PLAYER_SIGHT_HEIGHTS = [0.2, TARGET_HEIGHT];
+
+// 跟随视角在观察点 target2d（{x, z}）上的稳态相机位置，与 main.js placeFollow 同一算法：
+// liftPitch 定俯角 → followCameraPos → cameraPullIn 收近
+export function followCameraFor(target2d, yaw, pitch, dist, boxes3d) {
+  const target = { x: target2d.x, y: TARGET_HEIGHT, z: target2d.z };
+  const p = liftPitch(target, yaw, pitch, dist, boxes3d);
+  const ideal = followCameraPos(target, yaw, p, dist);
+  const len = Math.hypot(ideal.x - target.x, ideal.y - target.y, ideal.z - target.z);
+  const k = len > 0 ? cameraPullIn(target, ideal, boxes3d) / len : 0;
+  return {
+    x: target.x + (ideal.x - target.x) * k,
+    y: target.y + (ideal.y - target.y) * k,
+    z: target.z + (ideal.z - target.z) * k,
+  };
+}
+
+// 实际使用的前瞻距离：LOOK_AHEAD_STEPS 中第一个「相机到小人各检查高度的连线都不被 sightBoxes 挡住」的值。
+// boxes3d 是相机避障用的外扩盒子，sightBoxes 是看得见的墙（不外扩）
+export function followLookAhead(player, yaw, pitch, dist, boxes3d, sightBoxes) {
+  for (const ahead of LOOK_AHEAD_STEPS) {
+    if (ahead === 0) return 0;
+    const cam = followCameraFor(lookAheadTarget(player, yaw, ahead), yaw, pitch, dist, boxes3d);
+    const seen = PLAYER_SIGHT_HEIGHTS.every(
+      (y) => !segmentBlocked(cam, { x: player.x, y, z: player.z }, sightBoxes),
+    );
+    if (seen) return ahead;
+  }
+  return 0;
 }
 
 // ---------- 遮挡判断 ----------
@@ -55,6 +97,18 @@ export function edgeArrow(cam, viewW, viewH, inset) {
   const ty = dy === 0 ? Infinity : halfH / Math.abs(dy);
   const t = Math.min(tx, ty);
   return { x: viewW / 2 + dx * t, y: viewH / 2 + dy * t, angle: Math.atan2(dy, dx) };
+}
+
+// 点 pt 落在矩形 rect 外扩 pad 的范围内时，沿较短的方向（向下或向左）移出去，否则原样返回。
+// 用于让右上角的边框箭头避开小地图：右边框上的箭头向下移、上边框上的向左移，仍留在边框上
+export function avoidRect(pt, rect, pad) {
+  if (!rect) return { x: pt.x, y: pt.y };
+  const inside =
+    pt.x > rect.left - pad && pt.x < rect.right + pad && pt.y > rect.top - pad && pt.y < rect.bottom + pad;
+  if (!inside) return { x: pt.x, y: pt.y };
+  const down = rect.bottom + pad - pt.y;
+  const left = pt.x - (rect.left - pad);
+  return down <= left ? { x: pt.x, y: rect.bottom + pad } : { x: rect.left - pad, y: pt.y };
 }
 
 // 各采样点 {inView, occluded} → 'hidden'（有点看得见）| 'marker'（画面内的点全被挡）| 'edge'（都不在画面内）
