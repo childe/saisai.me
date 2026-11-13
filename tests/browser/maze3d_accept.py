@@ -49,7 +49,7 @@ WASD = {"up": "w", "down": "s", "left": "a", "right": "d"}
 PW = None  # main() 中赋值，供需要设备描述的检查使用
 BASELINE_ROOT = None  # --baseline-root：改动前代码的副本，供对比检查使用
 SHOTS = Path(
-    "/Users/jialiu/Projects/saisai.me/.xdev/20261113-102305-maze-3d-ground-fog/screenshots"
+    "/Users/jialiu/Projects/saisai.me/.xdev/20261113-141153-maze-3d-polish/screenshots"
 )  # --shots 覆盖
 DIRS = {"up": (-1, 0), "down": (1, 0), "left": (0, -1), "right": (0, 1)}
 
@@ -311,13 +311,16 @@ def record_frames(page, expr, ms, during=None):
 
 
 def play_continuous(page, seconds=8):
-    """按住 w，交替按住 / 松开 ArrowRight 各 1 秒；胜利就点「再来一局」并重新按下 w。"""
+    """按住 w，交替按住 / 松开 ArrowRight 各 1 秒；胜利就点「再来一局」并重新按下 w。
+    返回点击「再来一局」的次数。"""
     page.keyboard.down("w")
     t0 = time.time()
     turning = False
+    wins = 0
     try:
         while time.time() - t0 < seconds:
             if m3(page, "state") == "won":
+                wins += 1
                 page.click("#again-btn")
                 wait_idle(page)
                 page.keyboard.up("w")
@@ -331,6 +334,7 @@ def play_continuous(page, seconds=8):
     finally:
         page.keyboard.up("ArrowRight")
         page.keyboard.up("w")
+    return wins
 
 
 def pos_of(page):
@@ -437,7 +441,7 @@ def check_12(browser, base):
 
 
 def check_6(browser, base):
-    """沿最短路走到终点出现恭喜提示；「再来一局」后回到起点格中心、朝南、换新 seed。"""
+    """沿最短路走到终点出现恭喜提示；「再来一局」后回到起点格中心、朝迷宫中心、换新 seed。"""
     page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
     try:
         wait_idle(page)
@@ -470,7 +474,7 @@ def check_6(browser, base):
             and gen2 == gen + 1
             and cell == {"row": 0, "col": 0}
             and off < 1e-6
-            and abs(yaw - math.pi) < 1e-9
+            and abs(yaw - 3 * math.pi / 4) < 1e-9
             and seed_after != seed_before
             and seed_after == seed_m
         )
@@ -686,7 +690,7 @@ FLOOR_WANT_JS = """
   const hex = (c) => '#' + c.toString(16).padStart(6, '0');
   const want = { floor: hex(t.floorBase), fog: hex(t.fogFloor),
     fogEdge: hex(T.mixHex(t.floorBase, t.fogFloor, 0.5)),
-    start: '#4caf50', end: '#e53935', path: '#ff6b6b' };
+    start: '#4caf50', end: '#e53935', path: '#ffd740' };
   const wantKind = (cell, onPath) => L.floorKind(cell, M.size, {
     inView: !M.fog.on || L.isInFogView(M.display, cell, arg),
     onPath,
@@ -803,7 +807,7 @@ PATH_STATE_JS = """(() => {
   let bad = 0;
   for (let row = 0; row < M.size; row++)
     for (let col = 0; col < M.size; col++) {
-      const red = M.floorColorHex(row, col) === '#ff6b6b';
+      const red = M.floorColorHex(row, col) === '#ffd740';
       if (red !== on.has(row * M.size + col)) bad++;
     }
   return { len: path.length, bad };
@@ -816,7 +820,7 @@ PATH_STATE_JS = """(() => {
   let bad = 0;
   for (let row = 0; row < M.size; row++)
     for (let col = 0; col < M.size; col++) {
-      const red = M.floorColorHex(row, col) === '#ff6b6b';
+      const red = M.floorColorHex(row, col) === '#ffd740';
       if (red !== on.has(row * M.size + col)) bad++;
     }
   return { len: path.length, bad };
@@ -852,7 +856,7 @@ def check_5(browser, base):
               let red = 0;
               for (let row = 0; row < M.size; row++)
                 for (let col = 0; col < M.size; col++)
-                  if (M.floorColorHex(row, col) === '#ff6b6b') red++;
+                  if (M.floorColorHex(row, col) === '#ffd740') red++;
               const endCell = { row: M.size - 1, col: M.size - 1 };
               return {
                 red,
@@ -1074,30 +1078,45 @@ def check_8(browser, base):
         close(page)
 
 
-def perf_round(browser, base, mobile, init_script=None, driver=play_continuous):
-    """base 可以指向基线服务器；init_script 用来预设主题。"""
+def perf_round(
+    browser,
+    base,
+    mobile,
+    init_script=None,
+    driver=play_continuous,
+    prepare=None,
+    debug=False,
+):
+    """base 可以指向基线服务器；init_script 用来预设主题。debug=True 时 URL 带 &debug=1；
+    prepare(page) 在 wait_idle 之后、开始计时之前调用（之后再等 800ms 让相机跟随稳定）。
+    返回值里 endPos 是驱动结束时的小人位置，wins 是驱动中点「再来一局」的次数。"""
+    url = f"{base}{PAGE}?seed={S}&size=20" + ("&debug=1" if debug else "")
     if mobile:
         dev = dict(PW.devices["iPhone SE"])
         dev.pop("default_browser_type", None)
-        page, errors = open_page(
-            browser, f"{base}{PAGE}?seed={S}&size=20", init_script=init_script, **dev
-        )
+        page, errors = open_page(browser, url, init_script=init_script, **dev)
         cdp = page.context.new_cdp_session(page)
         cdp.send("Emulation.setCPUThrottlingRate", {"rate": 4})
     else:
         page, errors = open_page(
             browser,
-            f"{base}{PAGE}?seed={S}&size=20",
+            url,
             viewport={"width": 1280, "height": 800},
             init_script=init_script,
         )
     try:
         wait_idle(page, timeout=15000)
-        page.wait_for_timeout(500)
+        if prepare:
+            prepare(page)
+            page.wait_for_timeout(800)
+        else:
+            page.wait_for_timeout(500)
         page.evaluate("() => window.__maze3d.resetFrameStats()")
-        driver(page)
+        wins = driver(page)
         stats = m3(page, "frameStats()")
         return {
+            "endPos": m3(page, "playerPos"),
+            "wins": wins,
             "count": stats["count"],
             "avg": round(stats["avg"], 1),
             "p95": round(stats["p95"], 1),
@@ -1361,9 +1380,9 @@ def check_t1(browser, base):
         if b2 != builds or tc != 5 or gm != ground_maps[THEME_IDS[-1]]:
             return False, " ".join(details)
         page.click("#show-path-btn")
-        red0 = logic(page, COUNT_HEX_JS, "#ff6b6b")
+        red0 = logic(page, COUNT_HEX_JS, "#ffd740")
         click_theme(page, "garden")
-        red1 = logic(page, COUNT_HEX_JS, "#ff6b6b")
+        red1 = logic(page, COUNT_HEX_JS, "#ffd740")
         details.append(f"path red {red0}->{red1}")
         if red0 == 0 or red0 != red1:
             return False, " ".join(details)
@@ -1857,10 +1876,26 @@ def check_t5(browser, base):
 def fmt_perf(name, r):
     ms = r["textureMs"]
     ms_s = "None" if ms is None else f"{ms:.1f}"
+    ep = r.get("endPos")
+    ep_s = "None" if not ep else f"({ep['x']:.2f}, {ep['z']:.2f})"
     return (
         f"{name}: avg={r['avg']} p95={r['p95']} quality={r['quality']}"
         f" downgradeCount={r['downgradeCount']} renderer={r['renderer']!r} textureMs={ms_s}"
+        f" endPos={ep_s} wins={r.get('wins')}"
     )
+
+
+# 基线（3aa67ab）跟随视角的默认俯角与缩放：movement.js FOLLOW_PITCH.def = 40°，main.js cameraZoom = 1
+BASELINE_FOLLOW_PITCH = math.radians(40)
+BASELINE_ZOOM = 1.0
+
+
+def perf_fixed_start(page):
+    """t7 两边共用的起始条件：朝南、基线默认俯角与缩放；场景雾默认，小人留在开局格。
+    只调用基线也有的钩子（setInputForTest、setZoomForTest）。"""
+    set_test_input(page, yaw=math.pi, pitch=BASELINE_FOLLOW_PITCH)
+    set_test_input(page)
+    page.evaluate(f"() => window.__maze3d.setZoomForTest({BASELINE_ZOOM})")
 
 
 def check_t7(browser, base):
@@ -1881,7 +1916,9 @@ def check_t7(browser, base):
                 runs = [
                     (
                         "baseline",
-                        perf_round(gb, bbase, mobile=True),
+                        perf_round(
+                            gb, bbase, mobile=True, debug=True, prepare=perf_fixed_start
+                        ),
                     )
                 ]
                 if "swiftshader" in runs[0][1]["renderer"].lower():
@@ -1894,7 +1931,12 @@ def check_t7(browser, base):
                         (
                             tid,
                             perf_round(
-                                gb, base, mobile=True, init_script=theme_init(tid)
+                                gb,
+                                base,
+                                mobile=True,
+                                init_script=theme_init(tid),
+                                debug=True,
+                                prepare=perf_fixed_start,
                             ),
                         )
                     )
@@ -1911,6 +1953,13 @@ def check_t7(browser, base):
             if errs:
                 return False, detail + " | errors=" + " | ".join(errs[:3])
             bl = runs[0][1]
+            # 轨迹一致性：同样的按键序列下，各主题与基线的通关次数、结束位置应一致
+            for tid, r in runs[1:]:
+                ep, bp = r["endPos"], bl["endPos"]
+                if r["wins"] != bl["wins"] or (
+                    math.hypot(ep["x"] - bp["x"], ep["z"] - bp["z"]) > 1.5
+                ):
+                    return None, detail + " | INCONCLUSIVE: trajectory differs"
             limit = 1.3 * bl["avg"]
             high = bl["quality"] == "high" and bl["downgradeCount"] == 0
             verdicts = []
@@ -2354,10 +2403,63 @@ def point_in_box(p, box, eps=1e-4):
 
 
 CAMERA_MIN_DIST = 1.5  # 与 movement.js 一致：收近到这以下时改为抬高俯角
+LOOK_AHEAD = 1.5  # 与 effects.js 一致：跟随视角观察点在小人前方的格数
+
+
+def follow_camera_pos(target, yaw, pitch, dist):
+    """与 movement.js followCameraPos 相同的公式（Python 独立实现）。"""
+    h = math.cos(pitch) * dist
+    return {
+        "x": target["x"] - math.sin(yaw) * h,
+        "y": target["y"] + math.sin(pitch) * dist,
+        "z": target["z"] + math.cos(yaw) * h,
+    }
+
+
+def find_lookahead_wall_cell(page):
+    """从 (0,0) 按 BFS 找最近的、有内部墙且面朝墙时前瞻点不落进任何墙盒的格子，走到格心，
+    返回墙的方向名。前瞻点取格心沿墙方向 1.2–1.8 格（覆盖格心与贴墙两种站位）。"""
+    cands = logic(
+        page,
+        """(() => {
+          const out = [];
+          const seen = new Set(['0,0']);
+          const q = [{ row: 0, col: 0 }];
+          for (let i = 0; i < q.length; i++) {
+            const p = q[i];
+            for (const [name, [dr, dc]] of Object.entries(L.DIRS)) {
+              const n = { row: p.row + dr, col: p.col + dc };
+              const inside = n.row >= 0 && n.row < M.size && n.col >= 0 && n.col < M.size;
+              if (inside && !L.canMove(M.connections, p, n)) out.push({ row: p.row, col: p.col, d: name });
+              if (!L.canMove(M.connections, p, n) || seen.has(n.row + ',' + n.col)) continue;
+              seen.add(n.row + ',' + n.col);
+              q.push(n);
+            }
+          }
+          return out;
+        })()""",
+    )
+    boxes = m3(page, "wallBoxes3d")
+    for c in cands:
+        dr, dc = DIRS[c["d"]]
+        free = True
+        for i in range(13):
+            k = 1.2 + 0.05 * i
+            pt = {"x": c["col"] + 0.5 + dc * k, "y": 0.4, "z": c["row"] + 0.5 + dr * k}
+            if any(point_in_box(pt, b, eps=-0.05) for b in boxes):
+                free = False
+                break
+        if free:
+            if not walk_to(page, c["row"], c["col"]):
+                return None
+            return c["d"]
+    return None
 
 
 def low_pitch_wall_view(page, yaw, shot):
-    """俯角 15°、相机转到身后墙方向，等稳定后检查相机：线段不穿墙、不在盒内、俯角被抬高、距离可用。"""
+    """俯角 15°、转到 yaw，等稳定后检查相机：线段不穿墙、不在盒内、俯角被抬高、距离可用。
+    前提：15° 俯角、理想距离下观察点（前瞻点）到相机的连线确实被墙挡（blocked15），
+    否则「必须抬高」无从谈起，直接判 FAIL。"""
     set_test_input(page, yaw=yaw, pitch=math.radians(15))
     page.wait_for_timeout(1500)
     target = m3(page, "cameraTarget")
@@ -2366,23 +2468,32 @@ def low_pitch_wall_view(page, yaw, shot):
     dist = m3(page, "cameraDistance")
     ideal = m3(page, "cameraIdealDistance")
     cam_pitch = m3(page, "cameraPitch")
+    ideal15 = follow_camera_pos(target, yaw, math.radians(15), ideal)
+    blocked15 = any(segment_hits_box(target, ideal15, b) for b in boxes)
+    # 前瞻点落在墙盒外：否则连线从观察点出发就在盒内，「不穿墙」无从判断
+    target_free = not any(point_in_box(target, b) for b in boxes)
     hits = [b for b in boxes if segment_hits_box(target, cam, b)]
     inside_box = [b for b in boxes if point_in_box(cam, b)]
     colors = m3(page, "sampleDistinctColors()")
     canvas_image(page).save(SHOTS / shot)
     usable = dist >= 0.98 * min(ideal, CAMERA_MIN_DIST)
     lifted = cam_pitch > math.radians(15) + 1e-6
-    ok = not hits and not inside_box and usable and lifted
+    ok = blocked15 and target_free and not hits and not inside_box and usable and lifted
     detail = (
         f"distance={dist:.3f} ideal={ideal:.3f} camPitch={math.degrees(cam_pitch):.1f}"
         f" hits={len(hits)} camInside={len(inside_box)} colors={colors}"
+        f" blocked15={blocked15} targetFree={target_free}"
+        f" target=({target['x']:.3f},{target['y']:.3f},{target['z']:.3f})"
     )
     return ok, detail
 
 
 def check_f6(browser, base):
-    """跟随视角背对墙、低俯角：格心与贴墙两处，相机都抬高俯角从墙顶看过去，线段不穿墙、
-    距离不小于 CAMERA_MIN_DIST（小人不占满画面）；格心 60° 俯角本来就看得过去，不拉近。"""
+    """跟随视角低俯角：格心面朝墙（前瞻点越过墙）与面朝墙贴墙两处，相机都抬高俯角从墙顶
+    看过去，线段不穿墙、距离不小于 CAMERA_MIN_DIST（小人不占满画面）；两处都先断言 15° 时
+    观察点到相机的连线确实被墙挡、前瞻点不在墙盒内；格心 60° 俯角本来就看得过去，不拉近。
+    贴墙改为面朝墙前进：观察点移到前瞻点后，背对墙贴墙时观察点离墙约 1.83 格，15° 收近
+    距离仍 ≥ CAMERA_MIN_DIST，不需要抬高，原前提不成立。"""
     SHOTS.mkdir(parents=True, exist_ok=True)
     page, errors = open_page(
         browser,
@@ -2392,11 +2503,13 @@ def check_f6(browser, base):
     details = []
     try:
         wait_idle(page)
-        d = find_wall_cell(page)
+        d = find_lookahead_wall_cell(page)
         if d is None:
             return False, "no wall cell"
-        back = DIR_YAW[d] + math.pi
-        ok_center, msg = low_pitch_wall_view(page, back, "follow-lowpitch-wall.png")
+        face = DIR_YAW[d]
+        # 格心面朝墙：前瞻点越过墙，相机→观察点连线穿过这面墙
+        # （背对墙时观察点离墙 2.0 格，15° 连线在墙处高于墙盒顶，前提不成立）
+        ok_center, msg = low_pitch_wall_view(page, face, "follow-lowpitch-wall.png")
         details.append(f"center pitch15 wall={d}: {msg}")
         set_test_input(page, pitch=math.radians(60))
         page.wait_for_timeout(1500)
@@ -2404,12 +2517,12 @@ def check_f6(browser, base):
         ideal60 = m3(page, "cameraIdealDistance")
         ok_high = dist60 >= 0.98 * ideal60
         details.append(f"center pitch60: distance={dist60:.3f} ideal={ideal60:.3f}")
-        # 背对墙后退 1 秒，贴到墙上
+        # 面朝墙前进 1 秒，贴到墙上
         p0 = m3(page, "playerPos")
-        set_test_input(page, forward=-1, yaw=back, pitch=math.radians(15))
+        set_test_input(page, forward=1, yaw=face, pitch=math.radians(15))
         page.wait_for_timeout(1000)
         p1 = m3(page, "playerPos")
-        ok_hug, msg = low_pitch_wall_view(page, back, "follow-lowpitch-hug.png")
+        ok_hug, msg = low_pitch_wall_view(page, face, "follow-lowpitch-hug.png")
         set_test_input(page)
         moved_back = math.hypot(p1["x"] - p0["x"], p1["z"] - p0["z"])
         details.append(f"hug moved={moved_back:.3f} pitch15: {msg}")
@@ -2421,18 +2534,26 @@ def check_f6(browser, base):
 
 
 def check_f10(browser, base):
-    """打开页面的默认跟随视角（起点朝南，相机在北侧入口外）：不被不渲染的入口封口拉近。"""
+    """起点格的跟随视角不被不渲染的入口封口拉近：a. 默认开局（yaw = 3π/4，相机在西北角外）；
+    b. 原「朝南、相机在北侧入口外」前提（yaw = π）。"""
     page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
     try:
         wait_idle(page)
         page.wait_for_timeout(500)
         dist = m3(page, "cameraDistance")
         ideal = m3(page, "cameraIdealDistance")
+        ok_a = dist >= 0.98 * ideal
+        set_test_input(page, yaw=math.pi)
+        set_test_input(page)
+        page.wait_for_timeout(1500)
+        dist_s = m3(page, "cameraDistance")
+        ideal_s = m3(page, "cameraIdealDistance")
+        ok_b = dist_s >= 0.98 * ideal_s
         ok_err, msg = no_errors(errors)
-        ok = dist >= 0.98 * ideal
         return (
-            ok and ok_err,
-            f"start distance={dist:.3f} ideal={ideal:.3f} {msg}".strip(),
+            ok_a and ok_b and ok_err,
+            f"start distance={dist:.3f} ideal={ideal:.3f}"
+            f" south distance={dist_s:.3f} ideal={ideal_s:.3f} {msg}".strip(),
         )
     finally:
         close(page)
@@ -2677,7 +2798,7 @@ def sample_points(img, page, pts):
 FOG_MATCH_JS = """(() => {
   const f = M.sceneFog;
   if (!f) return { ok: false, fog: null };
-  const r = L.followFogRange(Math.max(M.cameraIdealDistance, M.cameraDistance), M.size);
+  const r = L.followFogRange(Math.max(M.cameraIdealDistance, M.cameraDistance), M.size, M.lookAhead);
   return {
     ok: Math.abs(f.near - r.near) < 1e-6 && Math.abs(f.far - r.far) < 1e-6,
     fog: f,
@@ -2807,13 +2928,13 @@ def check_g3(browser, base):
 
 
 # 在页面里执行 action（'fog' 点开迷雾 / 'zoom' 一次拉到最近），随后逐帧记录
-# 场景雾 near 与实际相机距离；返回违反「near ≥ 实际距离 + size×√2」的帧
+# 场景雾 near 与实际相机距离；返回违反「near ≥ 实际距离 + size×√2 + 前瞻量」的帧
 FOG_TRANSITION_JS = """async (action) => {
   const M = window.__maze3d;
   const out = [];
   const rec = (tag) => {
     const f = M.sceneFog;
-    const need = M.cameraDistance + M.size * Math.SQRT2;
+    const need = M.cameraDistance + M.size * Math.SQRT2 + M.lookAhead;
     out.push({ tag, near: f ? f.near : null, dist: M.cameraDistance, need });
   };
   if (action === 'fog') document.getElementById('fog-btn').click();
@@ -2862,11 +2983,12 @@ def check_g3b(browser, base):
     return True, " ".join(details)
 
 
-def ground_fog_far_max(size, zoom_max=1.5):
-    """与 game-logic.js groundFogFarMax 相同的公式（Python 独立实现）。"""
+def ground_fog_far_max(size, zoom_max=1.5, look_ahead=LOOK_AHEAD):
+    """与 game-logic.js groundFogFarMax 相同的公式（Python 独立实现）；跟随项含前瞻量
+    look_ahead（前瞻观察点最多离开小人这么多格）。"""
     h = 3 + 0.8 * 10
     d = 2 + 0.6 * 10
-    follow = math.hypot(h, d) * zoom_max + size * math.sqrt(2) + 25
+    follow = math.hypot(h, d) * zoom_max + size * math.sqrt(2) + look_ahead + 25
     return max(follow, max(25.5, size * 1.5))
 
 
@@ -3135,6 +3257,937 @@ def check_g8(browser, base):
     return all_ok, " | ".join(details)
 
 
+# ---------------------------------------------------------------- polish（画面打磨）
+
+MAZE_FRACTION_JS = """() => {
+  const c = document.querySelector('#stage > canvas:not(#minimap)');
+  const w = c.clientWidth;
+  const h = c.clientHeight;
+  let hit = 0;
+  for (let i = 0; i < 16; i++) {
+    for (let j = 0; j < 16; j++) {
+      const x = w * (0.2 + (0.6 * (i + 0.5)) / 16);
+      const y = h * (0.2 + (0.6 * (j + 0.5)) / 16);
+      if (window.__maze3d.screenHitsScene(x, y)) hit += 1;
+    }
+  }
+  return hit / 256;
+}"""
+
+
+def maze_fraction(page):
+    """canvas 中心 60% 区域 16×16 网格点里落在迷宫物体上的比例。"""
+    return page.evaluate(MAZE_FRACTION_JS)
+
+
+def p1_round(browser, base):
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 1280, "height": 800},
+        init_script=preset_storage("1", "5"),
+    )
+    try:
+        wait_idle(page)
+        page.wait_for_timeout(600)
+        return {
+            "view": m3(page, "view"),
+            "yaw": m3(page, "yaw"),
+            "startYaw": page.evaluate("() => window.__maze3d.startYaw"),
+            "frac": maze_fraction(page),
+            "errors": errors,
+        }
+    finally:
+        close(page)
+
+
+def check_p1(browser, base):
+    """开局跟随视角朝迷宫中心：yaw = startYaw = 3π/4，画面中心 60% 区域至少一半是迷宫。"""
+    r = p1_round(browser, base)
+    want = 3 * math.pi / 4
+    ok = (
+        r["view"] == "follow"
+        and abs(r["yaw"] - want) < 1e-9
+        and r["startYaw"] is not None
+        and abs(r["startYaw"] - want) < 1e-9
+        and r["frac"] >= 0.5
+    )
+    ok_err, msg = no_errors(r["errors"])
+    detail = (
+        f"view={r['view']} yaw={r['yaw']:.4f} startYaw={r['startYaw']}"
+        f" frac={r['frac']:.0%}"
+    )
+    if BASELINE_ROOT:
+        proc, bbase = start_server(BASELINE_ROOT)
+        try:
+            b = p1_round(browser, bbase)
+        finally:
+            proc.terminate()
+            proc.wait()
+        detail += f" baseline frac={b['frac']:.0%} (baseline yaw={b['yaw']:.4f})"
+    return ok and ok_err, (detail + " " + msg).strip()
+
+
+RECORD_SHADOW_JS = """(ms) => {
+  window.__rec = { values: [], done: false };
+  const t0 = performance.now();
+  const tick = () => {
+    const M = window.__maze3d;
+    window.__rec.values.push({ s: M.shadow, p: M.playerPos });
+    if (performance.now() - t0 < ms) requestAnimationFrame(tick);
+    else window.__rec.done = true;
+  };
+  requestAnimationFrame(tick);
+}"""
+
+
+def check_p2(browser, base):
+    """小人脚下阴影：走动中每帧位置跟随小人（误差 ≤ 0.01）且可见；第一人称隐藏，切回显示；
+    阴影纹理不计入主题纹理数。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 1280, "height": 800},
+        init_script=preset_storage("0", "5"),
+    )
+    details = []
+    try:
+        wait_idle(page)
+        d = open_dir(page)
+        dr, dc = DIRS[d]
+        page.evaluate(RECORD_SHADOW_JS, 3000)
+        ok_walk = walk_to(page, dr, dc)
+        page.wait_for_function("() => window.__rec.done", timeout=15000)
+        rec = page.evaluate("() => window.__rec.values")
+        errs = [
+            math.hypot(r["s"]["x"] - r["p"]["x"], r["s"]["z"] - r["p"]["z"])
+            for r in rec
+        ]
+        worst = max(errs) if errs else float("inf")
+        all_vis = all(r["s"]["visible"] for r in rec)
+        p_first = rec[0]["p"] if rec else None
+        p_last = rec[-1]["p"] if rec else None
+        travelled = (
+            math.hypot(p_last["x"] - p_first["x"], p_last["z"] - p_first["z"])
+            if rec
+            else 0
+        )
+        details.append(
+            f"dir={d} walk={ok_walk} frames={len(rec)} worst={worst:.4f}"
+            f" visible={all_vis} travelled={travelled:.2f}"
+        )
+        page.click("#view-btn")
+        page.wait_for_timeout(200)
+        vis_first = m3(page, "shadow")["visible"]
+        page.click("#view-btn")
+        page.wait_for_timeout(200)
+        vis_back = m3(page, "shadow")["visible"]
+        tex = m3(page, "textureCount")
+        details.append(f"first={vis_first} back={vis_back} textureCount={tex}")
+        ok_err, msg = no_errors(errors)
+        ok = (
+            ok_walk
+            and len(rec) > 10
+            and travelled > 0.5
+            and worst <= 0.01
+            and all_vis
+            and vis_first is False
+            and vis_back is True
+            and tex == 5
+        )
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_p3(browser, base):
+    """墙脚暗边：实例数等于 wallFootStrips 的条数；每条暗边与所属墙段同显同隐（迷雾开时有隐有显，
+    关雾后全部显示）；暗边纹理不计入主题纹理数。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 1280, "height": 800},
+        init_script=preset_storage("1", "1"),
+    )
+    details = []
+    try:
+        wait_idle(page)
+        count = m3(page, "footStripCount")
+        want = page.evaluate(
+            "async () => { const E = await import('/maze-3d/effects.js');"
+            " return E.wallFootStrips(window.__maze3d.segments).length; }"
+        )
+        st = page.evaluate("() => window.__maze3d.footStripsVisible()")
+        wv = page.evaluate("() => window.__maze3d.wallsVisible()")
+        match = all(x["visible"] == wv[x["seg"]] for x in st)
+        n_vis = sum(1 for x in st if x["visible"])
+        n_hid = len(st) - n_vis
+        details.append(
+            f"count={count} want={want} fogOn: match={match} visible={n_vis} hidden={n_hid}"
+        )
+        page.click("#fog-btn")
+        page.wait_for_function("() => !window.__maze3d.fog.on")
+        st2 = page.evaluate("() => window.__maze3d.footStripsVisible()")
+        all_vis = all(x["visible"] for x in st2)
+        tex = m3(page, "textureCount")
+        details.append(f"fogOff: allVisible={all_vis} textureCount={tex}")
+        ok_err, msg = no_errors(errors)
+        ok = (
+            count == want
+            and len(st) == count
+            and match
+            and n_vis > 0
+            and n_hid > 0
+            and all_vis
+            and tex == 5
+        )
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+BEAM_RADIUS = 0.35  # 与 effects.js 一致
+# 光柱区域亮度差至少比基线（没有光柱）高这么多。实测（SwiftShader，garden，格 (6, 2)）：
+# diff≈22.0，diff_base≈−0.1；取 10，留出主题与渲染差异的余量
+BEAM_LUMA_MARGIN = 10
+
+
+def project_css(cam, p, cw, ch):
+    """用 cameraState 的 view（列主序）、fov、aspect 把世界点 p 投影成相对 canvas 左上角的
+    CSS 像素 (x, y)；在近裁剪面以内或相机背后返回 None。"""
+    v = to_camera(cam["view"], p)
+    depth = -v[2]
+    if depth <= cam["near"]:
+        return None
+    f = 1 / math.tan(math.radians(cam["fov"] / 2))
+    nx = (f / cam["aspect"]) * v[0] / depth
+    ny = f * v[1] / depth
+    return ((nx + 1) / 2 * cw, (1 - ny) / 2 * ch)
+
+
+def region_luma(img, ratio, x0, y0, x1, y1):
+    """CSS 像素矩形 [x0, x1] × [y0, y1] 内的平均亮度。"""
+    px = img.load()
+    w, h = img.size
+    xa, xb = max(0, int(x0 * ratio)), min(w - 1, int(math.ceil(x1 * ratio)))
+    ya, yb = max(0, int(y0 * ratio)), min(h - 1, int(math.ceil(y1 * ratio)))
+    total = 0.0
+    n = 0
+    for y in range(ya, yb + 1):
+        for x in range(xa, xb + 1):
+            r, g, b = px[x, y]
+            total += 0.299 * r + 0.587 * g + 0.114 * b
+            n += 1
+    return total / n if n else float("nan")
+
+
+def end_yaw_from(row, col, size=10):
+    """从格 (row, col) 中心指向终点格中心的 yaw。"""
+    dx = (size - 0.5) - (col + 0.5)
+    dz = (size - 0.5) - (row + 0.5)
+    return math.atan2(dx, -dz)
+
+
+def beam_view_setup(page, row, col):
+    """小人传送到 (row, col)，跟随视角 15° 俯角朝终点，暂停光柱动画（基线没有该钩子就跳过），
+    等相机静止；返回 (cameraState, canvas CSS 宽, 高)。"""
+    page.evaluate(f"() => window.__maze3d.teleportForTest({row}, {col})")
+    set_test_input(page, yaw=end_yaw_from(row, col), pitch=math.radians(15))
+    set_test_input(page)
+    page.evaluate(
+        "() => { const M = window.__maze3d;"
+        " if (typeof M.setBeamForTest === 'function') M.setBeamForTest({ paused: true }); }"
+    )
+    wait_camera_still(page)
+    cam = m3(page, "cameraState")
+    cw, ch = page.evaluate(
+        "() => { const c = document.querySelector('#stage > canvas:not(#minimap)');"
+        " return [c.clientWidth, c.clientHeight]; }"
+    )
+    return cam, cw, ch
+
+
+def beam_rect(cam, cw, ch):
+    """终点格中心上方 1.5–3 的光柱段投影成的 CSS 矩形 (x0, y0, x1, y1)，半宽取
+    max(3, 光柱半径在该深度的投影像素)；在相机背后返回 None。"""
+    top = project_css(cam, (9.5, 3.0, 9.5), cw, ch)
+    bot = project_css(cam, (9.5, 1.5, 9.5), cw, ch)
+    if top is None or bot is None:
+        return None
+    mid = to_camera(cam["view"], (9.5, 2.25, 9.5))
+    f = 1 / math.tan(math.radians(cam["fov"] / 2))
+    half = max(3.0, BEAM_RADIUS * f / (-mid[2]) * ch / 2)
+    cx = (top[0] + bot[0]) / 2
+    return (cx - half, min(top[1], bot[1]), cx + half, max(top[1], bot[1]))
+
+
+def find_beam_cell(page, cell=None):
+    """cell 为 None 时在距终点 Chebyshev 2–8 的格里由远到近找第一个「跟随视角 15° 朝终点时，
+    光柱 1.5–3 段及左右对照区都在画面内」的格（按投影计算，不依赖提示逻辑）；返回
+    (格, 光柱矩形, canvas CSS 宽)，找不到返回 (None, None, None)。页面停在该格的朝终点状态。"""
+    if cell is None:
+        cands = sorted(
+            (
+                (r, c)
+                for r in range(10)
+                for c in range(10)
+                if 2 <= max(9 - r, 9 - c) <= 8
+            ),
+            key=lambda rc: -math.hypot(9 - rc[0], 9 - rc[1]),
+        )
+    else:
+        cands = [tuple(cell)]
+    for rc in cands:
+        cam, cw, ch = beam_view_setup(page, *rc)
+        rect = beam_rect(cam, cw, ch)
+        if rect is None:
+            continue
+        w = rect[2] - rect[0]
+        inside = (
+            rect[0] - 2 * w >= 0
+            and rect[2] + 2 * w <= cw
+            and rect[1] >= 0
+            and rect[3] <= ch
+        )
+        if inside or cell is not None:
+            return rc, rect, cw
+    return None, None, None
+
+
+def beam_view_round(browser, base, cell=None, shot=None):
+    """p4a 的场景：迷雾开、视野 1（终点在迷雾外），跟随视角 15° 俯角朝终点。cell 为 None 时
+    在距终点 Chebyshev 2–8 的格里由远到近找第一个「光柱 1.5–3 段及左右对照区都在画面内」的格
+    （从起点看过去俯角会被 liftPitch 抬高，光柱出画）。返回光柱投影区域与左右相邻同尺寸区域的
+    亮度差、所用的格与提示状态。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 1280, "height": 800},
+        init_script=preset_storage("1", "1"),
+    )
+    try:
+        wait_idle(page)
+        chosen, rect, cw = find_beam_cell(page, cell)
+        if chosen is None:
+            return {"ok": False, "why": "no cell with beam in view", "errors": errors}
+        img = canvas_image(page)
+        if shot:
+            img.save(SHOTS / shot)
+        ratio = img.size[0] / cw
+        x0, y0, x1, y1 = rect
+        w = x1 - x0
+        lum = region_luma(img, ratio, x0, y0, x1, y1)
+        left = region_luma(img, ratio, x0 - 2 * w, y0, x1 - 2 * w, y1)
+        right = region_luma(img, ratio, x0 + 2 * w, y0, x1 + 2 * w, y1)
+        return {
+            "ok": True,
+            "cell": chosen,
+            "diff": lum - max(left, right),
+            "lum": lum,
+            "left": left,
+            "right": right,
+            "rect": rect,
+            "beamEnabled": page.evaluate("() => window.__maze3d.beamEnabled"),
+            "endHint": page.evaluate("() => window.__maze3d.endHint"),
+            "errors": errors,
+        }
+    finally:
+        close(page)
+
+
+def check_p4a(browser, base):
+    """光柱在视锥内：迷雾开、终点在迷雾外，跟随视角朝终点；beamEnabled 为真，截图里光柱投影
+    区域比左右相邻同尺寸区域亮，且亮度差比改动前（没有光柱）至少高 BEAM_LUMA_MARGIN。"""
+    SHOTS.mkdir(parents=True, exist_ok=True)
+    r = beam_view_round(browser, base, shot="polish-beam-view.png")
+    if not r["ok"]:
+        return False, r["why"]
+    detail = (
+        f"cell={r['cell']} beamEnabled={r['beamEnabled']} diff={r['diff']:.1f} lum={r['lum']:.1f}"
+        f" left={r['left']:.1f} right={r['right']:.1f}"
+        f" rect=({', '.join(f'{v:.0f}' for v in r['rect'])})"
+    )
+    hint = r["endHint"] or {}
+    detail += f" endHint.mode={hint.get('mode')}"
+    ok = r["beamEnabled"] is True and hint.get("mode") == "hidden"
+    if BASELINE_ROOT:
+        proc, bbase = start_server(BASELINE_ROOT)
+        try:
+            b = beam_view_round(browser, bbase, cell=r["cell"])
+        finally:
+            proc.terminate()
+            proc.wait()
+        if not b["ok"]:
+            return False, detail + f" baseline: {b['why']}"
+        detail += f" diff_base={b['diff']:.1f} margin={BEAM_LUMA_MARGIN}"
+        ok = ok and r["diff"] >= b["diff"] + BEAM_LUMA_MARGIN
+    else:
+        ok = False
+        detail += " (needs --baseline-root)"
+    ok_err, msg = no_errors(r["errors"])
+    return ok and ok_err, (detail + " " + msg).strip()
+
+
+HINT_INSET = 28  # 与 effects.js 一致
+
+
+def end_hint(page):
+    return m3(page, "endHint")
+
+
+def hint_dom(page):
+    """两个提示元素的可见性、距离文字与 pointer-events。"""
+    return page.evaluate(
+        "() => { const out = {};"
+        " for (const id of ['end-arrow', 'end-marker']) {"
+        "  const el = document.getElementById(id);"
+        "  const cs = getComputedStyle(el);"
+        "  const kids = [...el.querySelectorAll('*')].map((k) => getComputedStyle(k).pointerEvents);"
+        "  out[id] = { visible: !el.hidden && cs.display !== 'none', text: el.querySelector('.end-dist').textContent,"
+        "   pe: cs.pointerEvents, kidsPe: kids }; }"
+        " const st = document.getElementById('stage');"
+        " out.W = st.clientWidth; out.H = st.clientHeight; return out; }"
+    )
+
+
+def hint_page(browser, base, on, radius):
+    """1280×800、size=10、指定迷雾设置打开页面并等到 idle；返回 (page, errors)。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 1280, "height": 800},
+        init_script=preset_storage(on, radius),
+    )
+    wait_idle(page)
+    return page, errors
+
+
+def wait_frames(page, n=2):
+    page.evaluate(
+        "(n) => new Promise((res) => { const f = (k) => k <= 0 ? res() :"
+        " requestAnimationFrame(() => f(k - 1)); f(n); })",
+        n,
+    )
+
+
+def back_to_end_state(page, row=0, col=0):
+    """跟随视角，小人在 (row, col)，终点在右后方（yaw = yaw_e − (π − 0.8)）。等 300ms 后再等
+    帧推进、相机静止（页面刚加载时头几百毫秒可能还没出新帧，读到的是旧状态）。"""
+    page.evaluate(f"() => window.__maze3d.teleportForTest({row}, {col})")
+    face_yaw(page, end_yaw_from(row, col) - (math.pi - 0.8))
+    page.wait_for_timeout(300)
+    wait_frames(page, 5)
+    wait_camera_still(page)
+    wait_frames(page)
+
+
+def check_p4b(browser, base):
+    """光柱在视锥外：跟随视角背对终点（终点在右后方）时，画面右侧边框出现箭头与「13 格」，
+    标记不出现，光柱仍开着。"""
+    page, errors = hint_page(browser, base, "1", "1")
+    try:
+        back_to_end_state(page)
+        h = end_hint(page)
+        dom = hint_dom(page)
+        W = dom["W"]
+        dist = round(math.hypot(9, 9))
+        beam = m3(page, "beamEnabled")
+        ok = (
+            beam is True
+            and h["mode"] == "edge"
+            and h["x"] > W / 2
+            and math.cos(h["angle"]) > 0
+            and dom["end-arrow"]["visible"]
+            and not dom["end-marker"]["visible"]
+            and dom["end-arrow"]["text"] == f"{h['distance']} 格"
+            and h["distance"] == dist == 13
+        )
+        detail = (
+            f"beamEnabled={beam} endHint={h} W={W} arrow={dom['end-arrow']['visible']}"
+            f" marker={dom['end-marker']['visible']} text={dom['end-arrow']['text']!r} want={dist}"
+        )
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (detail + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def p5_hidden(browser, base):
+    """a. 背对终点为 edge；转向终点使光柱可见后为 hidden，两个提示元素都不可见。
+    起点格默认 40° 俯角朝终点时光柱整根在画面上沿之外（edge 是正确结果），所以先按 p4a 的
+    投影规则找一个「15° 朝终点时光柱在画面内」的格作为前提。"""
+    page, errors = hint_page(browser, base, "1", "1")
+    try:
+        cell, _, _ = find_beam_cell(page)
+        if cell is None:
+            return False, "a:no cell with beam in view", errors
+        back_to_end_state(page, *cell)
+        h0 = end_hint(page)
+        set_test_input(page, yaw=end_yaw_from(*cell), pitch=math.radians(15))
+        set_test_input(page)
+        wait_frames(page, 5)
+        wait_camera_still(page)
+        wait_frames(page)
+        m1 = end_hint(page)["mode"]
+        dom = hint_dom(page)
+        ok = (
+            h0["mode"] == "edge"
+            and math.cos(h0["angle"]) > 0
+            and m1 == "hidden"
+            and not dom["end-arrow"]["visible"]
+            and not dom["end-marker"]["visible"]
+        )
+        return (
+            ok,
+            f"a:cell={cell} {h0['mode']}(angle={h0['angle']:.2f})->{m1}"
+            f" arrow={dom['end-arrow']['visible']} marker={dom['end-marker']['visible']}",
+            errors,
+        )
+    finally:
+        close(page)
+
+
+def p5_marker(browser, base):
+    """b. 迷雾关、第一人称、pitch 0：由远到近找第一个终点被墙挡住但在画面内的格（marker），
+    标记位置在内缩边框内，标记可见、箭头不可见。"""
+    page, errors = hint_page(browser, base, "0", "5")
+    try:
+        page.click("#view-btn")
+        cells = sorted(
+            (
+                (r, c)
+                for r in range(10)
+                for c in range(10)
+                if math.hypot(9 - r, 9 - c) >= 5
+            ),
+            key=lambda rc: -math.hypot(9 - rc[0], 9 - rc[1]),
+        )
+        found = None
+        tried = 0
+        for r, c in cells:
+            tried += 1
+            page.evaluate(f"() => window.__maze3d.teleportForTest({r}, {c})")
+            set_test_input(page, yaw=end_yaw_from(r, c), pitch=0)
+            set_test_input(page)
+            wait_frames(page)
+            h = end_hint(page)
+            if h["mode"] == "marker":
+                found = ((r, c), h)
+                break
+        if not found:
+            return False, f"b:no marker cell (tried {tried})", errors
+        (cell, h) = found
+        dom = hint_dom(page)
+        W, H, I = dom["W"], dom["H"], HINT_INSET
+        ok = (
+            I <= h["x"] <= W - I
+            and I <= h["y"] <= H - I
+            and dom["end-marker"]["visible"]
+            and not dom["end-arrow"]["visible"]
+        )
+        return (
+            ok,
+            f"b:cell={cell} tried={tried} endHint={h} W={W} H={H}"
+            f" marker={dom['end-marker']['visible']} arrow={dom['end-arrow']['visible']}",
+            errors,
+        )
+    finally:
+        close(page)
+
+
+def player_sight(page):
+    """相机到小人身体中心、观察点高度的连线是否被看得见的墙挡住（与 effects.js 同一判定）。"""
+    return page.evaluate(
+        "async () => {"
+        " const E = await import('/maze-3d/effects.js');"
+        " const V = await import('/maze-3d/movement.js');"
+        " const M = window.__maze3d;"
+        " const vis = M.wallsVisible();"
+        " const segs = M.segments.filter((_, i) => vis[i]);"
+        " const boxes = V.wallBoxes3d(V.segmentBoxes(segs), V.WALL_HEIGHT, 0);"
+        " const cam = M.cameraPos; const p = M.playerPos;"
+        " const blocked = E.PLAYER_SIGHT_HEIGHTS.map((y) =>"
+        "  E.segmentBlocked(cam, { x: p.x, y, z: p.z }, boxes));"
+        " return { blocked, cam, ahead: M.lookAheadNow, max: M.lookAhead }; }"
+    )
+
+
+def check_p1b(browser, base):
+    """评审 r1：前瞻不能让墙挡住小人。seed 12345、10×10、视野 1、(0,1)、yaw 225°、pitch 15°、
+    缩放 0.7 时前瞻缩短、相机看得见小人；开局默认视角仍是完整前瞻。"""
+    page, errors = hint_page(browser, base, "1", "1")
+    try:
+        wait_camera_still(page)
+        start = player_sight(page)
+        page.evaluate("() => window.__maze3d.teleportForTest(0, 1)")
+        page.evaluate("() => window.__maze3d.setZoomForTest(0.7)")
+        set_test_input(page, yaw=math.radians(225), pitch=math.radians(15))
+        set_test_input(page)
+        page.wait_for_timeout(300)
+        wait_frames(page, 5)
+        wait_camera_still(page)
+        wait_frames(page)
+        r = player_sight(page)
+        ok = (
+            start["ahead"] == start["max"]
+            and not any(start["blocked"])
+            and r["ahead"] < r["max"]
+            and not any(r["blocked"])
+        )
+        cam = r["cam"]
+        detail = (
+            f"start: ahead={start['ahead']} blocked={start['blocked']}"
+            f" | (0,1) yaw225 pitch15 zoom0.7: ahead={r['ahead']} blocked={r['blocked']}"
+            f" cam=({cam['x']:.3f},{cam['y']:.3f},{cam['z']:.3f})"
+        )
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (detail + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_p5m(browser, base):
+    """评审 r1：第一人称时终点箭头不能落在右上角小地图上。起点格第一人称扫一圈 yaw × pitch，
+    每个 edge 状态下箭头元素与小地图的矩形不相交；且至少有一次箭头是被移开的（原位置在小地图上）。"""
+    page, errors = hint_page(browser, base, "0", "5")
+    try:
+        page.click("#view-btn")
+        bad = []
+        moved = 0
+        edges = 0
+        for yd in range(0, 360, 15):
+            for pd in (30, 0, -30):
+                set_test_input(page, yaw=math.radians(yd), pitch=math.radians(pd))
+                wait_frames(page, 3)
+                r = page.evaluate(
+                    "() => { const M = window.__maze3d; const h = M.endHint;"
+                    " const st = document.getElementById('stage').getBoundingClientRect();"
+                    " const mm = document.getElementById('minimap');"
+                    " const a = document.getElementById('end-arrow').getBoundingClientRect();"
+                    " const m = mm.getBoundingClientRect();"
+                    " const hit = !(a.right <= m.left || a.left >= m.right || a.bottom <= m.top || a.top >= m.bottom);"
+                    " return { h, hit, mini: !mm.hidden,"
+                    "  rect: { left: m.left - st.left, top: m.top - st.top, right: m.right - st.left, bottom: m.bottom - st.top } }; }"
+                )
+                h = r["h"]
+                if h["mode"] != "edge":
+                    continue
+                edges += 1
+                if r["hit"]:
+                    bad.append((yd, pd, round(h["x"]), round(h["y"])))
+                rc = r["rect"]
+                if (
+                    abs(h["y"] - (rc["bottom"] + HINT_INSET)) < 0.5
+                    or abs(h["x"] - (rc["left"] - HINT_INSET)) < 0.5
+                ):
+                    moved += 1
+        set_test_input(page)
+        mini = page.is_visible("#minimap")
+        ok = mini and edges > 0 and moved > 0 and not bad
+        detail = f"minimap={mini} edges={edges} moved={moved} overlaps={bad[:5]}"
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (detail + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def pixels_changed(a, b, thresh=20):
+    import numpy as np
+
+    x = np.asarray(a, dtype=np.int32)
+    y = np.asarray(b, dtype=np.int32)
+    d = np.sqrt(((x - y) ** 2).sum(axis=2))
+    return int((d >= thresh).sum())
+
+
+def p5_consistency(browser, base):
+    """c. 跟随视角、迷雾关、15° 俯角、缩放 0.7：对距终点 Chebyshev 2–4 的格（最多 12 个）朝终点，
+    比较光柱开 / 关两张截图；「看得见光柱」（≥ 30 像素 RGB 距离 ≥ 20）必须与 mode == 'hidden' 一致。"""
+    page, errors = hint_page(browser, base, "0", "5")
+    try:
+        page.evaluate("() => window.__maze3d.setZoomForTest(0.7)")
+        cells = sorted(
+            (
+                (r, c)
+                for r in range(10)
+                for c in range(10)
+                if 2 <= max(9 - r, 9 - c) <= 4
+            ),
+            key=lambda rc: (-max(9 - rc[0], 9 - rc[1]), rc),
+        )[:12]
+        ok = True
+        rows = []
+        counts = {"hidden": 0, "marker": 0, "edge": 0}
+        for r, c in cells:
+            page.evaluate(f"() => window.__maze3d.teleportForTest({r}, {c})")
+            set_test_input(page, yaw=end_yaw_from(r, c), pitch=math.radians(15))
+            set_test_input(page)
+            wait_camera_still(page)
+            page.evaluate("() => window.__maze3d.setBeamForTest({ paused: true })")
+            wait_frames(page)
+            mode = end_hint(page)["mode"]
+            a = canvas_image(page)
+            page.evaluate("() => window.__maze3d.setBeamForTest({ visible: false })")
+            wait_frames(page)
+            b = canvas_image(page)
+            page.evaluate(
+                "() => window.__maze3d.setBeamForTest({ visible: true, paused: false })"
+            )
+            n = pixels_changed(a, b)
+            seen = n >= 30
+            counts[mode] = counts.get(mode, 0) + 1
+            good = (mode == "hidden") == seen
+            ok = ok and good
+            rows.append(f"({r},{c}):{mode}/{n}{'' if good else '!'}")
+        return ok, f"c:{counts} " + " ".join(rows), errors
+    finally:
+        close(page)
+
+
+def p5_cross_plane(browser, base):
+    """d. 第一人称在起点原地拖动转三圈多：每帧箭头坐标与角度都有限，yaw 总变化 ≥ 2π。"""
+    page, errors = hint_page(browser, base, "1", "1")
+    try:
+        page.click("#view-btn")
+        page.evaluate("() => window.__maze3d.teleportForTest(0, 0)")
+        box = stage_box(page)
+        cx, cy = box["x"] + box["width"] / 2 - 225, box["y"] + box["height"] / 2
+        y0 = m3(page, "yaw")
+
+        def drag():
+            for _ in range(3):
+                page.mouse.move(cx, cy)
+                page.mouse.down()
+                page.mouse.move(cx + 450, cy, steps=30)
+                page.mouse.up()
+                page.mouse.move(cx, cy)
+
+        vals = record_frames(page, "endHint", 6000, during=drag)
+        y1 = m3(page, "yaw")
+        bad = [
+            v
+            for v in vals
+            if not all(
+                isinstance(v.get(k), (int, float)) and math.isfinite(v[k])
+                for k in ("x", "y", "angle")
+            )
+        ]
+        modes = sorted({v["mode"] for v in vals})
+        ok = len(vals) > 0 and not bad and abs(y1 - y0) >= 2 * math.pi
+        return (
+            ok,
+            f"d:frames={len(vals)} bad={len(bad)} dyaw={y1 - y0:.2f} modes={modes}",
+            errors,
+        )
+    finally:
+        close(page)
+
+
+def p5_pointer(browser, base):
+    """e. 在箭头位置按下拖动 100px 仍能转视角；两个提示元素 pointer-events 都是 none。"""
+    page, errors = hint_page(browser, base, "1", "1")
+    try:
+        back_to_end_state(page)
+        h = end_hint(page)
+        box = stage_box(page)
+        px, py = box["x"] + h["x"], box["y"] + h["y"]
+        y0 = m3(page, "yaw")
+        page.mouse.move(px, py)
+        page.mouse.down()
+        page.mouse.move(px - 100, py, steps=10)
+        page.mouse.up()
+        page.wait_for_timeout(100)
+        y1 = m3(page, "yaw")
+        dom = hint_dom(page)
+        pes = [dom[k]["pe"] for k in ("end-arrow", "end-marker")] + [
+            x for k in ("end-arrow", "end-marker") for x in dom[k]["kidsPe"]
+        ]
+        ok = (
+            h["mode"] == "edge"
+            and abs(y1 - y0) >= 0.4
+            and all(p == "none" for p in pes)
+        )
+        return (
+            ok,
+            f"e:mode={h['mode']} at=({px:.0f},{py:.0f}) dyaw={y1 - y0:.2f} pointerEvents={pes}",
+            errors,
+        )
+    finally:
+        close(page)
+
+
+def check_p5(browser, base):
+    """终点方向提示的各状态：a 转向终点后隐藏；b 被墙挡住时出标记；c 提示与截图里光柱
+    是否看得见一致；d 第一人称原地转圈时箭头坐标始终有限；e 提示不挡指针。"""
+    ok = True
+    details = []
+    errs = []
+    for fn in (p5_hidden, p5_marker, p5_consistency, p5_cross_plane, p5_pointer):
+        try:
+            good, d, e = fn(browser, base)
+        except Exception as exc:
+            good, d, e = False, f"{fn.__name__}: {type(exc).__name__}: {exc}", []
+        ok = ok and good
+        details.append(("" if good else "FAIL ") + d)
+        errs += e
+    ok_err, msg = no_errors(errs)
+    return ok and ok_err, (" | ".join(details) + " " + msg).strip()
+
+
+WON_WATCH_JS = """() => {
+  window.__wonWatch = { values: [], done: false, t0: null };
+  const w = window.__wonWatch;
+  const tick = () => {
+    const M = window.__maze3d;
+    if (M.state === 'won') {
+      if (w.t0 === null) w.t0 = performance.now();
+      w.values.push(M.confettiActive);
+      if (performance.now() - w.t0 >= 600) { w.done = true; return; }
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}"""
+
+CONFETTI_CLEAR_JS = """() => {
+  const c = document.getElementById('confetti');
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  for (let i = 3; i < d.length; i += 4) if (d[i] !== 0) return false;
+  return true;
+}"""
+
+
+def check_p6(browser, base):
+    """通关彩带：判胜时启动、约 3 秒内自己停；播放中途点「再来一局」立即停、画布清空、按钮
+    可点；系统开启「减少动态效果」时不播放。"""
+    details = []
+    ok = True
+    errs = []
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    try:
+        wait_idle(page)
+        # 1. 判胜启动，3.5 秒内停
+        if not walk_to_exit(page):
+            return False, "1:did not win"
+        active = m3(page, "confettiActive")
+        t0 = time.time()
+        stopped = True
+        try:
+            page.wait_for_function(
+                "() => !window.__maze3d.confettiActive", timeout=3500
+            )
+        except Exception:
+            stopped = False
+        took = time.time() - t0
+        clear1 = page.evaluate(CONFETTI_CLEAR_JS)
+        good = active is True and stopped and took <= 3.5 and clear1
+        ok = ok and good
+        details.append(
+            f"1:active={active} stopped={stopped} took={took:.2f}s clear={clear1}"
+        )
+
+        # 2. 播放中途点「再来一局」
+        page.click("#again-btn")
+        wait_idle(page)
+        if not walk_to_exit(page):
+            return False, " ".join(details) + " 2:did not win"
+        t_win = time.time()
+        hit = page.evaluate(
+            "() => { const b = document.getElementById('again-btn').getBoundingClientRect();"
+            " const el = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);"
+            " return !!el && (el.id === 'again-btn' || !!el.closest('#again-btn')); }"
+        )
+        active2 = m3(page, "confettiActive")
+        within = time.time() - t_win
+        page.click("#again-btn")
+        after = page.evaluate(
+            "() => ({ active: window.__maze3d.confettiActive,"
+            " winHidden: document.getElementById('win').hidden })"
+        )
+        clear2 = page.evaluate(CONFETTI_CLEAR_JS)
+        good = (
+            hit
+            and active2 is True
+            and after["active"] is False
+            and after["winHidden"]
+            and clear2
+        )
+        ok = ok and good
+        details.append(
+            f"2:hit={hit} activeBefore={active2} readAt+{within * 1000 + 200:.0f}ms"
+            f" after={after} clear={clear2}"
+        )
+        errs += errors
+    finally:
+        close(page)
+
+    # 3. 减少动态效果时不播放
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        reduced_motion="reduce",
+    )
+    try:
+        wait_idle(page)
+        page.evaluate(WON_WATCH_JS)
+        won = walk_to_exit(page)
+        page.wait_for_function("() => window.__wonWatch.done", timeout=5000)
+        frames = page.evaluate("() => window.__wonWatch.values")
+        samples = []
+        for _ in range(4):
+            samples.append(m3(page, "confettiActive"))
+            page.wait_for_timeout(100)
+        good = won and len(frames) > 0 and not any(frames) and not any(samples)
+        ok = ok and good
+        details.append(
+            f"3:reduce won={won} frames={len(frames)} anyActive={any(frames) or any(samples)}"
+        )
+        errs += errors
+    finally:
+        close(page)
+    ok_err, msg = no_errors(errs)
+    return ok and ok_err, (" ".join(details) + " " + msg).strip()
+
+
+def check_p8(browser, base):
+    """每个主题存两张验收截图：开局（polish-{主题}-start.png）与背对终点出边缘箭头
+    （polish-{主题}-arrow.png）；8 个文件都存在且非空才 PASS。"""
+    SHOTS.mkdir(parents=True, exist_ok=True)
+    details = []
+    ok = True
+    errs = []
+    for tid in THEME_IDS:
+        page, errors = open_page(
+            browser,
+            f"{base}{PAGE}?seed={S}&size=10&debug=1",
+            viewport={"width": 1280, "height": 800},
+            init_script=theme_init(tid),
+        )
+        try:
+            wait_idle(page)
+            page.wait_for_timeout(600)
+            start = SHOTS / f"polish-{tid}-start.png"
+            canvas_image(page).save(start)
+            back_to_end_state(page)
+            mode = end_hint(page)["mode"]
+            arrow = SHOTS / f"polish-{tid}-arrow.png"
+            page.locator("#stage").screenshot(path=str(arrow))
+            good = (
+                mode == "edge"
+                and start.exists()
+                and start.stat().st_size > 0
+                and arrow.exists()
+                and arrow.stat().st_size > 0
+            )
+            ok = ok and good
+            details.append(f"{tid}:mode={mode} saved={good}")
+            errs += errors
+        finally:
+            close(page)
+    ok_err, msg = no_errors(errs)
+    return ok and ok_err, (" ".join(details) + f" dir={SHOTS} " + msg).strip()
+
+
 CHECKS = {
     "1": check_1,
     "10": check_10,
@@ -3177,6 +4230,16 @@ CHECKS = {
     "g3b": check_g3b,
     "g7": check_g7,
     "g8": check_g8,
+    "p1": check_p1,
+    "p1b": check_p1b,
+    "p2": check_p2,
+    "p3": check_p3,
+    "p4a": check_p4a,
+    "p4b": check_p4b,
+    "p5": check_p5,
+    "p5m": check_p5m,
+    "p6": check_p6,
+    "p8": check_p8,
 }
 
 
@@ -3245,8 +4308,8 @@ def main():
             + (f" --baseline-root {BASELINE_ROOT}" if BASELINE_ROOT else ""),
             f"自动检查：{'PASS' if all_ok else 'FAIL'}",
             f"基线代码：{BASELINE_ROOT}（merge-base）",
-            f"人工检查：待用户查看 {SHOTS} 下四个主题的跟随 / 第一人称 / 面墙截图与 horizon-*.png，"
-            "确认迷宫外有主题地面、地平线无色带、视野外格子不是纯黑",
+            f"人工检查：待用户查看 {SHOTS} 下 polish-*-start.png（开局迷宫占画面主体、阴影、暗边、光柱）"
+            "与 polish-*-arrow.png（边缘箭头与距离）",
             "",
         ]
         RESULTS.write_text("\n".join(header + lines) + "\n", encoding="utf-8")

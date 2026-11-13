@@ -170,6 +170,58 @@
             display: none;
         }
 
+        /* 终点方向提示：箭头在内缩边框上，标记在终点被墙挡住的位置；都不挡指针 */
+        #end-arrow,
+        #end-marker {
+            position: absolute;
+            left: 0;
+            top: 0;
+            z-index: 3; /* 高于小地图（2） */
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+        }
+
+        #end-arrow *,
+        #end-marker * {
+            pointer-events: none;
+        }
+
+        #end-arrow[hidden],
+        #end-marker[hidden] {
+            display: none;
+        }
+
+        .end-arrow-head {
+            width: 0;
+            height: 0;
+            border-top: 11px solid transparent;
+            border-bottom: 11px solid transparent;
+            border-left: 20px solid #ffd54f;
+            filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6));
+        }
+
+        .end-dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #ffd54f;
+            border: 2px solid #e53935;
+            box-shadow: 0 0 6px rgba(255, 213, 79, 0.9);
+        }
+
+        .end-dist {
+            font-size: 13px;
+            font-weight: bold;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.55);
+            border-radius: 8px;
+            padding: 1px 6px;
+            white-space: nowrap;
+        }
+
         #stick-knob {
             position: absolute;
             left: 50%;
@@ -206,6 +258,16 @@
             .hint-desktop {
                 display: none;
             }
+        }
+
+        /* 通关彩带：覆盖整个画面，在 #win（z-index 10）之下，不挡指针 */
+        #confetti {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 9;
         }
 
         #win {
@@ -332,6 +394,8 @@
 
         <div id="stage">
             <canvas id="minimap" hidden></canvas>
+            <span id="end-arrow" hidden><span class="end-arrow-head"></span><span class="end-dist"></span></span>
+            <span id="end-marker" hidden><span class="end-dot"></span><span class="end-dist"></span></span>
             <div id="stick" hidden><div id="stick-knob"></div></div>
         </div>
 
@@ -346,6 +410,7 @@
         <div id="perf" hidden></div>
     </div>
 
+    <canvas id="confetti"></canvas>
     <div id="win" hidden>
         <div class="win-box">
             <p id="win-text">恭喜！你成功走出了迷宫！</p>

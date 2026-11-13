@@ -165,7 +165,7 @@ test('ground and fogFloor colors', () => {
   for (const id of THEME_IDS) {
     const t = THEMES[id];
     assert.ok(isColor(t.ground) && isColor(t.fogFloor), id);
-    for (const c of [t.floorBase, 0x4caf50, 0xe53935, 0xff6b6b]) {
+    for (const c of [t.floorBase, 0x4caf50, 0xe53935, 0xffd740]) {
       assert.ok(dist(t.fogFloor, c) >= 60, `${id} fogFloor vs ${c.toString(16)}: ${dist(t.fogFloor, c)}`);
     }
     // 地面主色与天空渐变线段、迷宫地板都要分得开（g1 天空占比检查依赖它）
@@ -199,5 +199,24 @@ test('paintGround deterministic and differs per theme', () => {
   for (const id of THEME_IDS) {
     const hex = '#' + THEMES[id].ground.toString(16).padStart(6, '0');
     assert.ok(runs[id].includes(JSON.stringify(hex)), `${id} base fill`);
+  }
+});
+
+test('3D path color is distinguishable from floor kinds and the player', () => {
+  const src = readFileSync(join(here, '..', 'maze-3d', 'main.js'), 'utf8');
+  const block = src.match(/const COLORS = \{([\s\S]*?)\};/)[1];
+  const C = Object.fromEntries(
+    [...block.matchAll(/(\w+):\s*0x([0-9a-f]{6})/gi)].map(([, k, h]) => [k, parseInt(h, 16)]),
+  );
+  assert.equal(C.path, 0xffd740);
+  for (const id of THEME_IDS) {
+    const t = THEMES[id];
+    const refs = {
+      end: C.end, start: C.start, floor: t.floorBase, fog: t.fogFloor,
+      fogEdge: mixHex(t.floorBase, t.fogFloor, 0.5), player: C.player,
+    };
+    for (const [k, c] of Object.entries(refs)) {
+      assert.ok(dist(C.path, c) >= 60, `${id} path vs ${k}: ${dist(C.path, c)}`);
+    }
   }
 });

@@ -142,16 +142,18 @@ export function floorKind(cell, size, { inView, onPath, edge = false }) {
 }
 
 // ---------- 外围地面与距离雾 ----------
-// 跟随视角距离雾：整个迷宫都在 near 以内，再过 25 个单位完全变成雾色
-export function followFogRange(idealDistance, size) {
-  const near = idealDistance + size * Math.SQRT2;
+// 跟随视角距离雾：整个迷宫都在 near 以内，再过 25 个单位完全变成雾色。
+// lookAhead：前瞻观察点最多离开小人 lookAhead 格，迷宫最远点到相机的距离相应多出这么多
+export function followFogRange(idealDistance, size, lookAhead = 0) {
+  const near = idealDistance + size * Math.SQRT2 + lookAhead;
   return { near, far: near + 25 };
 }
 
-// 所有视角下雾终点的上界（跟随视角取最大缩放与最大视野偏移；第一人称迷雾关时为 size × 1.5）
-export function groundFogFarMax(size, zoomMax) {
+// 所有视角下雾终点的上界（跟随视角取最大缩放与最大视野偏移；第一人称迷雾关时为 size × 1.5）。
+// lookAhead：前瞻观察点最多离开小人 lookAhead 格，跟随项相应加上
+export function groundFogFarMax(size, zoomMax, lookAhead = 0) {
   const o = followOffset(10);
-  const follow = Math.hypot(o.h, o.d) * zoomMax + size * Math.SQRT2 + 25;
+  const follow = Math.hypot(o.h, o.d) * zoomMax + size * Math.SQRT2 + lookAhead + 25;
   return Math.max(follow, Math.max(25.5, size * 1.5));
 }
 
