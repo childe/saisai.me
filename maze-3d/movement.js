@@ -197,6 +197,28 @@ export function followCameraPos(target, yaw, pitch, dist) {
   };
 }
 
+// 直线 o + t·d 与轴对齐盒子的 slab 求交：返回 [tEnter, tExit]，无交返回 null。
+// o、d 为 [x, y, z]；box 为 {minX,maxX,minY,maxY,minZ,maxZ}
+export function slabInterval(o, d, box) {
+  const lo = [box.minX, box.minY, box.minZ];
+  const hi = [box.maxX, box.maxY, box.maxZ];
+  let tEnter = -Infinity;
+  let tExit = Infinity;
+  for (let k = 0; k < 3; k++) {
+    if (Math.abs(d[k]) < 1e-12) {
+      if (o[k] < lo[k] || o[k] > hi[k]) return null;
+      continue;
+    }
+    let t1 = (lo[k] - o[k]) / d[k];
+    let t2 = (hi[k] - o[k]) / d[k];
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    if (t1 > tEnter) tEnter = t1;
+    if (t2 < tExit) tExit = t2;
+  }
+  if (tEnter > tExit) return null;
+  return [tEnter, tExit];
+}
+
 // 线段 target → cameraPos 与盒子 slab 求交，返回不被遮挡的距离；target 所在的盒子忽略
 export function cameraPullIn(target, cameraPos, boxes3d) {
   const dx = cameraPos.x - target.x;
@@ -208,26 +230,9 @@ export function cameraPullIn(target, cameraPos, boxes3d) {
   const d = [dx, dy, dz];
   let best = 1;
   for (const b of boxes3d) {
-    const lo = [b.minX, b.minY, b.minZ];
-    const hi = [b.maxX, b.maxY, b.maxZ];
-    let tEnter = -Infinity;
-    let tExit = Infinity;
-    let miss = false;
-    for (let k = 0; k < 3; k++) {
-      if (Math.abs(d[k]) < 1e-12) {
-        if (o[k] < lo[k] || o[k] > hi[k]) {
-          miss = true;
-          break;
-        }
-        continue;
-      }
-      let t1 = (lo[k] - o[k]) / d[k];
-      let t2 = (hi[k] - o[k]) / d[k];
-      if (t1 > t2) [t1, t2] = [t2, t1];
-      if (t1 > tEnter) tEnter = t1;
-      if (t2 < tExit) tExit = t2;
-    }
-    if (miss || tEnter > tExit) continue;
+    const hit = slabInterval(o, d, b);
+    if (!hit) continue;
+    const tEnter = hit[0];
     if (tEnter <= 0) continue; // 观察点在盒子内或盒子在观察点背后
     if (tEnter <= 1 && tEnter < best) best = tEnter;
   }
