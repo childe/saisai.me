@@ -9,8 +9,10 @@ import {
   endHintMode,
   HINT_INSET,
   BEAM_SAMPLE_HEIGHTS,
+  SHADOW_RADIUS,
+  shadowLook,
 } from '../maze-3d/effects.js';
-import { slabInterval, wallBoxes3d, segmentBoxes, WALL_HEIGHT } from '../maze-3d/movement.js';
+import { slabInterval, wallBoxes3d, segmentBoxes, WALL_HEIGHT, PLAYER_RADIUS } from '../maze-3d/movement.js';
 
 // ---------- Task 1: 开局朝向 ----------
 test('startYaw points from start cell to maze center', () => {
@@ -95,4 +97,14 @@ test('endHintMode', () => {
   assert.equal(endHintMode([{ inView: true, occluded: true }, { inView: true, occluded: false }]), 'hidden');
   assert.equal(endHintMode([{ inView: true, occluded: true }, { inView: false, occluded: false }]), 'marker');
   assert.equal(endHintMode([{ inView: false, occluded: false }, { inView: false, occluded: true }]), 'edge');
+});
+
+// ---------- Task 4: 阴影 ----------
+test('shadowLook shrinks and fades with lift', () => {
+  assert.deepEqual(shadowLook(0), { scale: 1, opacity: 1 });
+  const a = shadowLook(0.02), b = shadowLook(0.05);
+  assert.ok(b.scale < a.scale && a.scale < 1 && b.opacity < a.opacity && a.opacity < 1);
+  assert.deepEqual(shadowLook(1), shadowLook(0.1));
+  assert.deepEqual(shadowLook(-1), shadowLook(0));
+  assert.ok(Math.abs(SHADOW_RADIUS - 1.2 * PLAYER_RADIUS) < 1e-12);
 });

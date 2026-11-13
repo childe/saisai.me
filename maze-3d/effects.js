@@ -1,6 +1,6 @@
 // 3D 迷宫的画面效果：开局朝向、遮挡判断、终点方向提示、阴影 / 暗边 / 光柱 / 彩带的数据步进。
 // 纯逻辑，不依赖 three.js 和 DOM，可以直接用 node --test 测试。角度与坐标约定见 movement.js。
-import { slabInterval } from './movement.js';
+import { slabInterval, PLAYER_RADIUS } from './movement.js';
 
 // ---------- 开局朝向 ----------
 // 从起点格中心 (0.5, 0.5) 指向迷宫中心 (size/2, size/2) 的 yaw
@@ -62,4 +62,13 @@ export function endHintMode(samples) {
   if (samples.some((s) => s.inView && !s.occluded)) return 'hidden';
   if (samples.some((s) => s.inView)) return 'marker';
   return 'edge';
+}
+
+// ---------- 小人脚下的圆形软阴影 ----------
+export const SHADOW_RADIUS = 1.2 * PLAYER_RADIUS;
+
+// 小人离地 lift（世界单位，钳到 [0, 0.1]）时阴影的缩放与材质不透明度倍率：跳得越高越小越淡
+export function shadowLook(lift) {
+  const l = Math.min(0.1, Math.max(0, lift));
+  return { scale: 1 - 3 * l, opacity: 1 - 5 * l };
 }

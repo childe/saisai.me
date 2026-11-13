@@ -3279,6 +3279,78 @@ def check_p1(browser, base):
     return ok and ok_err, (detail + " " + msg).strip()
 
 
+RECORD_SHADOW_JS = """(ms) => {
+  window.__rec = { values: [], done: false };
+  const t0 = performance.now();
+  const tick = () => {
+    const M = window.__maze3d;
+    window.__rec.values.push({ s: M.shadow, p: M.playerPos });
+    if (performance.now() - t0 < ms) requestAnimationFrame(tick);
+    else window.__rec.done = true;
+  };
+  requestAnimationFrame(tick);
+}"""
+
+
+def check_p2(browser, base):
+    """小人脚下阴影：走动中每帧位置跟随小人（误差 ≤ 0.01）且可见；第一人称隐藏，切回显示；
+    阴影纹理不计入主题纹理数。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 1280, "height": 800},
+        init_script=preset_storage("0", "5"),
+    )
+    details = []
+    try:
+        wait_idle(page)
+        d = open_dir(page)
+        dr, dc = DIRS[d]
+        page.evaluate(RECORD_SHADOW_JS, 3000)
+        ok_walk = walk_to(page, dr, dc)
+        page.wait_for_function("() => window.__rec.done", timeout=15000)
+        rec = page.evaluate("() => window.__rec.values")
+        errs = [
+            math.hypot(r["s"]["x"] - r["p"]["x"], r["s"]["z"] - r["p"]["z"])
+            for r in rec
+        ]
+        worst = max(errs) if errs else float("inf")
+        all_vis = all(r["s"]["visible"] for r in rec)
+        p_first = rec[0]["p"] if rec else None
+        p_last = rec[-1]["p"] if rec else None
+        travelled = (
+            math.hypot(p_last["x"] - p_first["x"], p_last["z"] - p_first["z"])
+            if rec
+            else 0
+        )
+        details.append(
+            f"dir={d} walk={ok_walk} frames={len(rec)} worst={worst:.4f}"
+            f" visible={all_vis} travelled={travelled:.2f}"
+        )
+        page.click("#view-btn")
+        page.wait_for_timeout(200)
+        vis_first = m3(page, "shadow")["visible"]
+        page.click("#view-btn")
+        page.wait_for_timeout(200)
+        vis_back = m3(page, "shadow")["visible"]
+        tex = m3(page, "textureCount")
+        details.append(f"first={vis_first} back={vis_back} textureCount={tex}")
+        ok_err, msg = no_errors(errors)
+        ok = (
+            ok_walk
+            and len(rec) > 10
+            and travelled > 0.5
+            and worst <= 0.01
+            and all_vis
+            and vis_first is False
+            and vis_back is True
+            and tex == 5
+        )
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
 CHECKS = {
     "1": check_1,
     "10": check_10,
@@ -3322,6 +3394,7 @@ CHECKS = {
     "g7": check_g7,
     "g8": check_g8,
     "p1": check_p1,
+    "p2": check_p2,
 }
 
 

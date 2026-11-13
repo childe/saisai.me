@@ -60,7 +60,7 @@ import {
   applyKeyEvent,
   createPointerRouter,
 } from './movement.js';
-import { startYaw, LOOK_AHEAD, lookAheadTarget } from './effects.js';
+import { startYaw, LOOK_AHEAD, lookAheadTarget, SHADOW_RADIUS, shadowLook } from './effects.js';
 
 const EYE_HEIGHT = 0.45;
 const STICK_RADIUS = 50; // 虚拟摇杆底座半径，CSS 像素
@@ -210,6 +210,34 @@ function start() {
 
   const { player, bodyGroup } = buildPlayer();
   scene.add(player);
+
+  // 画面效果用的纹理：启动时各建一次，不随主题重建，不计入 liveTextures
+  const radialTex = makeRadialTexture();
+
+  // 小人脚下的圆形软阴影：直接挂在 scene 下（不继承模型缩放与起伏），每帧跟随小人
+  const shadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(2 * SHADOW_RADIUS, 2 * SHADOW_RADIUS),
+    new THREE.MeshBasicMaterial({ map: radialTex, color: 0x000000, transparent: true, depthWrite: false }),
+  );
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.set(0.5, 0.005, 0.5);
+  shadow.renderOrder = 1;
+  scene.add(shadow);
+
+  // 64×64 白色径向渐变：中心 alpha 0.35、边缘 0；阴影与终点粒子共用
+  function makeRadialTexture() {
+    const n = 64;
+    const canvas = document.createElement('canvas');
+    canvas.width = n;
+    canvas.height = n;
+    const ctx = canvas.getContext('2d');
+    const grad = ctx.createRadialGradient(n / 2, n / 2, 0, n / 2, n / 2, n / 2);
+    grad.addColorStop(0, 'rgba(255,255,255,0.35)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, n, n);
+    return new THREE.CanvasTexture(canvas);
+  }
   const star = buildStar();
   scene.add(star);
 
@@ -567,6 +595,7 @@ function start() {
     $('view-btn').textContent = first ? '切换到跟随视角' : '切换到第一人称';
     $('minimap').hidden = !first;
     player.visible = !first;
+    shadow.visible = !first;
     updateSceneFog();
     snapCamera();
     if (first) drawMinimap();
@@ -807,6 +836,15 @@ function start() {
       walkPhase = 0;
       bodyGroup.position.y = 0;
     }
+    updateShadow();
+  }
+
+  function updateShadow() {
+    shadow.position.x = playerState.x;
+    shadow.position.z = playerState.z;
+    const look = shadowLook(bodyGroup.position.y * playerModelScale());
+    shadow.scale.set(look.scale, look.scale, 1);
+    shadow.material.opacity = look.opacity;
   }
 
   document.querySelectorAll('.size-btn').forEach((btn) => {
@@ -1236,6 +1274,15 @@ function start() {
     },
     get playerVisible() {
       return player.visible;
+    },
+    get shadow() {
+      return {
+        x: shadow.position.x,
+        z: shadow.position.z,
+        visible: shadow.visible,
+        scale: shadow.scale.x,
+        opacity: shadow.material.opacity,
+      };
     },
     get segments() {
       return segments;
