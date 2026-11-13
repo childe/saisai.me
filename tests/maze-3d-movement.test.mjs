@@ -203,3 +203,99 @@ test('createBoxGrid.near covers every box touching a circle there', () => {
     for (const b of boxes) if (closestDist(p, b) < PLAYER_RADIUS) assert.ok(near.has(b), `${p.x},${p.z}`);
   }
 });
+
+// ---------- Task 2: 相机几何 ----------
+import {
+  TARGET_HEIGHT,
+  CAMERA_MARGIN,
+  FOLLOW_PITCH,
+  FIRST_PITCH,
+  ZOOM_MIN,
+  ZOOM_MAX,
+  wallBoxes3d,
+  followCameraPos,
+  cameraPullIn,
+  smoothCameraDistance,
+} from '../maze-3d/movement.js';
+
+const wall3 = wallBoxes3d([{ minX: -5, maxX: 5, minZ: 0.95, maxZ: 1.05 }]); // 位于 target 南面 1 处
+const T = { x: 0, y: TARGET_HEIGHT, z: 0 };
+const near = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
+const deg = (d) => (d * Math.PI) / 180;
+
+test('camera constants', () => {
+  assert.equal(TARGET_HEIGHT, 0.4);
+  assert.equal(CAMERA_MARGIN, 0.12);
+  assert.ok(near(FOLLOW_PITCH.min, deg(15)) && near(FOLLOW_PITCH.max, deg(75)) && near(FOLLOW_PITCH.def, deg(40)));
+  assert.ok(near(FIRST_PITCH.min, deg(-30)) && near(FIRST_PITCH.max, deg(30)) && FIRST_PITCH.def === 0);
+  assert.equal(ZOOM_MIN, 0.7);
+  assert.equal(ZOOM_MAX, 1.5);
+});
+
+test('cameraPullIn: low segment through wall is pulled to the wall', () => {
+  const cam = followCameraPos(T, 0, FOLLOW_PITCH.min, 5);
+  const d = cameraPullIn(T, cam, wall3);
+  const zHit = 0.95 - CAMERA_MARGIN;
+  assert.ok(d < 5 && Math.abs(d * Math.cos(FOLLOW_PITCH.min) - zHit) < 1e-6, `d=${d}`);
+});
+
+test('cameraPullIn: no walls returns full length', () => {
+  const cam = followCameraPos(T, 0, FOLLOW_PITCH.min, 5);
+  assert.ok(near(cameraPullIn(T, cam, []), 5));
+});
+
+test('cameraPullIn: segment above wall top is not pulled', () => {
+  const pitch = deg(75);
+  assert.ok(0.4 + Math.tan(pitch) * 0.83 > 0.8 + CAMERA_MARGIN);
+  const cam = followCameraPos(T, 0, pitch, 5);
+  assert.ok(near(cameraPullIn(T, cam, wall3), 5));
+});
+
+test('cameraPullIn ignores a box containing the target', () => {
+  const around = { minX: -0.3, maxX: 0.3, minY: 0, maxY: 1, minZ: -0.3, maxZ: 0.3 };
+  const cam = followCameraPos(T, 0, FOLLOW_PITCH.min, 5);
+  const want = (0.95 - CAMERA_MARGIN) / Math.cos(FOLLOW_PITCH.min);
+  assert.ok(near(cameraPullIn(T, cam, [around, ...wall3]), want));
+  assert.ok(near(cameraPullIn(T, cam, [around]), 5));
+});
+
+test('cameraPullIn never NaN', () => {
+  assert.equal(cameraPullIn(T, { ...T }, wall3), 0);
+  const inside = { x: 0, y: 0.4, z: 1 };
+  for (const [a, b] of [
+    [T, inside],
+    [inside, T],
+    [inside, { x: 0, y: 0.4, z: 1.0000001 }],
+    [T, { x: 0, y: 0.4, z: 1e-12 }],
+  ]) {
+    const d = cameraPullIn(a, b, wall3);
+    assert.ok(Number.isFinite(d) && d >= 0, `d=${d}`);
+  }
+});
+
+test('wallBoxes3d expands by margin', () => {
+  const [b] = wallBoxes3d([{ minX: 1, maxX: 2, minZ: 3, maxZ: 4 }]);
+  assert.ok(near(b.minY, -0.12) && near(b.maxY, 0.92));
+  assert.ok(near(b.minX, 0.88) && near(b.maxX, 2.12) && near(b.minZ, 2.88) && near(b.maxZ, 4.12));
+});
+
+test('followCameraPos: yaw 0 puts camera south and above', () => {
+  const t = { x: 2, y: 0.4, z: 3 };
+  const c = followCameraPos(t, 0, deg(40), 4);
+  assert.ok(c.z > t.z && c.y > t.y && near(c.x, t.x));
+  assert.ok(near(Math.hypot(c.x - t.x, c.y - t.y, c.z - t.z), 4));
+});
+
+test('smoothCameraDistance: always <= dSafe, snaps in, eases out', () => {
+  const safes = [8, 8, 3, 3, 3, 8, 8, 8, 8, 8];
+  let d = 8;
+  const seq = [];
+  for (const s of safes) {
+    d = smoothCameraDistance(d, 8, s, 0.2);
+    seq.push(d);
+  }
+  seq.forEach((v, i) => assert.ok(v <= safes[i] + 1e-12));
+  assert.equal(seq[2], 3);
+  assert.ok(seq[5] > 3 && seq[5] < 8);
+  for (let i = 6; i < seq.length; i++) assert.ok(seq[i] >= seq[i - 1]);
+});

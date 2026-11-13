@@ -159,3 +159,77 @@ export function stepPlayer(state, input, yaw, dt, grid) {
   }
   return { x: pos.x, z: pos.z, vx: (pos.x - state.x) / dt, vz: (pos.z - state.z) / dt };
 }
+
+// ---------- 相机几何 ----------
+export const TARGET_HEIGHT = 0.4; // 相机 lookAt 的观察点高度
+export const CAMERA_MARGIN = 0.12; // 避障包围盒外扩量（大于近裁剪面 + 其半宽）
+const DEG = Math.PI / 180;
+export const FOLLOW_PITCH = { min: 15 * DEG, max: 75 * DEG, def: 40 * DEG };
+export const FIRST_PITCH = { min: -30 * DEG, max: 30 * DEG, def: 0 };
+export const ZOOM_MIN = 0.7;
+export const ZOOM_MAX = 1.5;
+
+// 二维墙矩形 → 外扩后的三维包围盒
+export function wallBoxes3d(boxes, height = WALL_HEIGHT, margin = CAMERA_MARGIN) {
+  return boxes.map((b) => ({
+    minX: b.minX - margin,
+    maxX: b.maxX + margin,
+    minY: -margin,
+    maxY: height + margin,
+    minZ: b.minZ - margin,
+    maxZ: b.maxZ + margin,
+  }));
+}
+
+// 跟随视角的理想相机位置：在观察点「后方」（与 yaw 前方相反）、上方
+export function followCameraPos(target, yaw, pitch, dist) {
+  const h = Math.cos(pitch) * dist;
+  return {
+    x: target.x - Math.sin(yaw) * h,
+    y: target.y + Math.sin(pitch) * dist,
+    z: target.z + Math.cos(yaw) * h,
+  };
+}
+
+// 线段 target → cameraPos 与盒子 slab 求交，返回不被遮挡的距离；target 所在的盒子忽略
+export function cameraPullIn(target, cameraPos, boxes3d) {
+  const dx = cameraPos.x - target.x;
+  const dy = cameraPos.y - target.y;
+  const dz = cameraPos.z - target.z;
+  const len = Math.hypot(dx, dy, dz);
+  if (!(len > 0)) return 0;
+  const o = [target.x, target.y, target.z];
+  const d = [dx, dy, dz];
+  let best = 1;
+  for (const b of boxes3d) {
+    const lo = [b.minX, b.minY, b.minZ];
+    const hi = [b.maxX, b.maxY, b.maxZ];
+    let tEnter = -Infinity;
+    let tExit = Infinity;
+    let miss = false;
+    for (let k = 0; k < 3; k++) {
+      if (Math.abs(d[k]) < 1e-12) {
+        if (o[k] < lo[k] || o[k] > hi[k]) {
+          miss = true;
+          break;
+        }
+        continue;
+      }
+      let t1 = (lo[k] - o[k]) / d[k];
+      let t2 = (hi[k] - o[k]) / d[k];
+      if (t1 > t2) [t1, t2] = [t2, t1];
+      if (t1 > tEnter) tEnter = t1;
+      if (t2 < tExit) tExit = t2;
+    }
+    if (miss || tEnter > tExit) continue;
+    if (tEnter <= 0) continue; // 观察点在盒子内或盒子在观察点背后
+    if (tEnter <= 1 && tEnter < best) best = tEnter;
+  }
+  return best * len;
+}
+
+// 实际距离：比安全距离远就立即收近；否则按 k 插值恢复，且不超过安全距离
+export function smoothCameraDistance(dCur, dWant, dSafe, k) {
+  if (dCur > dSafe) return dSafe;
+  return Math.min(dCur + (dWant - dCur) * k, dSafe);
+}
