@@ -128,12 +128,37 @@ export function wallInView(seg, center, radius) {
   return seg.cells.some(([row, col]) => isInFogView(center, { row, col }, radius));
 }
 
-export function floorKind(cell, size, { inView, onPath }) {
+// 迷雾过渡圈：与中心的 Chebyshev 距离恰好为视野半径 + 1
+export function fogRing(center, cell, radius) {
+  return Math.max(Math.abs(center.row - cell.row), Math.abs(center.col - cell.col)) === radius + 1;
+}
+
+export function floorKind(cell, size, { inView, onPath, edge = false }) {
   if (onPath) return 'path';
-  if (!inView) return 'fog';
+  if (!inView) return edge ? 'fogEdge' : 'fog';
   if (cell.row === 0 && cell.col === 0) return 'start';
   if (cell.row === size - 1 && cell.col === size - 1) return 'end';
   return 'floor';
+}
+
+// ---------- 外围地面与距离雾 ----------
+// 跟随视角距离雾：整个迷宫都在 near 以内，再过 25 个单位完全变成雾色
+export function followFogRange(idealDistance, size) {
+  const near = idealDistance + size * Math.SQRT2;
+  return { near, far: near + 25 };
+}
+
+// 所有视角下雾终点的上界（跟随视角取最大缩放与最大视野偏移；第一人称迷雾关时为 size × 1.5）
+export function groundFogFarMax(size, zoomMax) {
+  const o = followOffset(10);
+  const follow = Math.hypot(o.h, o.d) * zoomMax + size * Math.SQRT2 + 25;
+  return Math.max(follow, Math.max(25.5, size * 1.5));
+}
+
+// 外围地面半边长：保证视锥内任何地面边缘点的深度都不小于 fogFarMax
+export function groundHalfExtent(fogFarMax, fovDeg, aspect) {
+  const tan = Math.tan((fovDeg * Math.PI) / 360);
+  return Math.ceil(fogFarMax * Math.sqrt(1 + tan * tan * (1 + aspect * aspect))) + 2;
 }
 
 // ---------- 帧统计 ----------
