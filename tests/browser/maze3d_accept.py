@@ -49,7 +49,7 @@ WASD = {"up": "w", "down": "s", "left": "a", "right": "d"}
 PW = None  # main() 中赋值，供需要设备描述的检查使用
 BASELINE_ROOT = None  # --baseline-root：改动前代码的副本，供对比检查使用
 SHOTS = Path(
-    "/Users/jialiu/Projects/saisai.me/.xdev/20261113-102305-maze-3d-ground-fog/screenshots"
+    "/Users/jialiu/Projects/saisai.me/.xdev/20261113-141153-maze-3d-polish/screenshots"
 )  # --shots 覆盖
 DIRS = {"up": (-1, 0), "down": (1, 0), "left": (0, -1), "right": (0, 1)}
 
@@ -311,13 +311,16 @@ def record_frames(page, expr, ms, during=None):
 
 
 def play_continuous(page, seconds=8):
-    """按住 w，交替按住 / 松开 ArrowRight 各 1 秒；胜利就点「再来一局」并重新按下 w。"""
+    """按住 w，交替按住 / 松开 ArrowRight 各 1 秒；胜利就点「再来一局」并重新按下 w。
+    返回点击「再来一局」的次数。"""
     page.keyboard.down("w")
     t0 = time.time()
     turning = False
+    wins = 0
     try:
         while time.time() - t0 < seconds:
             if m3(page, "state") == "won":
+                wins += 1
                 page.click("#again-btn")
                 wait_idle(page)
                 page.keyboard.up("w")
@@ -331,6 +334,7 @@ def play_continuous(page, seconds=8):
     finally:
         page.keyboard.up("ArrowRight")
         page.keyboard.up("w")
+    return wins
 
 
 def pos_of(page):
@@ -1074,30 +1078,45 @@ def check_8(browser, base):
         close(page)
 
 
-def perf_round(browser, base, mobile, init_script=None, driver=play_continuous):
-    """base 可以指向基线服务器；init_script 用来预设主题。"""
+def perf_round(
+    browser,
+    base,
+    mobile,
+    init_script=None,
+    driver=play_continuous,
+    prepare=None,
+    debug=False,
+):
+    """base 可以指向基线服务器；init_script 用来预设主题。debug=True 时 URL 带 &debug=1；
+    prepare(page) 在 wait_idle 之后、开始计时之前调用（之后再等 800ms 让相机跟随稳定）。
+    返回值里 endPos 是驱动结束时的小人位置，wins 是驱动中点「再来一局」的次数。"""
+    url = f"{base}{PAGE}?seed={S}&size=20" + ("&debug=1" if debug else "")
     if mobile:
         dev = dict(PW.devices["iPhone SE"])
         dev.pop("default_browser_type", None)
-        page, errors = open_page(
-            browser, f"{base}{PAGE}?seed={S}&size=20", init_script=init_script, **dev
-        )
+        page, errors = open_page(browser, url, init_script=init_script, **dev)
         cdp = page.context.new_cdp_session(page)
         cdp.send("Emulation.setCPUThrottlingRate", {"rate": 4})
     else:
         page, errors = open_page(
             browser,
-            f"{base}{PAGE}?seed={S}&size=20",
+            url,
             viewport={"width": 1280, "height": 800},
             init_script=init_script,
         )
     try:
         wait_idle(page, timeout=15000)
-        page.wait_for_timeout(500)
+        if prepare:
+            prepare(page)
+            page.wait_for_timeout(800)
+        else:
+            page.wait_for_timeout(500)
         page.evaluate("() => window.__maze3d.resetFrameStats()")
-        driver(page)
+        wins = driver(page)
         stats = m3(page, "frameStats()")
         return {
+            "endPos": m3(page, "playerPos"),
+            "wins": wins,
             "count": stats["count"],
             "avg": round(stats["avg"], 1),
             "p95": round(stats["p95"], 1),
@@ -1857,10 +1876,26 @@ def check_t5(browser, base):
 def fmt_perf(name, r):
     ms = r["textureMs"]
     ms_s = "None" if ms is None else f"{ms:.1f}"
+    ep = r.get("endPos")
+    ep_s = "None" if not ep else f"({ep['x']:.2f}, {ep['z']:.2f})"
     return (
         f"{name}: avg={r['avg']} p95={r['p95']} quality={r['quality']}"
         f" downgradeCount={r['downgradeCount']} renderer={r['renderer']!r} textureMs={ms_s}"
+        f" endPos={ep_s} wins={r.get('wins')}"
     )
+
+
+# 基线（3aa67ab）跟随视角的默认俯角与缩放：movement.js FOLLOW_PITCH.def = 40°，main.js cameraZoom = 1
+BASELINE_FOLLOW_PITCH = math.radians(40)
+BASELINE_ZOOM = 1.0
+
+
+def perf_fixed_start(page):
+    """t7 两边共用的起始条件：朝南、基线默认俯角与缩放；场景雾默认，小人留在开局格。
+    只调用基线也有的钩子（setInputForTest、setZoomForTest）。"""
+    set_test_input(page, yaw=math.pi, pitch=BASELINE_FOLLOW_PITCH)
+    set_test_input(page)
+    page.evaluate(f"() => window.__maze3d.setZoomForTest({BASELINE_ZOOM})")
 
 
 def check_t7(browser, base):
@@ -1881,7 +1916,9 @@ def check_t7(browser, base):
                 runs = [
                     (
                         "baseline",
-                        perf_round(gb, bbase, mobile=True),
+                        perf_round(
+                            gb, bbase, mobile=True, debug=True, prepare=perf_fixed_start
+                        ),
                     )
                 ]
                 if "swiftshader" in runs[0][1]["renderer"].lower():
@@ -1894,7 +1931,12 @@ def check_t7(browser, base):
                         (
                             tid,
                             perf_round(
-                                gb, base, mobile=True, init_script=theme_init(tid)
+                                gb,
+                                base,
+                                mobile=True,
+                                init_script=theme_init(tid),
+                                debug=True,
+                                prepare=perf_fixed_start,
                             ),
                         )
                     )
@@ -1911,6 +1953,13 @@ def check_t7(browser, base):
             if errs:
                 return False, detail + " | errors=" + " | ".join(errs[:3])
             bl = runs[0][1]
+            # 轨迹一致性：同样的按键序列下，各主题与基线的通关次数、结束位置应一致
+            for tid, r in runs[1:]:
+                ep, bp = r["endPos"], bl["endPos"]
+                if r["wins"] != bl["wins"] or (
+                    math.hypot(ep["x"] - bp["x"], ep["z"] - bp["z"]) > 1.5
+                ):
+                    return None, detail + " | INCONCLUSIVE: trajectory differs"
             limit = 1.3 * bl["avg"]
             high = bl["quality"] == "high" and bl["downgradeCount"] == 0
             verdicts = []
@@ -4004,6 +4053,45 @@ def check_p6(browser, base):
     return ok and ok_err, (" ".join(details) + " " + msg).strip()
 
 
+def check_p8(browser, base):
+    """每个主题存两张验收截图：开局（polish-{主题}-start.png）与背对终点出边缘箭头
+    （polish-{主题}-arrow.png）；8 个文件都存在且非空才 PASS。"""
+    SHOTS.mkdir(parents=True, exist_ok=True)
+    details = []
+    ok = True
+    errs = []
+    for tid in THEME_IDS:
+        page, errors = open_page(
+            browser,
+            f"{base}{PAGE}?seed={S}&size=10&debug=1",
+            viewport={"width": 1280, "height": 800},
+            init_script=theme_init(tid),
+        )
+        try:
+            wait_idle(page)
+            page.wait_for_timeout(600)
+            start = SHOTS / f"polish-{tid}-start.png"
+            canvas_image(page).save(start)
+            back_to_end_state(page)
+            mode = end_hint(page)["mode"]
+            arrow = SHOTS / f"polish-{tid}-arrow.png"
+            page.locator("#stage").screenshot(path=str(arrow))
+            good = (
+                mode == "edge"
+                and start.exists()
+                and start.stat().st_size > 0
+                and arrow.exists()
+                and arrow.stat().st_size > 0
+            )
+            ok = ok and good
+            details.append(f"{tid}:mode={mode} saved={good}")
+            errs += errors
+        finally:
+            close(page)
+    ok_err, msg = no_errors(errs)
+    return ok and ok_err, (" ".join(details) + f" dir={SHOTS} " + msg).strip()
+
+
 CHECKS = {
     "1": check_1,
     "10": check_10,
@@ -4053,6 +4141,7 @@ CHECKS = {
     "p4b": check_p4b,
     "p5": check_p5,
     "p6": check_p6,
+    "p8": check_p8,
 }
 
 
@@ -4121,8 +4210,8 @@ def main():
             + (f" --baseline-root {BASELINE_ROOT}" if BASELINE_ROOT else ""),
             f"自动检查：{'PASS' if all_ok else 'FAIL'}",
             f"基线代码：{BASELINE_ROOT}（merge-base）",
-            f"人工检查：待用户查看 {SHOTS} 下四个主题的跟随 / 第一人称 / 面墙截图与 horizon-*.png，"
-            "确认迷宫外有主题地面、地平线无色带、视野外格子不是纯黑",
+            f"人工检查：待用户查看 {SHOTS} 下 polish-*-start.png（开局迷宫占画面主体、阴影、暗边、光柱）"
+            "与 polish-*-arrow.png（边缘箭头与距离）",
             "",
         ]
         RESULTS.write_text("\n".join(header + lines) + "\n", encoding="utf-8")

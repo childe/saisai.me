@@ -23,6 +23,7 @@
   - Task 6 增加「起点（r3）」说明与 Step 4b「道路改为金黄色」：给出 `COLORS.path = 0xffd740` 的验算表（四个主题下与终点、起点、普通地板、雾地板、过渡色、小人橙色的 RGB 欧氏距离最小 89.8 ≥ 60），新增读取 `main.js` 的 `COLORS` 做距离检查的 node 单测，替换单测与浏览器检查中写死的旧道路色常量（只改颜色常量，不放宽阈值）。
   - Task 6 Step 5 的浏览器检查范围加入用到道路色常量的 `4`、`5`、`f8`、`t1`；Step 6 的 `git add` 加入 `tests/maze-3d-themes.test.mjs`。
   - Global Constraints 加一行道路颜色。Task 1–5、Task 7–9 不受影响，内容不变。
+- **r4（2026-11-13，实现阶段 Task 9 受阻后修订，用户选定）**：`f1` 走路时一帧卡 140–150ms。原因与修法见 Task 9 开头「修订 r4」：开局头几帧的 GPU 一次性开销与方向提示首次显示 / 隐藏的光栅化开销，改为开局预热帧付掉。只改 `main.js`，不改检查。
 
 ## Global Constraints
 
@@ -625,6 +626,12 @@ git commit -m "feat(maze-3d): 通关彩带"
 
 **Interfaces:**
 - Consumes: 前面所有 `__maze3d` 字段与钩子。
+
+**修订 r4（用户选定）**：Step 1 之后 `f1` 在 SwiftShader 下 FAIL（maxStep 0.22，一帧卡 140–150ms，同一浏览器进程只发生一次；基线 `3aa67ab` 不卡）。实测原因有两笔一次性开销，都与迷雾重算无关：
+- 开局真正上屏的头几帧 GPU 端还会卡（第 4、7、8 帧各 70–400ms，读回 WebGL 画面时等 GPU 做完）；Task 2–8 加了透明物体后这段拖到首帧后约 650ms，正好落在 `f1` 的走路窗口里。只 `render` 不上屏、或 `readPixels` 强制同步都提前不了。
+- 终点方向提示第一次显示（约 140ms，其中箭头 `drop-shadow` 约一半）和第一次隐藏（约 70ms）时，浏览器光栅化它们要卡一帧。只在 JS 里显示再立刻隐藏不经过真实的帧，提前不了（原 `start()` 里的提示预热因此无效，已删除）。
+
+修法（`main.js`，不改任何检查）：预渲染之后先按 `requestAnimationFrame` 渲染 `WARM_FRAMES = 16` 帧预热帧（不处理输入、不计帧时间），前 `WARM_HINT_FRAMES = 8` 帧把箭头和标记以不透明度 0.01 显示（文字 `0123456789 格`），然后隐藏；预热结束才 `startLoop()` 并挂出 `window.__maze3d`（就绪标志）。实测 `--only 1,f1` 3/3 PASS（maxStep 0.056–0.088）。
 
 - [ ] **Step 1: 写 `check_p8` 与文案**
 

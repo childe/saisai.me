@@ -84,6 +84,8 @@ import {
 
 const EYE_HEIGHT = 0.45;
 const STICK_RADIUS = 50; // 虚拟摇杆底座半径，CSS 像素
+const WARM_FRAMES = 16; // 开局预热帧数，见 start() 末尾
+const WARM_HINT_FRAMES = 8; // 预热帧中前几帧同时显示（几乎透明的）终点方向提示
 
 // 墙、普通地板格、视野外格子、背景色由主题决定（themes.js）
 const COLORS = {
@@ -1371,7 +1373,6 @@ function start() {
   syncGround();
   updateSceneFog();
   renderer.render(scene, camera);
-  startLoop();
 
   // ---------- 调试对象 ----------
   function sampleDistinctColors() {
@@ -1485,7 +1486,7 @@ function start() {
     return { colors: seen.size, std, spread };
   }
 
-  window.__maze3d = {
+  const debugApi = {
     get seed() {
       return seed;
     },
@@ -1684,7 +1685,7 @@ function start() {
 
   // 测试钩子：非 null 时用它的 forward / strafe / turn 替代键盘与摇杆；yaw、pitch 为数字时直接赋值
   if (debug) {
-    window.__maze3d.setInputForTest = (v) => {
+    debugApi.setInputForTest = (v) => {
       if (v === null || v === undefined) {
         testInput = null;
         return;
@@ -1694,7 +1695,7 @@ function start() {
       if (typeof v.pitch === 'number') pitch = clampPitch(v.pitch);
     };
     // 把小人放到指定格中心，速度清零，迷雾按新格重算，相机立即就位
-    window.__maze3d.teleportForTest = (row, col) => {
+    debugApi.teleportForTest = (row, col) => {
       playerState = { x: col + 0.5, z: row + 0.5, vx: 0, vz: 0 };
       display.row = row;
       display.col = col;
@@ -1702,17 +1703,52 @@ function start() {
       recomputeFog();
       snapCamera();
     };
-    window.__maze3d.setSceneFogForTest = (enabled) => {
+    debugApi.setSceneFogForTest = (enabled) => {
       sceneFogEnabled = Boolean(enabled);
       updateSceneFog();
     };
     // visible 只切光柱圆柱（不切粒子）；paused 为真时光柱脉动与粒子位置停止推进
-    window.__maze3d.setBeamForTest = (v = {}) => {
+    debugApi.setBeamForTest = (v = {}) => {
       if (typeof v.visible === 'boolean') beam.visible = v.visible;
       if (typeof v.paused === 'boolean') beamPaused = v.paused;
     };
-    window.__maze3d.setZoomForTest = (z) => {
+    debugApi.setZoomForTest = (z) => {
       cameraZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
     };
   }
+
+  // ---------- 开局预热帧 ----------
+  // 预渲染之后还有两笔一次性开销（软件渲染下明显，同一浏览器进程只发生一次），
+  // 只 render 不上屏、或者读回像素都提前不了，只能靠真正上屏的帧付掉：
+  // 1. 开头几帧上屏的画面里 GPU 端还要再卡几次（第 4、7、8 帧各 70–400ms）；
+  // 2. 终点方向提示（箭头带 drop-shadow、标记、「N 格」文字）第一次显示和第一次隐藏时，
+  //    浏览器光栅化它们要卡一帧（约 140ms 和 70ms）。
+  // 所以先按 requestAnimationFrame 原样渲染 WARM_FRAMES 帧（不处理输入、不计帧时间）：
+  // 前 WARM_HINT_FRAMES 帧把箭头和标记以不透明度 0.01 显示（完全透明会被跳过），然后隐藏，
+  // 剩下的帧让隐藏的开销也落在预热里。之后启动计时的渲染循环，并挂出调试对象 window.__maze3d（就绪标志）
+  function setWarmHint(on) {
+    for (const el of [endArrowEl, endMarkerEl]) {
+      el.hidden = !on;
+      el.style.opacity = on ? '0.01' : '';
+      el.style.transform = on ? `translate(${HINT_INSET}px, ${HINT_INSET}px) translate(-50%, -50%)` : '';
+    }
+    for (const el of endDistEls) el.textContent = on ? '0123456789 格' : '';
+    shownHintMode = null;
+    shownHintDist = null;
+  }
+
+  let warmDone = 0;
+  function warmFrame() {
+    renderer.render(scene, camera);
+    warmDone += 1;
+    if (warmDone === WARM_HINT_FRAMES) setWarmHint(false);
+    if (warmDone < WARM_FRAMES) {
+      requestAnimationFrame(warmFrame);
+      return;
+    }
+    startLoop();
+    window.__maze3d = debugApi;
+  }
+  setWarmHint(true);
+  requestAnimationFrame(warmFrame);
 }
