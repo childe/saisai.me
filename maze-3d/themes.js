@@ -13,6 +13,8 @@ export const THEMES = {
     sun: { color: 0xfff4e0, intensity: 1.0 },
     floorBase: 0xfffaf0,
     wallTint: 0xffffff,
+    ground: 0x5e9e3f,
+    fogFloor: 0x7d8a72,
   },
   brick: {
     label: '🧱 砖墙',
@@ -22,6 +24,8 @@ export const THEMES = {
     sun: { color: 0xffe8c8, intensity: 1.0 },
     floorBase: 0xf7f3ee,
     wallTint: 0xffffff,
+    ground: 0xbdb5a8,
+    fogFloor: 0x8c8079,
   },
   blocks: {
     label: '🧸 积木',
@@ -31,6 +35,8 @@ export const THEMES = {
     sun: { color: 0xffffff, intensity: 1.0 },
     floorBase: 0xf4f6f8,
     wallTint: 0xffffff,
+    ground: 0x8bc34a,
+    fogFloor: 0x7c8794,
     blockPalette: [0xef5350, 0xffca28, 0x42a5f5, 0x66bb6a, 0xffa726],
   },
   castle: {
@@ -41,8 +47,21 @@ export const THEMES = {
     sun: { color: 0xfff0dc, intensity: 0.9 },
     floorBase: 0xaeb3bc,
     wallTint: 0xffffff,
+    ground: 0x7a6c5a,
+    fogFloor: 0x575b63,
   },
 };
+
+// 两色按 t 线性混合（每通道四舍五入）
+export function mixHex(a, b, t) {
+  let out = 0;
+  for (const shift of [16, 8, 0]) {
+    const ca = (a >> shift) & 255;
+    const cb = (b >> shift) & 255;
+    out |= Math.round(ca + (cb - ca) * t) << shift;
+  }
+  return out >>> 0;
+}
 
 export function parseTheme(value) {
   for (const id of THEME_IDS) if (value === id) return id;
@@ -495,4 +514,123 @@ export function paintWallTop(id, ctx, size) {
 export function paintFloor(id, ctx, size) {
   id = parseTheme(id);
   FLOOR[id](ctx, size, rngFor(id, 'floor'));
+}
+
+// ---------- 外围地面（整张一个格子，上下左右无缝） ----------
+function hexCss(c) {
+  return '#' + c.toString(16).padStart(6, '0');
+}
+
+function shadeHex(c, f) {
+  return f >= 0 ? mixHex(c, 0xffffff, f) : mixHex(c, 0x000000, -f);
+}
+
+// 横纵双向无缝：元素跨过任一边界时，在对侧再画一份
+function wrapXY(size, x, y, half, draw) {
+  const xs = [x];
+  if (x - half < 0) xs.push(x + size);
+  if (x + half > size) xs.push(x - size);
+  const ys = [y];
+  if (y - half < 0) ys.push(y + size);
+  if (y + half > size) ys.push(y - size);
+  for (const xx of xs) for (const yy of ys) draw(xx, yy);
+}
+
+function groundGarden(ctx, size, rand) {
+  const k = size / 256;
+  const base = THEMES.garden.ground;
+  ctx.fillStyle = hexCss(base);
+  ctx.fillRect(0, 0, size, size);
+  const greens = [-0.25, -0.15, -0.07, 0.06, 0.14].map((f) => hexCss(shadeHex(base, f)));
+  for (let i = 0; i < 360; i++) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const rx = between(rand, 1.2, 2.2) * k;
+    const ry = between(rand, 5, 10) * k;
+    const rot = between(rand, -0.5, 0.5);
+    ctx.fillStyle = pick(rand, greens);
+    wrapXY(size, x, y, ry, (xx, yy) => ellipseAt(ctx, xx, yy, rx, ry, rot));
+  }
+}
+
+function groundBrick(ctx, size, rand) {
+  const k = size / 256;
+  const half = size / 2;
+  const base = THEMES.brick.ground;
+  ctx.fillStyle = hexCss(base);
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = hexCss(shadeHex(base, -0.22));
+  ctx.fillRect(0, 0, size, 3 * k);
+  ctx.fillRect(0, half - 1.5 * k, size, 3 * k);
+  ctx.fillRect(0, size - 3 * k, size, 3 * k);
+  ctx.fillRect(0, 0, 3 * k, size);
+  ctx.fillRect(half - 1.5 * k, 0, 3 * k, size);
+  ctx.fillRect(size - 3 * k, 0, 3 * k, size);
+  const slabs = [-0.06, 0, 0.05].map((f) => hexCss(shadeHex(base, f)));
+  for (const x of [0, half]) {
+    for (const y of [0, half]) {
+      ctx.fillStyle = pick(rand, slabs);
+      ctx.fillRect(x + 3 * k, y + 3 * k, half - 6 * k, half - 6 * k);
+      ctx.fillStyle = hexCss(shadeHex(base, 0.12));
+      ctx.fillRect(x + 3 * k, y + 3 * k, half - 6 * k, 3 * k);
+      for (let i = 0; i < 6; i++) {
+        ctx.fillStyle = hexCss(shadeHex(base, -0.1));
+        circleAt(ctx, x + between(rand, 14, 114) * k, y + between(rand, 14, 114) * k, between(rand, 1, 2.5) * k);
+      }
+    }
+  }
+}
+
+function groundBlocks(ctx, size) {
+  const k = size / 256;
+  const base = THEMES.blocks.ground;
+  ctx.fillStyle = hexCss(base);
+  ctx.fillRect(0, 0, size, size);
+  const shadow = hexCss(shadeHex(base, -0.25));
+  const stud = hexCss(shadeHex(base, 0.12));
+  const shine = hexCss(shadeHex(base, 0.45));
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 4; c++) {
+      const x = (32 + 64 * c) * k;
+      const y = (32 + 64 * r) * k;
+      ctx.fillStyle = shadow;
+      circleAt(ctx, x + 3 * k, y + 3 * k, 16 * k);
+      ctx.fillStyle = stud;
+      circleAt(ctx, x, y, 16 * k);
+      ctx.fillStyle = shine;
+      circleAt(ctx, x - 5 * k, y - 5 * k, 6 * k);
+    }
+  }
+}
+
+function groundCastle(ctx, size, rand) {
+  const k = size / 256;
+  const base = THEMES.castle.ground;
+  ctx.fillStyle = hexCss(base);
+  ctx.fillRect(0, 0, size, size);
+  const patches = [-0.12, -0.06, 0.05, 0.1].map((f) => hexCss(shadeHex(base, f)));
+  for (let i = 0; i < 40; i++) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const rx = between(rand, 10, 26) * k;
+    const ry = rx * between(rand, 0.5, 0.9);
+    const rot = rand() * Math.PI;
+    ctx.fillStyle = pick(rand, patches);
+    wrapXY(size, x, y, rx, (xx, yy) => ellipseAt(ctx, xx, yy, rx, ry, rot));
+  }
+  const pebbles = [-0.3, -0.18, 0.2, 0.3].map((f) => hexCss(shadeHex(base, f)));
+  for (let i = 0; i < 160; i++) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const r = between(rand, 1, 3) * k;
+    ctx.fillStyle = pick(rand, pebbles);
+    wrapXY(size, x, y, r, (xx, yy) => circleAt(ctx, xx, yy, r));
+  }
+}
+
+const GROUND = { garden: groundGarden, brick: groundBrick, blocks: groundBlocks, castle: groundCastle };
+
+export function paintGround(id, ctx, size) {
+  id = parseTheme(id);
+  GROUND[id](ctx, size, mulberry32(hash32(0x6a09 + THEME_IDS.indexOf(id))));
 }

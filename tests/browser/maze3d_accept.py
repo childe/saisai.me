@@ -23,6 +23,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from PIL import Image
+from playwright.sync_api import TimeoutError as PlaywrightTimeout
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -48,7 +49,7 @@ WASD = {"up": "w", "down": "s", "left": "a", "right": "d"}
 PW = None  # main() 中赋值，供需要设备描述的检查使用
 BASELINE_ROOT = None  # --baseline-root：改动前代码的副本，供对比检查使用
 SHOTS = Path(
-    "/Users/jialiu/Projects/saisai.me/.xdev/20261113-091931-maze-3d-free-move/screenshots"
+    "/Users/jialiu/Projects/saisai.me/.xdev/20261113-102305-maze-3d-ground-fog/screenshots"
 )  # --shots 覆盖
 DIRS = {"up": (-1, 0), "down": (1, 0), "left": (0, -1), "right": (0, 1)}
 
@@ -127,6 +128,19 @@ def logic(page, expr, arg=None):
         " const L = await import('/maze-3d/game-logic.js');"
         " const M = window.__maze3d;"
         " return (new Function('L', 'M', 'arg', 'return (' + expr + ');'))(L, M, arg);"
+        "}",
+        [expr, arg],
+    )
+
+
+def logic_themes(page, expr, arg=None):
+    """在页面里 import game-logic.js 与 themes.js 后求值 expr（可用 L、T、M=__maze3d、arg）。"""
+    return page.evaluate(
+        "async ([expr, arg]) => {"
+        " const L = await import('/maze-3d/game-logic.js');"
+        " const T = await import('/maze-3d/themes.js');"
+        " const M = window.__maze3d;"
+        " return (new Function('L', 'T', 'M', 'arg', 'return (' + expr + ');'))(L, T, M, arg);"
         "}",
         [expr, arg],
     )
@@ -665,21 +679,40 @@ def check_11(browser, base):
         close(page)
 
 
-FOG_STATE_JS = """(() => {
+# 按格算期望地板色（arg = 视野半径）：path > fogEdge / fog > start / end / floor；
+# 求值时需要 L、T、M（用 logic_themes）
+FLOOR_WANT_JS = """
+  const t = T.THEMES[M.theme];
+  const hex = (c) => '#' + c.toString(16).padStart(6, '0');
+  const want = { floor: hex(t.floorBase), fog: hex(t.fogFloor),
+    fogEdge: hex(T.mixHex(t.floorBase, t.fogFloor, 0.5)),
+    start: '#4caf50', end: '#e53935', path: '#ff6b6b' };
+  const wantKind = (cell, onPath) => L.floorKind(cell, M.size, {
+    inView: !M.fog.on || L.isInFogView(M.display, cell, arg),
+    onPath,
+    edge: M.fog.on && L.fogRing(M.display, cell, arg),
+  });
+"""
+
+FOG_STATE_JS = (
+    """(() => {"""
+    + FLOOR_WANT_JS
+    + """
   const vis = M.wallsVisible();
-  const want = M.segments.map((s) => L.wallInView(s, M.display, arg));
+  const wantWall = M.segments.map((s) => L.wallInView(s, M.display, arg));
   let wallMismatch = 0;
-  for (let i = 0; i < want.length; i++) if (vis[i] !== want[i]) wallMismatch++;
+  for (let i = 0; i < wantWall.length; i++) if (vis[i] !== wantWall[i]) wallMismatch++;
   let floorMismatch = 0;
+  let edgeCells = 0;
   for (let row = 0; row < M.size; row++)
     for (let col = 0; col < M.size; col++) {
-      const inView = L.isInFogView(M.display, { row, col }, arg);
-      const hex = M.floorColorHex(row, col);
-      if (!inView && hex !== '#333333') floorMismatch++;
-      if (inView && hex === '#333333') floorMismatch++;
+      const kind = wantKind({ row, col }, false);
+      if (kind === 'fogEdge') edgeCells++;
+      if (M.floorColorHex(row, col) !== want[kind]) floorMismatch++;
     }
-  return { wallMismatch, floorMismatch, walls: want.length };
+  return { wallMismatch, floorMismatch, edgeCells, walls: wantWall.length };
 })()"""
+)
 
 
 def click_until_disabled(page, sel, limit=40):
@@ -697,9 +730,9 @@ def check_4(browser, base):
         wait_idle(page)
         # (a) 默认迷雾
         fog = m3(page, "fog")
-        r = logic(page, FOG_STATE_JS, 5)
+        r = logic_themes(page, FOG_STATE_JS, 5)
         ok = fog == {"on": True, "radius": 5} and r["wallMismatch"] == 0
-        ok = ok and r["floorMismatch"] == 0
+        ok = ok and r["floorMismatch"] == 0 and r["edgeCells"] > 0
         details.append(f"a:fog={fog} {r}")
         if not ok:
             return False, " ".join(details)
@@ -723,10 +756,13 @@ def check_4(browser, base):
         page.click("#fog-btn")
         btn = page.inner_text("#fog-btn")
         all_walls = page.evaluate("() => window.__maze3d.wallsVisible().every(Boolean)")
-        dark = page.evaluate(
-            "() => { const M = window.__maze3d; let n = 0;"
-            " for (let r = 0; r < M.size; r++) for (let c = 0; c < M.size; c++)"
-            " if (M.floorColorHex(r, c) === '#333333') n++; return n; }"
+        dark = logic_themes(
+            page,
+            "(() => {" + FLOOR_WANT_JS + " let n = 0;"
+            " for (let r = 0; r < M.size; r++) for (let c = 0; c < M.size; c++) {"
+            " const h = M.floorColorHex(r, c); if (h === want.fog || h === want.fogEdge) n++; }"
+            " return n; })()",
+            m3(page, "fog")["radius"],
         )
         ok = btn == "迷雾：关" and all_walls and dark == 0
         details.append(f"c:btn={btn} allWalls={all_walls} dark={dark}")
@@ -748,9 +784,10 @@ def check_4(browser, base):
         dr, dc = DIRS[d]
         arrived = walk_to(page, dr, dc)
         n2 = m3(page, "fogRecomputeCount")
-        r = logic(page, FOG_STATE_JS, 25)
+        r = logic_themes(page, FOG_STATE_JS, 25)
         ok = n0 == n1 and arrived and n2 == n1 + 1 and r["wallMismatch"] == 0
-        ok = ok and r["floorMismatch"] == 0
+        # 此时迷雾已关（见 (d)），不应有过渡圈
+        ok = ok and r["floorMismatch"] == 0 and r["edgeCells"] == 0
         details.append(f"e:count {n0}->{n1} idle, ->{n2} after walk {d} {r}")
         if not ok:
             return False, " ".join(details)
@@ -807,23 +844,25 @@ def check_5(browser, base):
         if not arrived or r2["bad"] != 0 or r2["len"] != r["len"] - 1:
             return False, " ".join(details)
         page.click("#hide-path-btn")
-        res = logic(
+        res = logic_themes(
             page,
-            """(() => {
+            """(() => {"""
+            + FLOOR_WANT_JS
+            + """
               let red = 0;
               for (let row = 0; row < M.size; row++)
                 for (let col = 0; col < M.size; col++)
                   if (M.floorColorHex(row, col) === '#ff6b6b') red++;
-              const startIn = L.isInFogView(M.display, { row: 0, col: 0 }, M.fog.radius) || !M.fog.on;
-              const endIn = L.isInFogView(M.display, { row: M.size - 1, col: M.size - 1 }, M.fog.radius) || !M.fog.on;
+              const endCell = { row: M.size - 1, col: M.size - 1 };
               return {
                 red,
                 start: M.floorColorHex(0, 0),
-                startWant: startIn ? '#4caf50' : '#333333',
+                startWant: want[wantKind({ row: 0, col: 0 }, false)],
                 end: M.floorColorHex(M.size - 1, M.size - 1),
-                endWant: endIn ? '#e53935' : '#333333',
+                endWant: want[wantKind(endCell, false)],
               };
             })()""",
+            m3(page, "fog")["radius"],
         )
         details.append(f"hide:{res}")
         ok = (
@@ -1035,41 +1074,8 @@ def check_8(browser, base):
         close(page)
 
 
-def play_rounds_legacy(page):
-    """基线（离散移动）代码用：跟随视角走 10 步（赢了就再来一局），再切第一人称做 10 次前进 / 转身。"""
-
-    def next_stop(d):
-        return logic(page, "L.findNextIntersection(M.connections, M.player, arg)", d)
-
-    for _ in range(10):
-        if m3(page, "state") == "won":
-            page.click("#again-btn")
-            wait_idle(page)
-        d = path_dir(page)
-        if d is None:
-            page.click("#again-btn")
-            wait_idle(page)
-            d = path_dir(page)
-        page.keyboard.press(KEYS[d])
-        wait_settled(page, timeout=15000)
-    if m3(page, "state") == "won":
-        page.click("#again-btn")
-        wait_idle(page)
-    page.click("#view-btn")
-    for i in range(10):
-        if m3(page, "state") == "won":
-            page.click("#again-btn")
-            wait_idle(page)
-        facing = m3(page, "player")["facing"]
-        if i % 3 != 2 and next_stop(facing) is not None:
-            page.keyboard.press("ArrowUp")
-        else:
-            page.keyboard.press("ArrowLeft")
-        wait_settled(page, timeout=15000)
-
-
 def perf_round(browser, base, mobile, init_script=None, driver=play_continuous):
-    """base 可以指向基线服务器；init_script 用来预设主题；基线代码用 driver=play_rounds_legacy。"""
+    """base 可以指向基线服务器；init_script 用来预设主题。"""
     if mobile:
         dev = dict(PW.devices["iPhone SE"])
         dev.pop("default_browser_type", None)
@@ -1327,6 +1333,7 @@ def check_t1(browser, base):
         details.append(f"default={th} active={act}")
         if th != "garden" or act != ["garden"]:
             return False, " ".join(details)
+        ground_maps = {}
         for tid in THEME_IDS:
             click_theme(page, tid)
             th = m3(page, "theme")
@@ -1334,15 +1341,24 @@ def check_t1(browser, base):
             got = m3(page, "floorColorHex(1, 1)")
             want = floor_base_hex(page, tid)
             tc = m3(page, "textureCount")
+            ground_maps[tid] = (m3(page, "ground") or {}).get("mapUuid")
             details.append(f"{tid}: floor={got}/{want} textures={tc}")
-            if th != tid or act != [tid] or got != want or tc != 4:
+            if th != tid or act != [tid] or got != want or tc != 5:
                 return False, " ".join(details) + f" theme={th} active={act}"
+        uuids = list(ground_maps.values())
+        details.append(f"groundMaps distinct={len(set(uuids))}")
+        if None in uuids or len(set(uuids)) != 4:
+            return False, " ".join(details) + f" {ground_maps}"
         builds = m3(page, "textureStats")["builds"]
         click_theme(page, THEME_IDS[-1])
         b2 = m3(page, "textureStats")["builds"]
         tc = m3(page, "textureCount")
-        details.append(f"reclick builds {builds}->{b2} textures={tc}")
-        if b2 != builds or tc != 4:
+        gm = m3(page, "ground")["mapUuid"]
+        details.append(
+            f"reclick builds {builds}->{b2} textures={tc}"
+            f" groundMapSame={gm == ground_maps[THEME_IDS[-1]]}"
+        )
+        if b2 != builds or tc != 5 or gm != ground_maps[THEME_IDS[-1]]:
             return False, " ".join(details)
         page.click("#show-path-btn")
         red0 = logic(page, COUNT_HEX_JS, "#ff6b6b")
@@ -1372,7 +1388,7 @@ def check_t1(browser, base):
             f"blocks after regen+15: size={size} walls={got == want} builds {builds}->{b2}"
             f" textures={tc}"
         )
-        if got != want or b2 != builds or tc != 4 or size != 15:
+        if got != want or b2 != builds or tc != 5 or size != 15:
             return False, " ".join(details) + f" got={got} want={want}"
         ok, msg = no_errors(errors)
         return ok, (" ".join(details) + " " + msg).strip()
@@ -1398,7 +1414,17 @@ def check_t3(browser, base):
         page.wait_for_timeout(100)
         page.evaluate("(id) => document.getElementById(id).click()", "theme-castle")
         p0 = pos_of(page)
-        page.wait_for_timeout(150)
+        # 换主题那一帧要生成并上传纹理、把天空转成立方体贴图，软件渲染下会卡几百毫秒；
+        # 等最多 1s 看小人是否接着走，而不是只看固定的 150ms
+        try:
+            page.wait_for_function(
+                "(p) => { const q = window.__maze3d.playerPos;"
+                " return Math.hypot(q.x - p.x, q.z - p.z) > 1e-6; }",
+                arg=p0,
+                timeout=1000,
+            )
+        except PlaywrightTimeout:
+            pass
         p1 = pos_of(page)
         page.keyboard.up("w")
         gen1 = m3(page, "generation")
@@ -1414,7 +1440,12 @@ def check_t3(browser, base):
         page.wait_for_timeout(100)
         page.evaluate("(id) => document.getElementById(id).click()", "theme-brick")
         y0 = m3(page, "yaw")
-        page.wait_for_timeout(150)
+        try:
+            page.wait_for_function(
+                "(y) => window.__maze3d.yaw < y", arg=y0, timeout=1000
+            )
+        except PlaywrightTimeout:
+            pass
         y1 = m3(page, "yaw")
         page.keyboard.up("ArrowLeft")
         th = m3(page, "theme")
@@ -1478,12 +1509,12 @@ def check_t4(browser, base):
 
 
 def check_t6(browser, base):
-    """反复切换主题：旧纹理被释放，存活纹理数恒为 4。"""
+    """反复切换主题：旧纹理被释放，存活纹理数恒为 5。"""
     page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
     try:
         wait_idle(page)
         stats = m3(page, "textureStats")
-        if stats["builds"] != 1 or m3(page, "textureCount") != 4:
+        if stats["builds"] != 1 or m3(page, "textureCount") != 5:
             return False, f"start: stats={stats} textures={m3(page, 'textureCount')}"
         prev = 1
         for i in range(20):
@@ -1491,12 +1522,12 @@ def check_t6(browser, base):
             click_theme(page, tid)
             tc = m3(page, "textureCount")
             builds = m3(page, "textureStats")["builds"]
-            if tc != 4 or builds != prev + 1:
+            if tc != 5 or builds != prev + 1:
                 return False, f"i={i} tid={tid} textures={tc} builds {prev}->{builds}"
             prev = builds
         tc = m3(page, "textureCount")
         builds = m3(page, "textureStats")["builds"]
-        if tc != 4 or builds != 21:
+        if tc != 5 or builds != 21:
             return False, f"after 20 switches: textures={tc} builds={builds}"
         click_theme(page, m3(page, "theme"))
         tc2 = m3(page, "textureCount")
@@ -1504,7 +1535,7 @@ def check_t6(browser, base):
         ms = m3(page, "textureStats")["lastMs"]
         detail = f"20 switches: textures={tc} builds={builds}; reclick textures={tc2} builds={b2} lastMs={ms:.1f}"
         ok_err, msg = no_errors(errors)
-        ok = ok_err and tc2 == 4 and b2 == 21
+        ok = ok_err and tc2 == 5 and b2 == 21
         return ok, (detail + " " + msg).strip()
     finally:
         close(page)
@@ -1570,46 +1601,6 @@ def screen_metrics(img):
     return {"colors": len(seen), "std": std, "spread": spread}
 
 
-def face_wall_legacy(page, max_moves=10):
-    """基线（离散移动）代码用：第一人称下转身到正前方是一段内部墙；返回朝向，找不到返回 None。
-
-    迷宫外边界不画墙，所以要求前方的相邻格在迷宫内。当前格没有这样的墙时，
-    朝可走的方向前进一站再找，最多前进 max_moves 次。
-    """
-
-    def next_stop(d):
-        return logic(page, "L.findNextIntersection(M.connections, M.player, arg)", d)
-
-    def face_walkable():
-        for _ in range(4):
-            facing = m3(page, "player")["facing"]
-            if next_stop(facing) is not None:
-                return facing
-            page.keyboard.press("ArrowLeft")
-            wait_idle(page)
-        return None
-
-    for _ in range(max_moves + 1):
-        n = m3(page, "size")
-        for i in range(4):
-            p = m3(page, "player")
-            dr, dc = DIRS[p["facing"]]
-            r, c = p["row"] + dr, p["col"] + dc
-            inside_maze = 0 <= r < n and 0 <= c < n
-            if inside_maze and next_stop(p["facing"]) is None:
-                return p["facing"]
-            if i < 3:
-                page.keyboard.press("ArrowLeft")
-                wait_idle(page)
-        if face_walkable() is None:
-            return None
-        page.keyboard.press("ArrowUp")
-        wait_settled(page)
-        if m3(page, "state") != "idle":
-            return None
-    return None
-
-
 def fmt_metrics(m):
     return f"colors={m['colors']} spread={m['spread']:.1f} std={m['std']:.1f}"
 
@@ -1625,11 +1616,15 @@ def check_t2(browser, base):
     details = []
     proc, bbase = start_server(BASELINE_ROOT)
     try:
-        page, errors = open_page(browser, f"{bbase}{PAGE}?seed={S}&size=10")
+        # 基线是自由移动版本：与当前代码用同一套方式面墙
+        page, errors = open_page(browser, f"{bbase}{PAGE}?seed={S}&size=10&debug=1")
         try:
             wait_idle(page)
+            facing = find_wall_cell(page)
             page.click("#view-btn")
-            facing = face_wall_legacy(page)
+            if facing is not None:
+                set_test_input(page, yaw=DIR_YAW[facing], pitch=0)
+                set_test_input(page)
             page.wait_for_timeout(300)
             base_m = screen_metrics(canvas_image(page))
             details.append(f"baseline(facing={facing}): {fmt_metrics(base_m)}")
@@ -1792,9 +1787,16 @@ def check_t5(browser, base):
             got["fog"], at = sample_kind(
                 page,
                 img,
-                cells_by_distance(page, lambda cell, dist: 2 <= dist <= 3),
+                cells_by_distance(page, lambda cell, dist: 3 <= dist <= 4),
                 "fog",
             )
+            got_edge, edge_at = sample_kind(
+                page,
+                img,
+                cells_by_distance(page, lambda cell, dist: dist == 2),
+                "fogEdge",
+            )
+            notes.append(f"fogEdge@{edge_at}={got_edge}")
             floor_c, _ = sample_kind(
                 page,
                 img,
@@ -1830,7 +1832,8 @@ def check_t5(browser, base):
                 not missing
                 and worst is not None
                 and worst[0] >= 60
-                and end_kind_c == "fog"
+                and end_kind_c in ("fog", "fogEdge")
+                and got_edge is not None
                 and end_kind_d == "end"
                 and here != end
                 and fog_state == {"on": True, "radius": 1}
@@ -1878,7 +1881,7 @@ def check_t7(browser, base):
                 runs = [
                     (
                         "baseline",
-                        perf_round(gb, bbase, mobile=True, driver=play_rounds_legacy),
+                        perf_round(gb, bbase, mobile=True),
                     )
                 ]
                 if "swiftshader" in runs[0][1]["renderer"].lower():
@@ -1943,7 +1946,7 @@ def check_t7b(browser, base):
         wait_idle(page, timeout=10000)
         an0 = m3(page, "textureAnisotropy")
         details.append(f"after downgrade anisotropy={an0}")
-        if an0 != [1, 1, 1]:
+        if an0 != [1, 1, 1, 1]:
             return False, " ".join(details)
         facing = find_wall_cell(page)
         if facing is None:
@@ -1958,7 +1961,7 @@ def check_t7b(browser, base):
             act = active_themes(page)
             wc = m3(page, "wallContrast()")
             an = m3(page, "textureAnisotropy")
-            ok = th == tid and act == [tid] and contrast_ok(wc) and an == [1, 1, 1]
+            ok = th == tid and act == [tid] and contrast_ok(wc) and an == [1, 1, 1, 1]
             details.append(f"{tid}: {fmt_metrics(wc)} anisotropy={an} ok={ok}")
             if not ok:
                 return False, " ".join(details) + f" theme={th} active={act}"
@@ -1975,7 +1978,7 @@ def check_t7b(browser, base):
             ok_err
             and b2 == builds + 1
             and contrast_ok(wc)
-            and an == [1, 1, 1]
+            and an == [1, 1, 1, 1]
             and m3(page, "quality") == "low"
         )
         return ok, (" ".join(details) + " " + msg).strip()
@@ -2490,7 +2493,7 @@ def check_f8(browser, base):
         arrived = walk_to(page, cell["row"], cell["col"])
         disp = m3(page, "display")
         pc = m3(page, "playerCell")
-        r = logic(page, FOG_STATE_JS, m3(page, "fog")["radius"])
+        r = logic_themes(page, FOG_STATE_JS, m3(page, "fog")["radius"])
         ok_err, msg = no_errors(errors)
         ok = (
             arrived
@@ -2531,6 +2534,607 @@ def check_f9(browser, base):
 
 # ---------------------------------------------------------------- runner
 
+# ---------------------------------------------------------------- ground / fog
+
+
+CANVAS_SEL = "#stage > canvas:not(#minimap)"
+
+
+def hex_rgb(h):
+    if isinstance(h, str):
+        h = int(h.lstrip("#"), 16)
+    return ((h >> 16) & 255, (h >> 8) & 255, h & 255)
+
+
+def theme_colors(page, tid):
+    """主题的天空上下色与雾色，均为 (r, g, b)。"""
+    t = themes_mod(
+        page,
+        "({ top: T.THEMES[arg].sky.top, bottom: T.THEMES[arg].sky.bottom,"
+        " fog: T.THEMES[arg].fogColor })",
+        tid,
+    )
+    return {k: hex_rgb(v) for k, v in t.items()}
+
+
+def seg_dist(p, a, b):
+    """RGB 空间里点 p 到线段 ab 的距离。"""
+    ab = [y - x for x, y in zip(a, b)]
+    ap = [y - x for x, y in zip(a, p)]
+    len2 = sum(v * v for v in ab)
+    t = 0 if len2 == 0 else sum(u * v for u, v in zip(ab, ap)) / len2
+    t = max(0.0, min(1.0, t))
+    return sum((pp - (aa + u * t)) ** 2 for pp, aa, u in zip(p, a, ab)) ** 0.5
+
+
+def sky_dist(px, colors):
+    return seg_dist(px, colors["top"], colors["bottom"])
+
+
+def horizon_y(page, img, legacy=False):
+    """地平线在截图中的像素行（可为负或超出高度）。legacy=True 时用 cameraPitch 与 fov 50（基线代码）。"""
+    if legacy:
+        st = page.evaluate(
+            "() => ({ theta: window.__maze3d.cameraPitch, fov: 50,"
+            f" h: document.querySelector('{CANVAS_SEL}').clientHeight }})"
+        )
+        theta = st["theta"]
+    else:
+        st = page.evaluate(
+            "() => { const c = window.__maze3d.cameraState;"
+            " return { fwd: c.forward, fov: c.fov,"
+            f" h: document.querySelector('{CANVAS_SEL}').clientHeight }}; }}"
+        )
+        theta = math.asin(max(-1.0, min(1.0, -st["fwd"][1])))
+    half = math.radians(st["fov"] / 2)
+    y_css = st["h"] / 2 * (1 - math.tan(theta) / math.tan(half))
+    return y_css * img.size[1] / st["h"]
+
+
+def sky_fraction_below_horizon(img, hy, colors):
+    """地平线以下区域 32×32 网格中与天空渐变色距离 ≤ 12 的占比；地平线在画面下方之外时返回 0。"""
+    w, h = img.size
+    top = max(0, int(math.ceil(hy)))
+    if top >= h:
+        return 0.0, 0
+    px = img.load()
+    n = 0
+    sky = 0
+    for i in range(32):
+        for j in range(32):
+            x = min(w - 1, int(w * (i + 0.5) / 32))
+            y = min(h - 1, int(top + (h - top) * (j + 0.5) / 32))
+            n += 1
+            if sky_dist(px[x, y], colors) <= 12:
+                sky += 1
+    return sky / n, n
+
+
+def check_g1(browser, base):
+    """迷宫外有地面：各主题地平线以下与天空渐变同色的取样点占比 ≤ 10%。"""
+    details = []
+    all_ok = True
+    for tid in THEME_IDS:
+        page, errors = open_page(
+            browser,
+            f"{base}{PAGE}?seed={S}&size=10&debug=1",
+            viewport={"width": 1280, "height": 800},
+            init_script=theme_init(tid),
+        )
+        try:
+            wait_idle(page)
+            page.wait_for_timeout(600)
+            img = canvas_image(page)
+            hy = horizon_y(page, img)
+            frac, n = sky_fraction_below_horizon(img, hy, theme_colors(page, tid))
+            ok_err, msg = no_errors(errors)
+            ok = frac <= 0.10 and n > 0 and ok_err and m3(page, "theme") == tid
+            all_ok = all_ok and ok
+            details.append(
+                f"{tid}(ok={ok}): horizon={hy:.0f} sky={frac:.1%} n={n} {msg}".strip()
+            )
+        finally:
+            close(page)
+    if BASELINE_ROOT:
+        proc, bbase = start_server(BASELINE_ROOT)
+        try:
+            page, errors = open_page(
+                browser,
+                f"{bbase}{PAGE}?seed={S}&size=10&debug=1",
+                viewport={"width": 1280, "height": 800},
+                init_script=theme_init("garden"),
+            )
+            try:
+                wait_idle(page)
+                page.wait_for_timeout(600)
+                img = canvas_image(page)
+                hy = horizon_y(page, img, legacy=True)
+                frac, n = sky_fraction_below_horizon(
+                    img, hy, theme_colors(page, "garden")
+                )
+                details.append(f"baseline sky={frac:.1%} (garden, horizon={hy:.0f})")
+            finally:
+                close(page)
+        finally:
+            proc.terminate()
+            proc.wait()
+    return all_ok, " | ".join(details)
+
+
+def sample_points(img, page, pts):
+    """取样点（CSS px）各通道中位数。"""
+    cw = page.evaluate(f"() => document.querySelector('{CANVAS_SEL}').clientWidth")
+    ratio = img.size[0] / cw
+    px = img.load()
+    rgb = []
+    for p in pts:
+        x = min(img.size[0] - 1, max(0, int(p["x"] * ratio)))
+        y = min(img.size[1] - 1, max(0, int(p["y"] * ratio)))
+        rgb.append(px[x, y])
+    return tuple(sorted(v[ch] for v in rgb)[len(rgb) // 2] for ch in range(3))
+
+
+FOG_MATCH_JS = """(() => {
+  const f = M.sceneFog;
+  if (!f) return { ok: false, fog: null };
+  const r = L.followFogRange(Math.max(M.cameraIdealDistance, M.cameraDistance), M.size);
+  return {
+    ok: Math.abs(f.near - r.near) < 1e-6 && Math.abs(f.far - r.far) < 1e-6,
+    fog: f,
+    want: r,
+  };
+})()"""
+
+
+def check_g3(browser, base):
+    """跟随视角距离雾：迷宫内不被染色；缩放、切视角后雾参数跟上。"""
+    page, errors = open_page(
+        browser,
+        # slow=40 让自动降画质在取样前确定发生：否则软件渲染下可能在两次截图之间降画质，
+        # 两张图的渲染设置不同，像素对比失真
+        f"{base}{PAGE}?seed={S}&size=20&debug=1&slow=40",
+        viewport={"width": 1280, "height": 800},
+        init_script=preset_storage("0", "5"),
+    )
+    details = []
+    try:
+        wait_idle(page)
+        page.wait_for_function("() => window.__maze3d.quality === 'low'", timeout=10000)
+        page.evaluate("() => window.__maze3d.setZoomForTest(1.5)")
+        set_test_input(page, yaw=3 * math.pi / 4, pitch=math.radians(15))
+        set_test_input(page)
+        settle_camera(page)
+        wait_camera_still(page)
+        # 1. 关掉场景雾前后，迷宫最远角的地板颜色不变。低俯角下远角常被墙挡住，
+        #    三个角都看不到时退而取离相机最远的可见地板格
+        cell = None
+        pts = None
+        for r, c in [(19, 19), (19, 0), (0, 19)]:
+            pts = m3(page, f"floorSamplePoints({r}, {c})")
+            if pts:
+                cell = (r, c)
+                break
+        if cell is None:
+            far = page.evaluate(
+                "() => { const M = window.__maze3d; const p = M.cameraPos;"
+                " let best = null;"
+                " for (let r = 0; r < M.size; r++) for (let c = 0; c < M.size; c++) {"
+                "  const pts = M.floorSamplePoints(r, c); if (!pts.length) continue;"
+                "  const d = Math.hypot(c + 0.5 - p.x, r + 0.5 - p.z);"
+                "  if (!best || d > best.d) best = { r, c, d, pts }; }"
+                " return best; }"
+            )
+            if far is None:
+                return False, "no visible floor cell"
+            cell = (far["r"], far["c"], "fallback")
+            pts = far["pts"]
+        # 迷宫物体所在像素：32×20 网格中 screenHitsScene 为真的点
+        cw, chh = page.evaluate(
+            f"() => {{ const c = document.querySelector('{CANVAS_SEL}');"
+            " return [c.clientWidth, c.clientHeight]; }"
+        )
+        maze_pts = page.evaluate(
+            "([w, h]) => { const out = [];"
+            " for (let i = 0; i < 32; i++) for (let j = 0; j < 20; j++) {"
+            "  const x = (w * (i + 0.5)) / 32, y = (h * (j + 0.5)) / 20;"
+            "  if (window.__maze3d.screenHitsScene(x, y)) out.push({ x, y }); }"
+            " return out; }",
+            [cw, chh],
+        )
+        img_fog = canvas_image(page)
+        with_fog = sample_points(img_fog, page, pts)
+        page.evaluate("() => window.__maze3d.setSceneFogForTest(false)")
+        page.wait_for_timeout(300)
+        img_nofog = canvas_image(page)
+        no_fog = sample_points(img_nofog, page, pts)
+        page.evaluate("() => window.__maze3d.setSceneFogForTest(true)")
+        d = rgb_dist(with_fog, no_fog)
+        ratio = img_fog.size[0] / cw
+        pf = img_fog.load()
+        pn = img_nofog.load()
+        changed = 0
+        for q in maze_pts:
+            x = min(img_fog.size[0] - 1, int(q["x"] * ratio))
+            y = min(img_fog.size[1] - 1, int(q["y"] * ratio))
+            if rgb_dist(pf[x, y], pn[x, y]) > 8:
+                changed += 1
+        details.append(
+            f"1:cell={cell} fog={with_fog} nofog={no_fog} d={d:.1f}"
+            f" mazePts={len(maze_pts)} changed={changed}"
+        )
+        if d > 8 or not maze_pts or changed > 0.02 * len(maze_pts):
+            return False, " ".join(details)
+        # 2. 雾参数与 followFogRange 一致，颜色是主题雾色
+        r = logic(page, FOG_MATCH_JS)
+        want_color = themes_mod(
+            page,
+            "'#' + T.THEMES[M.theme].fogColor.toString(16).padStart(6, '0')",
+        )
+        details.append(f"2:{r} color want {want_color}")
+        if not r["ok"] or r["fog"]["color"] != want_color:
+            return False, " ".join(details)
+        # 3. 滚轮缩放后立即跟上
+        box = page.locator(CANVAS_SEL).bounding_box()
+        z0 = m3(page, "cameraZoom")
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.mouse.wheel(0, -400)
+        page.wait_for_timeout(300)
+        z1 = m3(page, "cameraZoom")
+        r = logic(page, FOG_MATCH_JS)
+        details.append(f"3:zoom {z0:.3f}->{z1:.3f} {r}")
+        if abs(z1 - z0) < 1e-6 or not r["ok"]:
+            return False, " ".join(details)
+        # 4. 第一人称 near 0.5、far size×1.5（迷雾关）；切回跟随后还原
+        page.click("#view-btn")
+        page.wait_for_timeout(200)
+        f = m3(page, "sceneFog")
+        n = m3(page, "size")
+        ok_first = (
+            f is not None
+            and abs(f["near"] - 0.5) < 1e-9
+            and abs(f["far"] - n * 1.5) < 1e-9
+        )
+        page.click("#view-btn")
+        page.wait_for_timeout(200)
+        r = logic(page, FOG_MATCH_JS)
+        details.append(f"4:first={f} ok={ok_first} back={r['ok']}")
+        if not ok_first or not r["ok"]:
+            return False, " ".join(details)
+        ok, msg = no_errors(errors)
+        return ok, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+# 在页面里执行 action（'fog' 点开迷雾 / 'zoom' 一次拉到最近），随后逐帧记录
+# 场景雾 near 与实际相机距离；返回违反「near ≥ 实际距离 + size×√2」的帧
+FOG_TRANSITION_JS = """async (action) => {
+  const M = window.__maze3d;
+  const out = [];
+  const rec = (tag) => {
+    const f = M.sceneFog;
+    const need = M.cameraDistance + M.size * Math.SQRT2;
+    out.push({ tag, near: f ? f.near : null, dist: M.cameraDistance, need });
+  };
+  if (action === 'fog') document.getElementById('fog-btn').click();
+  else M.setZoomForTest(0.7);
+  rec('sync');
+  for (let i = 0; i < 90; i++) {
+    await new Promise((r) => requestAnimationFrame(r));
+    rec('frame' + i);
+  }
+  const bad = out.filter((o) => o.near === null || o.near < o.need - 1e-6);
+  return { n: out.length, bad: bad.slice(0, 3), badCount: bad.length,
+           first: out[0], last: out[out.length - 1] };
+}"""
+
+
+def check_g3b(browser, base):
+    """跟随视角相机平滑收近期间（开启小半径迷雾、快速拉近缩放），雾 near 每帧都覆盖整个迷宫。"""
+    details = []
+    for action in ("fog", "zoom"):
+        page, errors = open_page(
+            browser,
+            f"{base}{PAGE}?seed={S}&size=10&debug=1",
+            viewport={"width": 1280, "height": 800},
+            init_script=preset_storage("0" if action == "fog" else "1", "1"),
+        )
+        try:
+            wait_idle(page)
+            page.evaluate("() => window.__maze3d.setZoomForTest(1.5)")
+            set_test_input(page, pitch=math.radians(40))
+            set_test_input(page)
+            settle_camera(page)
+            wait_camera_still(page)
+            r = page.evaluate(FOG_TRANSITION_JS, action)
+            details.append(
+                f"{action}:frames={r['n']} bad={r['badCount']} first={r['first']}"
+                f" last={r['last']} sample={r['bad']}"
+            )
+            if r["badCount"] or r["first"]["dist"] <= r["last"]["dist"] + 1e-3:
+                # 第二个条件确保确实经历了收近过渡，否则检查没测到要测的阶段
+                return False, " ".join(details)
+            ok, msg = no_errors(errors)
+            if not ok:
+                return False, " ".join(details) + " " + msg
+        finally:
+            close(page)
+    return True, " ".join(details)
+
+
+def ground_fog_far_max(size, zoom_max=1.5):
+    """与 game-logic.js groundFogFarMax 相同的公式（Python 独立实现）。"""
+    h = 3 + 0.8 * 10
+    d = 2 + 0.6 * 10
+    follow = math.hypot(h, d) * zoom_max + size * math.sqrt(2) + 25
+    return max(follow, max(25.5, size * 1.5))
+
+
+def ground_half_extent(fog_far_max, fov_deg, aspect):
+    tan = math.tan(math.radians(fov_deg / 2))
+    return math.ceil(fog_far_max * math.sqrt(1 + tan * tan * (1 + aspect * aspect))) + 2
+
+
+def to_camera(view, p):
+    """列主序 4×4 视图矩阵把世界点 p 变换到相机空间。"""
+    return [
+        view[i] * p[0] + view[i + 4] * p[1] + view[i + 8] * p[2] + view[i + 12]
+        for i in range(3)
+    ]
+
+
+def edge_min_depth(cam, seg):
+    """世界线段 seg=(a, b) 裁剪到视锥后两端深度（−z）的较小值；与视锥无交集返回 None。"""
+    a = to_camera(cam["view"], seg[0])
+    b = to_camera(cam["view"], seg[1])
+    tan = math.tan(math.radians(cam["fov"] / 2))
+    asp = cam["aspect"]
+
+    # 每个半空间写成 f(P) >= 0，f 在相机空间线性
+    def planes(p):
+        w = -p[2]
+        return [
+            w - cam["near"],
+            cam["far"] - w,
+            w * tan * asp - p[0],
+            w * tan * asp + p[0],
+            w * tan - p[1],
+            w * tan + p[1],
+        ]
+
+    fa = planes(a)
+    fb = planes(b)
+    t0, t1 = 0.0, 1.0
+    for va, vb in zip(fa, fb):
+        if va < 0 and vb < 0:
+            return None
+        if va < 0:
+            t0 = max(t0, va / (va - vb))
+        elif vb < 0:
+            t1 = min(t1, va / (va - vb))
+        if t0 > t1:
+            return None
+    depth = lambda t: -(a[2] + (b[2] - a[2]) * t)  # noqa: E731
+    return min(depth(t0), depth(t1))
+
+
+def row_ground_depth(cam, ground_y, x_ndc, y_ndc):
+    """屏幕一点的视线与地面平面交点的相机深度；不相交返回 None。"""
+    tan = math.tan(math.radians(cam["fov"] / 2))
+    v = [x_ndc * tan * cam["aspect"], y_ndc * tan, -1.0]
+    view = cam["view"]
+    # 世界方向 = 视图矩阵旋转部分的转置 × v
+    dy = sum(view[1 * 4 + j] * v[j] for j in range(3))
+    if abs(dy) < 1e-12:
+        return None
+    t = (ground_y - cam["pos"][1]) / dy
+    return t if t > 0 else None
+
+
+def check_g7(browser, base):
+    """运行中改窗口比例（3:1）、改尺寸（10 → 20）后，任意角落、任意朝向都看不到外围地面的边缘。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 1280, "height": 800},
+        init_script=preset_storage("0", "5"),
+    )
+    details = []
+    try:
+        wait_idle(page)
+        page.click("#size-20")
+        page.wait_for_function("() => window.__maze3d.size === 20")
+        wait_idle(page)
+        page.set_viewport_size({"width": 1500, "height": 500})
+        page.wait_for_timeout(300)
+        page.evaluate(
+            "() => { const s = document.getElementById('stage');"
+            " s.style.width = '900px'; s.style.height = '300px'; }"
+        )
+        page.wait_for_timeout(300)
+        cam = m3(page, "cameraState")
+        details.append(f"aspect={cam['aspect']:.6f}")
+        if abs(cam["aspect"] - 3) >= 1e-6:
+            return False, " ".join(details)
+        want_e = ground_half_extent(ground_fog_far_max(20), cam["fov"], cam["aspect"])
+        page.evaluate("() => window.__maze3d.setZoomForTest(1.5)")
+        colors = theme_colors(page, m3(page, "theme"))
+        passed = 0
+        sampled = 0
+        fails = []
+        extents = set()
+        for row, col in [(0, 0), (0, 19), (19, 0), (19, 19)]:
+            page.evaluate(f"() => window.__maze3d.teleportForTest({row}, {col})")
+            for k in range(8):
+                yaw_deg = 45 * k
+                set_test_input(page, yaw=math.radians(yaw_deg), pitch=math.radians(15))
+                set_test_input(page)
+                page.wait_for_timeout(1200)
+                st = page.evaluate(
+                    "() => ({ g: window.__maze3d.ground, c: window.__maze3d.cameraState,"
+                    " f: window.__maze3d.sceneFog })"
+                )
+                g, c, f = st["g"], st["c"], st["f"]
+                extents.add(g["halfExtent"])
+                tag = f"({row},{col})@{yaw_deg}"
+                if f is None:
+                    fails.append(f"{tag}:no fog")
+                    continue
+                e = g["halfExtent"]
+                y = g["y"]
+                x0, x1 = g["cx"] - e, g["cx"] + e
+                z0, z1 = g["cz"] - e, g["cz"] + e
+                edges = [
+                    ((x0, y, z0), (x1, y, z0)),
+                    ((x0, y, z1), (x1, y, z1)),
+                    ((x0, y, z0), (x0, y, z1)),
+                    ((x1, y, z0), (x1, y, z1)),
+                ]
+                depths = [edge_min_depth(c, s) for s in edges]
+                seen = [d for d in depths if d is not None]
+                min_depth = min(seen) if seen else None
+                ok_edge = all(d >= f["far"] - 1e-6 for d in seen)
+                # 左右 5% 竖条的中线：地平线下方到深度 = 雾终点之间应全是雾色
+                img = canvas_image(page)
+                hy = horizon_y(page, img)
+                w_img, h_img = img.size
+                ch_css = page.evaluate(
+                    f"() => document.querySelector('{CANVAS_SEL}').clientHeight"
+                )
+                ratio = h_img / ch_css
+                px = img.load()
+                samples = 0
+                worst = 0.0
+                for frac in (0.025, 0.975):
+                    x_img = min(w_img - 1, int(w_img * frac))
+                    x_ndc = frac * 2 - 1
+                    yy = max(0, int(math.ceil(hy + 2)))
+                    while yy < h_img:
+                        y_ndc = 1 - (yy / ratio) / ch_css * 2
+                        dep = row_ground_depth(c, y, x_ndc, y_ndc)
+                        if dep is None or dep < f["far"]:
+                            break
+                        worst = max(worst, rgb_dist(px[x_img, yy], colors["fog"]))
+                        samples += 1
+                        yy += 4
+                # 身后有墙时 liftPitch 会把俯角抬到 50°–75°，地平线与所有「深度 ≥ 雾终点」的行
+                # 都在画面外，这类状态没有可取样的行，只做边缘深度判定
+                if samples:
+                    sampled += 1
+                ok_px = worst <= 8
+                if ok_edge and ok_px:
+                    passed += 1
+                else:
+                    md = "None" if min_depth is None else f"{min_depth:.1f}"
+                    fails.append(
+                        f"{tag}:minDepth={md} far={f['far']:.1f}"
+                        f" samples={samples} worst={worst:.1f}"
+                    )
+        details.append(
+            f"states={passed}/32 sampled={sampled}/32"
+            f" halfExtent={sorted(extents)} want={want_e}"
+        )
+        if fails:
+            details.append("fails=" + "; ".join(fails[:8]))
+        ok_err, msg = no_errors(errors)
+        ok = passed == 32 and sampled >= 8 and extents == {want_e} and ok_err
+        return ok, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+G8_STATES = [
+    ("follow15", "follow", 15),
+    ("follow40", "follow", 40),
+    ("first0", "first", 0),
+    ("firstUp20", "first", 20),
+    ("firstDown20", "first", -20),
+]
+
+
+def wait_camera_still(page, timeout=5000):
+    """等相机位置与朝向连续 3 次读数（间隔 100ms）都不再变化（相机平滑收敛）。"""
+    page.wait_for_function(
+        "() => { const c = window.__maze3d.cameraState;"
+        " const v = [...c.pos, ...c.forward];"
+        " const w = window.__camStill || (window.__camStill = { last: null, n: 0 });"
+        " const same = w.last && v.every((x, i) => Math.abs(x - w.last[i]) < 1e-4);"
+        " w.n = same ? w.n + 1 : 0; w.last = v;"
+        " if (w.n >= 3) { window.__camStill = null; return true; }"
+        " return false; }",
+        timeout=timeout,
+        polling=100,
+    )
+
+
+def check_g8(browser, base):
+    """地平线上下各 3px 颜色连续，没有色带接缝。"""
+    SHOTS.mkdir(parents=True, exist_ok=True)
+    details = []
+    all_ok = True
+    for tid in THEME_IDS:
+        page, errors = open_page(
+            browser,
+            f"{base}{PAGE}?seed={S}&size=10&debug=1",
+            viewport={"width": 1280, "height": 800},
+            init_script=theme_init(tid) + preset_storage("1", "1"),
+        )
+        notes = []
+        ok_theme = True
+        try:
+            wait_idle(page)
+            page.evaluate("() => window.__maze3d.teleportForTest(0, 0)")
+            for name, view, deg in G8_STATES:
+                if m3(page, "view") != view:
+                    page.click("#view-btn")
+                # 正值向下看
+                set_test_input(page, yaw=0.0, pitch=math.radians(deg))
+                set_test_input(page)
+                # 传送与改视角后相机要平滑收敛；没收敛就截图，地平线位置与截图对不上
+                wait_camera_still(page)
+                page.wait_for_timeout(400)
+                img = canvas_image(page)
+                img.save(SHOTS / f"horizon-{tid}-{name}.png")
+                hy = horizon_y(page, img)
+                h = img.size[1]
+                if hy - 3 < 0 or hy + 3 >= h:
+                    notes.append(f"{name}:offscreen({hy:.0f})")
+                    continue
+                cw, ch = page.evaluate(
+                    f"() => {{ const c = document.querySelector('{CANVAS_SEL}');"
+                    " return [c.clientWidth, c.clientHeight]; }"
+                )
+                ratio = img.size[0] / cw
+                px = img.load()
+                cols = 0
+                worst = 0.0
+                for i in range(16):
+                    x_css = cw * (i + 0.5) / 16
+                    ya = (hy - 3) / ratio
+                    yb = (hy + 3) / ratio
+                    hit = page.evaluate(
+                        "([x, ya, yb]) => window.__maze3d.screenHitsScene(x, ya)"
+                        " || window.__maze3d.screenHitsScene(x, yb)",
+                        [x_css, ya, yb],
+                    )
+                    if hit:
+                        continue
+                    x = min(img.size[0] - 1, int(x_css * ratio))
+                    d = rgb_dist(px[x, int(hy - 3)], px[x, int(hy + 3)])
+                    worst = max(worst, d)
+                    cols += 1
+                ok = cols >= 4 and worst <= 8
+                ok_theme = ok_theme and ok
+                notes.append(f"{name}:y={hy:.0f} cols={cols} worst={worst:.1f}")
+            ok_err, msg = no_errors(errors)
+            ok_theme = ok_theme and ok_err
+            all_ok = all_ok and ok_theme
+            details.append(f"{tid}(ok={ok_theme}): {' '.join(notes)} {msg}".strip())
+        finally:
+            close(page)
+    return all_ok, " | ".join(details)
+
+
 CHECKS = {
     "1": check_1,
     "10": check_10,
@@ -2568,6 +3172,11 @@ CHECKS = {
     "f8": check_f8,
     "f9": check_f9,
     "f10": check_f10,
+    "g1": check_g1,
+    "g3": check_g3,
+    "g3b": check_g3b,
+    "g7": check_g7,
+    "g8": check_g8,
 }
 
 
@@ -2636,7 +3245,8 @@ def main():
             + (f" --baseline-root {BASELINE_ROOT}" if BASELINE_ROOT else ""),
             f"自动检查：{'PASS' if all_ok else 'FAIL'}",
             f"基线代码：{BASELINE_ROOT}（merge-base）",
-            f"人工检查：待用户查看 {SHOTS} 下截图（四种主题的跟随 / 第一人称 / 面墙，及 follow-lowpitch-wall.png / follow-lowpitch-hug.png），确认斜视角与贴墙视角能看到小人",
+            f"人工检查：待用户查看 {SHOTS} 下四个主题的跟随 / 第一人称 / 面墙截图与 horizon-*.png，"
+            "确认迷宫外有主题地面、地平线无色带、视野外格子不是纯黑",
             "",
         ]
         RESULTS.write_text("\n".join(header + lines) + "\n", encoding="utf-8")

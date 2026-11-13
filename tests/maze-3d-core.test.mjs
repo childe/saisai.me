@@ -319,3 +319,66 @@ test('shouldDowngrade', () => {
   assert.equal(L.shouldDowngrade(Array(10).fill(50)), false);
   assert.equal(L.shouldDowngrade([]), false);
 });
+
+test('fogRing and floorKind fogEdge', () => {
+  const c = { row: 10, col: 10 };
+  const N = 3;
+  const kind = (cell) =>
+    L.floorKind(cell, 20, {
+      inView: L.isInFogView(c, cell, N),
+      onPath: false,
+      edge: L.fogRing(c, cell, N),
+    });
+  assert.equal(kind({ row: 13, col: 10 }), 'floor'); // 距离 N
+  assert.equal(kind({ row: 14, col: 7 }), 'fogEdge'); // 距离 N+1（含对角）
+  assert.equal(kind({ row: 6, col: 14 }), 'fogEdge');
+  assert.equal(kind({ row: 15, col: 10 }), 'fog'); // 距离 N+2
+  assert.equal(L.fogRing(c, { row: 13, col: 13 }, N), false);
+  assert.equal(L.fogRing(c, { row: 14, col: 14 }, N), true);
+  assert.equal(L.floorKind({ row: 0, col: 0 }, 10, { inView: false, onPath: true, edge: true }), 'path');
+  assert.equal(L.floorKind({ row: 0, col: 0 }, 10, { inView: false, onPath: false, edge: true }), 'fogEdge');
+  assert.equal(L.floorKind({ row: 0, col: 0 }, 10, { inView: true, onPath: false, edge: false }), 'start');
+  assert.equal(L.floorKind({ row: 0, col: 0 }, 10, { inView: false, onPath: false }), 'fog');
+});
+
+test('followFogRange', () => {
+  const r = L.followFogRange(8.6, 10);
+  const wantNear = 8.6 + 10 * Math.SQRT2;
+  assert.ok(Math.abs(r.near - wantNear) < 1e-9, `near ${r.near} vs ${wantNear}`);
+  assert.ok(Math.abs(r.far - (wantNear + 25)) < 1e-9, `far ${r.far} vs ${wantNear + 25}`);
+});
+
+test('groundFogFarMax', () => {
+  assert.ok(Math.abs(L.groundFogFarMax(20, 1.5) - 73.6865) < 1e-3);
+  assert.ok(Math.abs(L.groundFogFarMax(10, 1.5) - 59.5443) < 1e-3);
+  for (const s of [10, 15, 20]) assert.ok(L.groundFogFarMax(s, 1.5) < 200);
+  // 跟随上界不小于任何可达的跟随雾终点
+  for (const s of [10, 15, 20])
+    for (const r of [1, 5, 10, 25])
+      for (const z of [0.7, 1, 1.5]) {
+        const o = L.followOffset(r);
+        assert.ok(L.followFogRange(Math.hypot(o.h, o.d) * z, s).far <= L.groundFogFarMax(s, 1.5) + 1e-9);
+      }
+  // 第一人称上界
+  for (const s of [10, 15, 20]) assert.ok(Math.max(25.5, s * 1.5) <= L.groundFogFarMax(s, 1.5));
+});
+
+test('groundHalfExtent keeps every visible edge point beyond fog far', () => {
+  assert.equal(L.groundHalfExtent(L.groundFogFarMax(20, 1.5), 50, 3), 134);
+  assert.equal(L.groundHalfExtent(L.groundFogFarMax(20, 1.5), 50, 1), 91);
+  const tan = Math.tan((25 * Math.PI) / 180);
+  for (const s of [10, 15, 20])
+    for (const aspect of [1, 3, 4]) {
+      const F = L.groundFogFarMax(s, 1.5);
+      const E = L.groundHalfExtent(F, 50, aspect);
+      // 视锥四角与 9×9 网格方向：相机空间 v = (x·tan·aspect, y·tan, −1)，深度 = t（沿 −z）。
+      // 水平距离 ≤ 欧氏距离 = t·|v|；边缘点水平距离 ≥ E − 1，所以深度 ≥ (E − 1) / |v|。
+      for (let i = 0; i <= 8; i++)
+        for (let j = 0; j <= 8; j++) {
+          const x = -1 + i / 4;
+          const y = -1 + j / 4;
+          const len = Math.hypot(x * tan * aspect, y * tan, 1);
+          assert.ok((E - 1) / len >= F, `size=${s} aspect=${aspect} x=${x} y=${y}`);
+        }
+    }
+});

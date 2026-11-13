@@ -13,6 +13,8 @@ import {
   paintWall,
   paintWallTop,
   paintFloor,
+  paintGround,
+  mixHex,
 } from '../maze-3d/themes.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -119,7 +121,7 @@ test('wallShade deterministic in range', () => {
 });
 
 test('paint functions deterministic and draw', () => {
-  for (const fn of [paintWall, paintWallTop, paintFloor]) {
+  for (const fn of [paintWall, paintWallTop, paintFloor, paintGround]) {
     for (const id of [...THEME_IDS, 'nope']) {
       const a = fakeCtx();
       fn(id, a.ctx, 256);
@@ -141,4 +143,61 @@ test('themes.js has no three/DOM dependency', () => {
   const src = readFileSync(join(here, '..', 'maze-3d', 'themes.js'), 'utf8');
   assert.doesNotMatch(src, /\bimport\b/);
   assert.doesNotMatch(src, /\b(document|window|THREE)\b/);
+});
+
+const rgb = (h) => [(h >> 16) & 255, (h >> 8) & 255, h & 255];
+const dist = (a, b) => Math.hypot(...rgb(a).map((v, i) => v - rgb(b)[i]));
+// p 到线段 ab（RGB 空间）的最短距离
+function segDist(p, a, b) {
+  const P = rgb(p);
+  const A = rgb(a);
+  const B = rgb(b);
+  const ab = B.map((v, i) => v - A[i]);
+  const ap = P.map((v, i) => v - A[i]);
+  const len2 = ab.reduce((s, v) => s + v * v, 0);
+  let t = len2 === 0 ? 0 : ab.reduce((s, v, i) => s + v * ap[i], 0) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(...P.map((v, i) => v - (A[i] + ab[i] * t)));
+}
+
+test('ground and fogFloor colors', () => {
+  const isColor = (c) => Number.isInteger(c) && c >= 0 && c <= 0xffffff;
+  for (const id of THEME_IDS) {
+    const t = THEMES[id];
+    assert.ok(isColor(t.ground) && isColor(t.fogFloor), id);
+    for (const c of [t.floorBase, 0x4caf50, 0xe53935, 0xff6b6b]) {
+      assert.ok(dist(t.fogFloor, c) >= 60, `${id} fogFloor vs ${c.toString(16)}: ${dist(t.fogFloor, c)}`);
+    }
+    // 地面主色与天空渐变线段、迷宫地板都要分得开（g1 天空占比检查依赖它）
+    assert.ok(segDist(t.ground, t.sky.top, t.sky.bottom) >= 40, `${id} ground vs sky`);
+    assert.ok(dist(t.ground, t.floorBase) >= 60, `${id} ground vs floor`);
+  }
+});
+
+test('mixHex', () => {
+  assert.equal(mixHex(0x000000, 0xffffff, 0.5), 0x808080);
+  assert.equal(mixHex(0x123456, 0xabcdef, 0), 0x123456);
+  assert.equal(mixHex(0x123456, 0xabcdef, 1), 0xabcdef);
+  assert.equal(mixHex(0xff0000, 0x0000ff, 0.5), 0x800080);
+});
+
+test('paintGround deterministic and differs per theme', () => {
+  const runs = {};
+  for (const id of [...THEME_IDS, 'nope']) {
+    const a = fakeCtx();
+    paintGround(id, a.ctx, 256);
+    const b = fakeCtx();
+    paintGround(id, b.ctx, 256);
+    assert.ok(a.calls.some(([n]) => n === 'fillRect'));
+    assert.ok(a.calls.length >= 20);
+    assert.deepEqual(a.calls, b.calls);
+    runs[id] = JSON.stringify(a.calls);
+  }
+  assert.equal(runs.nope, runs.garden);
+  assert.equal(new Set(THEME_IDS.map((id) => runs[id])).size, 4);
+  // 第一笔铺底色就是主题 ground
+  for (const id of THEME_IDS) {
+    const hex = '#' + THEMES[id].ground.toString(16).padStart(6, '0');
+    assert.ok(runs[id].includes(JSON.stringify(hex)), `${id} base fill`);
+  }
 });
