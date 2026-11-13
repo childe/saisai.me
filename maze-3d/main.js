@@ -538,7 +538,8 @@ function start() {
       near = 0.5;
       far = fogOn ? fogRadius + 0.5 : size * 1.5;
     } else {
-      ({ near, far } = followFogRange(idealDistance(), size));
+      // 相机平滑收近期间实际距离 dCur 会大于理想距离，取两者较大者，过渡中迷宫也不被染色
+      ({ near, far } = followFogRange(Math.max(idealDistance(), dCur), size));
     }
     if (scene.fog) {
       scene.fog.near = near;

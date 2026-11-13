@@ -2677,7 +2677,7 @@ def sample_points(img, page, pts):
 FOG_MATCH_JS = """(() => {
   const f = M.sceneFog;
   if (!f) return { ok: false, fog: null };
-  const r = L.followFogRange(M.cameraIdealDistance, M.size);
+  const r = L.followFogRange(Math.max(M.cameraIdealDistance, M.cameraDistance), M.size);
   return {
     ok: Math.abs(f.near - r.near) < 1e-6 && Math.abs(f.far - r.far) < 1e-6,
     fog: f,
@@ -2804,6 +2804,62 @@ def check_g3(browser, base):
         return ok, (" ".join(details) + " " + msg).strip()
     finally:
         close(page)
+
+
+# 在页面里执行 action（'fog' 点开迷雾 / 'zoom' 一次拉到最近），随后逐帧记录
+# 场景雾 near 与实际相机距离；返回违反「near ≥ 实际距离 + size×√2」的帧
+FOG_TRANSITION_JS = """async (action) => {
+  const M = window.__maze3d;
+  const out = [];
+  const rec = (tag) => {
+    const f = M.sceneFog;
+    const need = M.cameraDistance + M.size * Math.SQRT2;
+    out.push({ tag, near: f ? f.near : null, dist: M.cameraDistance, need });
+  };
+  if (action === 'fog') document.getElementById('fog-btn').click();
+  else M.setZoomForTest(0.7);
+  rec('sync');
+  for (let i = 0; i < 90; i++) {
+    await new Promise((r) => requestAnimationFrame(r));
+    rec('frame' + i);
+  }
+  const bad = out.filter((o) => o.near === null || o.near < o.need - 1e-6);
+  return { n: out.length, bad: bad.slice(0, 3), badCount: bad.length,
+           first: out[0], last: out[out.length - 1] };
+}"""
+
+
+def check_g3b(browser, base):
+    """跟随视角相机平滑收近期间（开启小半径迷雾、快速拉近缩放），雾 near 每帧都覆盖整个迷宫。"""
+    details = []
+    for action in ("fog", "zoom"):
+        page, errors = open_page(
+            browser,
+            f"{base}{PAGE}?seed={S}&size=10&debug=1",
+            viewport={"width": 1280, "height": 800},
+            init_script=preset_storage("0" if action == "fog" else "1", "1"),
+        )
+        try:
+            wait_idle(page)
+            page.evaluate("() => window.__maze3d.setZoomForTest(1.5)")
+            set_test_input(page, pitch=math.radians(40))
+            set_test_input(page)
+            settle_camera(page)
+            wait_camera_still(page)
+            r = page.evaluate(FOG_TRANSITION_JS, action)
+            details.append(
+                f"{action}:frames={r['n']} bad={r['badCount']} first={r['first']}"
+                f" last={r['last']} sample={r['bad']}"
+            )
+            if r["badCount"] or r["first"]["dist"] <= r["last"]["dist"] + 1e-3:
+                # 第二个条件确保确实经历了收近过渡，否则检查没测到要测的阶段
+                return False, " ".join(details)
+            ok, msg = no_errors(errors)
+            if not ok:
+                return False, " ".join(details) + " " + msg
+        finally:
+            close(page)
+    return True, " ".join(details)
 
 
 def ground_fog_far_max(size, zoom_max=1.5):
@@ -3118,6 +3174,7 @@ CHECKS = {
     "f10": check_f10,
     "g1": check_g1,
     "g3": check_g3,
+    "g3b": check_g3b,
     "g7": check_g7,
     "g8": check_g8,
 }
