@@ -72,6 +72,9 @@ import {
   BEAM_HEIGHT,
   SPARK_COUNT,
   beamPulse,
+  CONFETTI_COUNT,
+  createConfetti,
+  confettiStep,
   segmentBlocked,
   HINT_INSET,
   BEAM_SAMPLE_HEIGHTS,
@@ -468,7 +471,53 @@ function start() {
     feet = null;
   }
 
+  // ---------- 通关彩带 ----------
+  // 2D canvas 盖在整个画面上；只在判胜那一刻启动，重建迷宫时立即取消
+  const confettiCanvas = $('confetti');
+  const confettiCtx = confettiCanvas.getContext('2d');
+  let confettiActive = false;
+  let confetti = null;
+
+  function startConfetti() {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const dpr = window.devicePixelRatio || 1;
+    confettiCanvas.width = Math.max(1, Math.round(window.innerWidth * dpr));
+    confettiCanvas.height = Math.max(1, Math.round(window.innerHeight * dpr));
+    confetti = createConfetti(CONFETTI_COUNT, confettiCanvas.width, confettiCanvas.height);
+    confettiActive = true;
+  }
+
+  function cancelConfetti() {
+    confettiActive = false;
+    confetti = null;
+    confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+  }
+
+  function drawConfetti(dt) {
+    if (!confettiActive) return;
+    const W = confettiCanvas.width;
+    const H = confettiCanvas.height;
+    confetti = confettiStep(confetti, dt, H);
+    confettiCtx.clearRect(0, 0, W, H);
+    if (confetti.done) {
+      confettiActive = false;
+      confetti = null;
+      return;
+    }
+    confettiCtx.globalAlpha = confetti.alpha;
+    for (const p of confetti.pieces) {
+      if (p.y < -p.h || p.y > H + p.h) continue;
+      confettiCtx.setTransform(1, 0, 0, 1, p.x, p.y);
+      confettiCtx.rotate(p.rot);
+      confettiCtx.fillStyle = p.color;
+      confettiCtx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+    }
+    confettiCtx.setTransform(1, 0, 0, 1, 0, 0);
+    confettiCtx.globalAlpha = 1;
+  }
+
   function buildMaze(newSeed, newSize) {
+    cancelConfetti();
     $('win').hidden = true;
     seed = newSeed;
     size = newSize;
@@ -1047,6 +1096,7 @@ function start() {
           state = 'won';
           playerState = { ...playerState, vx: 0, vz: 0 };
           $('win').hidden = false;
+          startConfetti();
         }
       }
     }
@@ -1273,6 +1323,7 @@ function start() {
     updateEndHint();
     if (view === 'first') drawMinimap();
     renderer.render(scene, camera);
+    drawConfetti(dt);
     rafId = requestAnimationFrame(frame);
   }
 
@@ -1520,6 +1571,9 @@ function start() {
     // 光柱对象的 visible 开关（不代表屏幕上看得见）
     get beamEnabled() {
       return beam.visible;
+    },
+    get confettiActive() {
+      return confettiActive;
     },
     // 终点方向提示的最近一次结果；x、y 为相对 #stage 左上角的 CSS 像素
     get endHint() {

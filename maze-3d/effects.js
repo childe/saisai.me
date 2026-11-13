@@ -103,3 +103,50 @@ export const SPARK_COUNT = 20;
 export function beamPulse(t) {
   return 0.85 + 0.15 * Math.sin(2 * t);
 }
+
+// ---------- 通关彩带 ----------
+export const CONFETTI_COUNT = 120;
+export const CONFETTI_HOLD = 2.5; // 秒：满不透明度播放时长
+export const CONFETTI_FADE = 0.5; // 秒：之后淡出时长
+const CONFETTI_COLORS = ['#e53935', '#ffd740', '#4caf50', '#29b6f6', '#ab47bc', '#ff9800'];
+
+// 在画面上方 [−height/2, 0] 生成 n 片彩带，坐标为画布像素；速度、重力都按画面高度缩放
+export function createConfetti(n, width, height, rand = Math.random) {
+  const pieces = [];
+  for (let i = 0; i < n; i++) {
+    pieces.push({
+      x: rand() * width,
+      y: -rand() * height * 0.5,
+      vx: (rand() - 0.5) * height * 0.15,
+      vy: height * (0.1 + rand() * 0.15),
+      rot: rand() * Math.PI * 2,
+      vr: (rand() - 0.5) * 12,
+      w: height * (0.012 + rand() * 0.01),
+      h: height * (0.02 + rand() * 0.015),
+      color: CONFETTI_COLORS[Math.floor(rand() * CONFETTI_COLORS.length)],
+    });
+  }
+  return { t: 0, pieces };
+}
+
+// 前进 dt 秒，返回新状态（不改入参）。alpha：HOLD 内为 1，之后 FADE 内线性降到 0；
+// done：alpha 为 0，或所有片都落到画面底部以下
+export function confettiStep(state, dt, height) {
+  const t = state.t + dt;
+  const gravity = height * 0.15;
+  const maxVy = height * 0.45;
+  const pieces = state.pieces.map((p) => {
+    const vy = Math.min(maxVy, p.vy + gravity * dt);
+    const rot = p.rot + p.vr * dt;
+    return {
+      ...p,
+      vy,
+      rot,
+      x: p.x + (p.vx + Math.sin(rot) * height * 0.04) * dt,
+      y: p.y + vy * dt,
+    };
+  });
+  const alpha = t <= CONFETTI_HOLD ? 1 : Math.max(0, 1 - (t - CONFETTI_HOLD) / CONFETTI_FADE);
+  const done = alpha === 0 || pieces.every((p) => p.y > height + 20);
+  return { t, pieces, alpha, done };
+}

@@ -17,6 +17,11 @@ import {
   BEAM_HEIGHT,
   SPARK_COUNT,
   beamPulse,
+  CONFETTI_COUNT,
+  CONFETTI_HOLD,
+  CONFETTI_FADE,
+  createConfetti,
+  confettiStep,
 } from '../maze-3d/effects.js';
 import { MazeGenerator } from '../maze-3d/maze-core.js';
 import { wallSegments } from '../maze-3d/game-logic.js';
@@ -164,4 +169,57 @@ test('beamPulse stays in [0.7, 1]', () => {
   assert.equal(BEAM_RADIUS, 0.35);
   assert.equal(BEAM_HEIGHT, 6);
   assert.equal(SPARK_COUNT, 20);
+});
+
+// ---------- Task 8: 通关彩带 ----------
+function lcg(seed) {
+  let s = seed >>> 0;
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+test('confetti constants', () => {
+  assert.equal(CONFETTI_COUNT, 120);
+  assert.equal(CONFETTI_HOLD, 2.5);
+  assert.equal(CONFETTI_FADE, 0.5);
+});
+
+test('createConfetti makes n pieces above the screen', () => {
+  const s = createConfetti(120, 800, 600, lcg(1));
+  assert.equal(s.t, 0);
+  assert.equal(s.pieces.length, 120);
+  for (const p of s.pieces) {
+    assert.ok(p.y >= -300 && p.y <= 0, `y=${p.y}`);
+    assert.ok(p.x >= 0 && p.x <= 800, `x=${p.x}`);
+    for (const k of ['x', 'y', 'vx', 'vy', 'rot', 'vr', 'w', 'h']) assert.ok(Number.isFinite(p[k]), k);
+    assert.equal(typeof p.color, 'string');
+  }
+});
+
+test('confettiStep holds, fades and finishes', () => {
+  let s = createConfetti(120, 800, 600, lcg(2));
+  while (s.t < 1 - 1e-9) s = confettiStep(s, 1 / 60, 600);
+  assert.equal(s.done, false);
+  assert.equal(s.alpha, 1);
+  while (s.t < 3.0) s = confettiStep(s, 1 / 60, 600);
+  assert.equal(s.done, true);
+  assert.equal(s.alpha, 0);
+});
+
+test('confettiStep finishes when all pieces fell below the screen', () => {
+  const s = createConfetti(120, 800, 600, lcg(3));
+  const low = { ...s, pieces: s.pieces.map((p) => ({ ...p, y: 700 })) };
+  assert.equal(confettiStep(low, 0.016, 600).done, true);
+});
+
+test('confettiStep does not mutate its input', () => {
+  const s = createConfetti(120, 800, 600, lcg(4));
+  const y0 = s.pieces[0].y;
+  const t0 = s.t;
+  const n = confettiStep(s, 0.1, 600);
+  assert.equal(s.pieces[0].y, y0);
+  assert.equal(s.t, t0);
+  assert.notEqual(n.pieces[0].y, y0);
 });

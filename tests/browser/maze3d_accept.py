@@ -3889,6 +3889,121 @@ def check_p5(browser, base):
     return ok and ok_err, (" | ".join(details) + " " + msg).strip()
 
 
+WON_WATCH_JS = """() => {
+  window.__wonWatch = { values: [], done: false, t0: null };
+  const w = window.__wonWatch;
+  const tick = () => {
+    const M = window.__maze3d;
+    if (M.state === 'won') {
+      if (w.t0 === null) w.t0 = performance.now();
+      w.values.push(M.confettiActive);
+      if (performance.now() - w.t0 >= 600) { w.done = true; return; }
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}"""
+
+CONFETTI_CLEAR_JS = """() => {
+  const c = document.getElementById('confetti');
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  for (let i = 3; i < d.length; i += 4) if (d[i] !== 0) return false;
+  return true;
+}"""
+
+
+def check_p6(browser, base):
+    """通关彩带：判胜时启动、约 3 秒内自己停；播放中途点「再来一局」立即停、画布清空、按钮
+    可点；系统开启「减少动态效果」时不播放。"""
+    details = []
+    ok = True
+    errs = []
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    try:
+        wait_idle(page)
+        # 1. 判胜启动，3.5 秒内停
+        if not walk_to_exit(page):
+            return False, "1:did not win"
+        active = m3(page, "confettiActive")
+        t0 = time.time()
+        stopped = True
+        try:
+            page.wait_for_function(
+                "() => !window.__maze3d.confettiActive", timeout=3500
+            )
+        except Exception:
+            stopped = False
+        took = time.time() - t0
+        clear1 = page.evaluate(CONFETTI_CLEAR_JS)
+        good = active is True and stopped and took <= 3.5 and clear1
+        ok = ok and good
+        details.append(
+            f"1:active={active} stopped={stopped} took={took:.2f}s clear={clear1}"
+        )
+
+        # 2. 播放中途点「再来一局」
+        page.click("#again-btn")
+        wait_idle(page)
+        if not walk_to_exit(page):
+            return False, " ".join(details) + " 2:did not win"
+        t_win = time.time()
+        hit = page.evaluate(
+            "() => { const b = document.getElementById('again-btn').getBoundingClientRect();"
+            " const el = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);"
+            " return !!el && (el.id === 'again-btn' || !!el.closest('#again-btn')); }"
+        )
+        active2 = m3(page, "confettiActive")
+        within = time.time() - t_win
+        page.click("#again-btn")
+        after = page.evaluate(
+            "() => ({ active: window.__maze3d.confettiActive,"
+            " winHidden: document.getElementById('win').hidden })"
+        )
+        clear2 = page.evaluate(CONFETTI_CLEAR_JS)
+        good = (
+            hit
+            and active2 is True
+            and after["active"] is False
+            and after["winHidden"]
+            and clear2
+        )
+        ok = ok and good
+        details.append(
+            f"2:hit={hit} activeBefore={active2} readAt+{within * 1000 + 200:.0f}ms"
+            f" after={after} clear={clear2}"
+        )
+        errs += errors
+    finally:
+        close(page)
+
+    # 3. 减少动态效果时不播放
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        reduced_motion="reduce",
+    )
+    try:
+        wait_idle(page)
+        page.evaluate(WON_WATCH_JS)
+        won = walk_to_exit(page)
+        page.wait_for_function("() => window.__wonWatch.done", timeout=5000)
+        frames = page.evaluate("() => window.__wonWatch.values")
+        samples = []
+        for _ in range(4):
+            samples.append(m3(page, "confettiActive"))
+            page.wait_for_timeout(100)
+        good = won and len(frames) > 0 and not any(frames) and not any(samples)
+        ok = ok and good
+        details.append(
+            f"3:reduce won={won} frames={len(frames)} anyActive={any(frames) or any(samples)}"
+        )
+        errs += errors
+    finally:
+        close(page)
+    ok_err, msg = no_errors(errs)
+    return ok and ok_err, (" ".join(details) + " " + msg).strip()
+
+
 CHECKS = {
     "1": check_1,
     "10": check_10,
@@ -3937,6 +4052,7 @@ CHECKS = {
     "p4a": check_p4a,
     "p4b": check_p4b,
     "p5": check_p5,
+    "p6": check_p6,
 }
 
 

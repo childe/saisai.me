@@ -260,6 +260,16 @@
             }
         }
 
+        /* 通关彩带：覆盖整个画面，在 #win（z-index 10）之下，不挡指针 */
+        #confetti {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 9;
+        }
+
         #win {
             position: fixed;
             inset: 0;
@@ -400,6 +410,7 @@
         <div id="perf" hidden></div>
     </div>
 
+    <canvas id="confetti"></canvas>
     <div id="win" hidden>
         <div class="win-box">
             <p id="win-text">恭喜！你成功走出了迷宫！</p>
