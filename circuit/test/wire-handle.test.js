@@ -55,3 +55,20 @@ test('a node has no body to grab', () => {
   assert.deepEqual(hitTest(c, [20.2, 15]), { kind: 'terminal', part: 'N', term: 'o' });
   assert.equal(hitTest(c, [20.9, 15]), null);
 });
+
+test('dragSegment keeps a half-grid segment in place when moved only along it (all rotations)', () => {
+  // 自连导线的 U 形底边在半格上（SELF_WIRE_OFFSET=1.5）；沿线段方向拖动不应跳到整格
+  const down = [[4, 8], [4, 9.5], [8, 9.5], [8, 8]]; // rot 0：底边水平 y=9.5
+  assert.deepEqual(dragSegment(down, 1, [3, 0]), [[4, 9.5], [8, 9.5]]);
+  assert.deepEqual(dragSegment(down, 1, [-2, 0.3]), [[4, 9.5], [8, 9.5]]);
+  assert.deepEqual(dragSegment(down, 1, [0, 1.2]), [[4, 10.5], [8, 10.5]]);
+  const up = [[8, 8], [8, 6.5], [4, 6.5], [4, 8]]; // rot 2：底边水平 y=6.5
+  assert.deepEqual(dragSegment(up, 1, [2, 0]), [[8, 6.5], [4, 6.5]]);
+  const left = [[6, 6], [4.5, 6], [4.5, 10], [6, 10]]; // rot 1：竖直 x=4.5
+  assert.deepEqual(dragSegment(left, 1, [0, 3]), [[4.5, 6], [4.5, 10]]);
+  assert.deepEqual(dragSegment(left, 1, [-1.1, 0]), [[3.5, 6], [3.5, 10]]);
+  const right = [[6, 10], [7.5, 10], [7.5, 6], [6, 6]]; // rot 3：竖直 x=7.5
+  assert.deepEqual(dragSegment(right, 1, [0, -2]), [[7.5, 10], [7.5, 6]]);
+  // 半格线段仍限制在画布内
+  assert.deepEqual(dragSegment(down, 1, [0, 30]), [[4, 17.5], [8, 17.5]]);
+});

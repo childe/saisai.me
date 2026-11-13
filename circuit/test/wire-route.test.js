@@ -64,3 +64,16 @@ test('splitRoute / joinRoute', () => {
   assert.deepEqual(joinRoute([[3, 5], [8, 5]], [[8, 5], [13, 5], [13, 10]]), [[13, 5]]);
   assert.deepEqual(joinRoute([[3, 5], [13, 5], [13, 8]], [[13, 8], [13, 10]]), [[13, 5]]);
 });
+
+test('splitRoute keeps a later corner that revisits the split point', () => {
+  // 端点拖线可生成两次经过 (8,5) 的路线；只去掉分割处紧邻的那一个，后面再次经过的拐点保留
+  const pts = [[3, 5], [8, 5], [8, 2], [4, 2], [4, 10], [8, 10], [8, 5], [13, 5], [13, 12]];
+  const sp = splitRoute(pts, [8, 5]);
+  assert.deepEqual(sp, { via1: [], via2: [[8, 2], [4, 2], [4, 10], [8, 10], [8, 5], [13, 5]] });
+  // 两段重新拼接后与原路线一致
+  const merged = joinRoute([pts[0], ...sp.via1, [8, 5]], [[8, 5], ...sp.via2, pts.at(-1)]);
+  assert.deepEqual(merged, pts.slice(1, -1));
+  // 在第二次经过的线段内部分割，同样保持路线
+  const sp2 = splitRoute(pts, [6, 10]);
+  assert.deepEqual(sp2, { via1: [[8, 5], [8, 2], [4, 2], [4, 10]], via2: [[8, 10], [8, 5], [13, 5]] });
+});

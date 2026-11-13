@@ -99,8 +99,11 @@ export function splitRoute(points, P) {
   if (samePt(P, points[0]) || samePt(P, points.at(-1))) return null;
   for (let i = 0; i + 1 < points.length; i++) {
     if (distToSegment(P, points[i], points[i + 1]) > 1e-9) continue;
-    const keep = q => !samePt(q, P);
-    return { via1: points.slice(1, i + 1).filter(keep), via2: points.slice(i + 1, -1).filter(keep) };
+    // 只去掉紧挨分割处、与 P 重合的那个拐点；路线后面再次经过 P 的拐点要保留。
+    const via1 = points.slice(1, i + 1), via2 = points.slice(i + 1, -1);
+    if (via1.length && samePt(via1.at(-1), P)) via1.pop();
+    if (via2.length && samePt(via2[0], P)) via2.shift();
+    return { via1, via2 };
   }
   return null;
 }
@@ -213,19 +216,22 @@ export function tracePath(trace, end) {
   return simplifyRoute([...pts.slice(0, -1), ...tail]);
 }
 
-// 拖动折线的第 seg 段：垂直于该段平移 delta（相对按下位置），取整到格点；返回新的拐点。
+// 垂直位移取整后叠加到原坐标上（保留半格线段的偏移），并限制在 [0, max] 内。
+const shiftBy = (v, d, max) => v + clampV(Math.round(d), Math.ceil(-v), Math.floor(max - v));
+
+// 拖动折线的第 seg 段：垂直于该段平移 delta（相对按下位置），位移取整到整格；返回新的拐点。
 export function dragSegment(points, seg, delta) {
   const a = points[seg], b = points[seg + 1];
   const last = points.length - 2;
   const pts = points.map(p => [...p]);
   let ins0 = null, ins1 = null;
   if (a[1] === b[1]) {
-    const ny = clampV(Math.round(a[1] + delta[1]), 0, BOARD.h);
+    const ny = shiftBy(a[1], delta[1], BOARD.h);
     pts[seg][1] = ny; pts[seg + 1][1] = ny;
     if (seg === 0) ins0 = [a[0], ny];
     if (seg === last) ins1 = [b[0], ny];
   } else {
-    const nx = clampV(Math.round(a[0] + delta[0]), 0, BOARD.w);
+    const nx = shiftBy(a[0], delta[0], BOARD.w);
     pts[seg][0] = nx; pts[seg + 1][0] = nx;
     if (seg === 0) ins0 = [nx, a[1]];
     if (seg === last) ins1 = [nx, b[1]];
