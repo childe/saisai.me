@@ -3472,6 +3472,39 @@ def beam_rect(cam, cw, ch):
     return (cx - half, min(top[1], bot[1]), cx + half, max(top[1], bot[1]))
 
 
+def find_beam_cell(page, cell=None):
+    """cell 为 None 时在距终点 Chebyshev 2–8 的格里由远到近找第一个「跟随视角 15° 朝终点时，
+    光柱 1.5–3 段及左右对照区都在画面内」的格（按投影计算，不依赖提示逻辑）；返回
+    (格, 光柱矩形, canvas CSS 宽)，找不到返回 (None, None, None)。页面停在该格的朝终点状态。"""
+    if cell is None:
+        cands = sorted(
+            (
+                (r, c)
+                for r in range(10)
+                for c in range(10)
+                if 2 <= max(9 - r, 9 - c) <= 8
+            ),
+            key=lambda rc: -math.hypot(9 - rc[0], 9 - rc[1]),
+        )
+    else:
+        cands = [tuple(cell)]
+    for rc in cands:
+        cam, cw, ch = beam_view_setup(page, *rc)
+        rect = beam_rect(cam, cw, ch)
+        if rect is None:
+            continue
+        w = rect[2] - rect[0]
+        inside = (
+            rect[0] - 2 * w >= 0
+            and rect[2] + 2 * w <= cw
+            and rect[1] >= 0
+            and rect[3] <= ch
+        )
+        if inside or cell is not None:
+            return rc, rect, cw
+    return None, None, None
+
+
 def beam_view_round(browser, base, cell=None, shot=None):
     """p4a 的场景：迷雾开、视野 1（终点在迷雾外），跟随视角 15° 俯角朝终点。cell 为 None 时
     在距终点 Chebyshev 2–8 的格里由远到近找第一个「光柱 1.5–3 段及左右对照区都在画面内」的格
@@ -3485,34 +3518,7 @@ def beam_view_round(browser, base, cell=None, shot=None):
     )
     try:
         wait_idle(page)
-        if cell is None:
-            cands = sorted(
-                (
-                    (r, c)
-                    for r in range(10)
-                    for c in range(10)
-                    if 2 <= max(9 - r, 9 - c) <= 8
-                ),
-                key=lambda rc: -math.hypot(9 - rc[0], 9 - rc[1]),
-            )
-        else:
-            cands = [tuple(cell)]
-        chosen = None
-        for rc in cands:
-            cam, cw, ch = beam_view_setup(page, *rc)
-            rect = beam_rect(cam, cw, ch)
-            if rect is None:
-                continue
-            w = rect[2] - rect[0]
-            inside = (
-                rect[0] - 2 * w >= 0
-                and rect[2] + 2 * w <= cw
-                and rect[1] >= 0
-                and rect[3] <= ch
-            )
-            if inside or cell is not None:
-                chosen = rc
-                break
+        chosen, rect, cw = find_beam_cell(page, cell)
         if chosen is None:
             return {"ok": False, "why": "no cell with beam in view", "errors": errors}
         img = canvas_image(page)
@@ -3552,7 +3558,9 @@ def check_p4a(browser, base):
         f" left={r['left']:.1f} right={r['right']:.1f}"
         f" rect=({', '.join(f'{v:.0f}' for v in r['rect'])})"
     )
-    ok = r["beamEnabled"] is True
+    hint = r["endHint"] or {}
+    detail += f" endHint.mode={hint.get('mode')}"
+    ok = r["beamEnabled"] is True and hint.get("mode") == "hidden"
     if BASELINE_ROOT:
         proc, bbase = start_server(BASELINE_ROOT)
         try:
@@ -3569,6 +3577,316 @@ def check_p4a(browser, base):
         detail += " (needs --baseline-root)"
     ok_err, msg = no_errors(r["errors"])
     return ok and ok_err, (detail + " " + msg).strip()
+
+
+HINT_INSET = 28  # 与 effects.js 一致
+
+
+def end_hint(page):
+    return m3(page, "endHint")
+
+
+def hint_dom(page):
+    """两个提示元素的可见性、距离文字与 pointer-events。"""
+    return page.evaluate(
+        "() => { const out = {};"
+        " for (const id of ['end-arrow', 'end-marker']) {"
+        "  const el = document.getElementById(id);"
+        "  const cs = getComputedStyle(el);"
+        "  const kids = [...el.querySelectorAll('*')].map((k) => getComputedStyle(k).pointerEvents);"
+        "  out[id] = { visible: !el.hidden && cs.display !== 'none', text: el.querySelector('.end-dist').textContent,"
+        "   pe: cs.pointerEvents, kidsPe: kids }; }"
+        " const st = document.getElementById('stage');"
+        " out.W = st.clientWidth; out.H = st.clientHeight; return out; }"
+    )
+
+
+def hint_page(browser, base, on, radius):
+    """1280×800、size=10、指定迷雾设置打开页面并等到 idle；返回 (page, errors)。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 1280, "height": 800},
+        init_script=preset_storage(on, radius),
+    )
+    wait_idle(page)
+    return page, errors
+
+
+def wait_frames(page, n=2):
+    page.evaluate(
+        "(n) => new Promise((res) => { const f = (k) => k <= 0 ? res() :"
+        " requestAnimationFrame(() => f(k - 1)); f(n); })",
+        n,
+    )
+
+
+def back_to_end_state(page, row=0, col=0):
+    """跟随视角，小人在 (row, col)，终点在右后方（yaw = yaw_e − (π − 0.8)）。等 300ms 后再等
+    帧推进、相机静止（页面刚加载时头几百毫秒可能还没出新帧，读到的是旧状态）。"""
+    page.evaluate(f"() => window.__maze3d.teleportForTest({row}, {col})")
+    face_yaw(page, end_yaw_from(row, col) - (math.pi - 0.8))
+    page.wait_for_timeout(300)
+    wait_frames(page, 5)
+    wait_camera_still(page)
+    wait_frames(page)
+
+
+def check_p4b(browser, base):
+    """光柱在视锥外：跟随视角背对终点（终点在右后方）时，画面右侧边框出现箭头与「13 格」，
+    标记不出现，光柱仍开着。"""
+    page, errors = hint_page(browser, base, "1", "1")
+    try:
+        back_to_end_state(page)
+        h = end_hint(page)
+        dom = hint_dom(page)
+        W = dom["W"]
+        dist = round(math.hypot(9, 9))
+        beam = m3(page, "beamEnabled")
+        ok = (
+            beam is True
+            and h["mode"] == "edge"
+            and h["x"] > W / 2
+            and math.cos(h["angle"]) > 0
+            and dom["end-arrow"]["visible"]
+            and not dom["end-marker"]["visible"]
+            and dom["end-arrow"]["text"] == f"{h['distance']} 格"
+            and h["distance"] == dist == 13
+        )
+        detail = (
+            f"beamEnabled={beam} endHint={h} W={W} arrow={dom['end-arrow']['visible']}"
+            f" marker={dom['end-marker']['visible']} text={dom['end-arrow']['text']!r} want={dist}"
+        )
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (detail + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def p5_hidden(browser, base):
+    """a. 背对终点为 edge；转向终点使光柱可见后为 hidden，两个提示元素都不可见。
+    起点格默认 40° 俯角朝终点时光柱整根在画面上沿之外（edge 是正确结果），所以先按 p4a 的
+    投影规则找一个「15° 朝终点时光柱在画面内」的格作为前提。"""
+    page, errors = hint_page(browser, base, "1", "1")
+    try:
+        cell, _, _ = find_beam_cell(page)
+        if cell is None:
+            return False, "a:no cell with beam in view", errors
+        back_to_end_state(page, *cell)
+        h0 = end_hint(page)
+        set_test_input(page, yaw=end_yaw_from(*cell), pitch=math.radians(15))
+        set_test_input(page)
+        wait_frames(page, 5)
+        wait_camera_still(page)
+        wait_frames(page)
+        m1 = end_hint(page)["mode"]
+        dom = hint_dom(page)
+        ok = (
+            h0["mode"] == "edge"
+            and math.cos(h0["angle"]) > 0
+            and m1 == "hidden"
+            and not dom["end-arrow"]["visible"]
+            and not dom["end-marker"]["visible"]
+        )
+        return (
+            ok,
+            f"a:cell={cell} {h0['mode']}(angle={h0['angle']:.2f})->{m1}"
+            f" arrow={dom['end-arrow']['visible']} marker={dom['end-marker']['visible']}",
+            errors,
+        )
+    finally:
+        close(page)
+
+
+def p5_marker(browser, base):
+    """b. 迷雾关、第一人称、pitch 0：由远到近找第一个终点被墙挡住但在画面内的格（marker），
+    标记位置在内缩边框内，标记可见、箭头不可见。"""
+    page, errors = hint_page(browser, base, "0", "5")
+    try:
+        page.click("#view-btn")
+        cells = sorted(
+            (
+                (r, c)
+                for r in range(10)
+                for c in range(10)
+                if math.hypot(9 - r, 9 - c) >= 5
+            ),
+            key=lambda rc: -math.hypot(9 - rc[0], 9 - rc[1]),
+        )
+        found = None
+        tried = 0
+        for r, c in cells:
+            tried += 1
+            page.evaluate(f"() => window.__maze3d.teleportForTest({r}, {c})")
+            set_test_input(page, yaw=end_yaw_from(r, c), pitch=0)
+            set_test_input(page)
+            wait_frames(page)
+            h = end_hint(page)
+            if h["mode"] == "marker":
+                found = ((r, c), h)
+                break
+        if not found:
+            return False, f"b:no marker cell (tried {tried})", errors
+        (cell, h) = found
+        dom = hint_dom(page)
+        W, H, I = dom["W"], dom["H"], HINT_INSET
+        ok = (
+            I <= h["x"] <= W - I
+            and I <= h["y"] <= H - I
+            and dom["end-marker"]["visible"]
+            and not dom["end-arrow"]["visible"]
+        )
+        return (
+            ok,
+            f"b:cell={cell} tried={tried} endHint={h} W={W} H={H}"
+            f" marker={dom['end-marker']['visible']} arrow={dom['end-arrow']['visible']}",
+            errors,
+        )
+    finally:
+        close(page)
+
+
+def pixels_changed(a, b, thresh=20):
+    import numpy as np
+
+    x = np.asarray(a, dtype=np.int32)
+    y = np.asarray(b, dtype=np.int32)
+    d = np.sqrt(((x - y) ** 2).sum(axis=2))
+    return int((d >= thresh).sum())
+
+
+def p5_consistency(browser, base):
+    """c. 跟随视角、迷雾关、15° 俯角、缩放 0.7：对距终点 Chebyshev 2–4 的格（最多 12 个）朝终点，
+    比较光柱开 / 关两张截图；「看得见光柱」（≥ 30 像素 RGB 距离 ≥ 20）必须与 mode == 'hidden' 一致。"""
+    page, errors = hint_page(browser, base, "0", "5")
+    try:
+        page.evaluate("() => window.__maze3d.setZoomForTest(0.7)")
+        cells = sorted(
+            (
+                (r, c)
+                for r in range(10)
+                for c in range(10)
+                if 2 <= max(9 - r, 9 - c) <= 4
+            ),
+            key=lambda rc: (-max(9 - rc[0], 9 - rc[1]), rc),
+        )[:12]
+        ok = True
+        rows = []
+        counts = {"hidden": 0, "marker": 0, "edge": 0}
+        for r, c in cells:
+            page.evaluate(f"() => window.__maze3d.teleportForTest({r}, {c})")
+            set_test_input(page, yaw=end_yaw_from(r, c), pitch=math.radians(15))
+            set_test_input(page)
+            wait_camera_still(page)
+            page.evaluate("() => window.__maze3d.setBeamForTest({ paused: true })")
+            wait_frames(page)
+            mode = end_hint(page)["mode"]
+            a = canvas_image(page)
+            page.evaluate("() => window.__maze3d.setBeamForTest({ visible: false })")
+            wait_frames(page)
+            b = canvas_image(page)
+            page.evaluate(
+                "() => window.__maze3d.setBeamForTest({ visible: true, paused: false })"
+            )
+            n = pixels_changed(a, b)
+            seen = n >= 30
+            counts[mode] = counts.get(mode, 0) + 1
+            good = (mode == "hidden") == seen
+            ok = ok and good
+            rows.append(f"({r},{c}):{mode}/{n}{'' if good else '!'}")
+        return ok, f"c:{counts} " + " ".join(rows), errors
+    finally:
+        close(page)
+
+
+def p5_cross_plane(browser, base):
+    """d. 第一人称在起点原地拖动转三圈多：每帧箭头坐标与角度都有限，yaw 总变化 ≥ 2π。"""
+    page, errors = hint_page(browser, base, "1", "1")
+    try:
+        page.click("#view-btn")
+        page.evaluate("() => window.__maze3d.teleportForTest(0, 0)")
+        box = stage_box(page)
+        cx, cy = box["x"] + box["width"] / 2 - 225, box["y"] + box["height"] / 2
+        y0 = m3(page, "yaw")
+
+        def drag():
+            for _ in range(3):
+                page.mouse.move(cx, cy)
+                page.mouse.down()
+                page.mouse.move(cx + 450, cy, steps=30)
+                page.mouse.up()
+                page.mouse.move(cx, cy)
+
+        vals = record_frames(page, "endHint", 6000, during=drag)
+        y1 = m3(page, "yaw")
+        bad = [
+            v
+            for v in vals
+            if not all(
+                isinstance(v.get(k), (int, float)) and math.isfinite(v[k])
+                for k in ("x", "y", "angle")
+            )
+        ]
+        modes = sorted({v["mode"] for v in vals})
+        ok = len(vals) > 0 and not bad and abs(y1 - y0) >= 2 * math.pi
+        return (
+            ok,
+            f"d:frames={len(vals)} bad={len(bad)} dyaw={y1 - y0:.2f} modes={modes}",
+            errors,
+        )
+    finally:
+        close(page)
+
+
+def p5_pointer(browser, base):
+    """e. 在箭头位置按下拖动 100px 仍能转视角；两个提示元素 pointer-events 都是 none。"""
+    page, errors = hint_page(browser, base, "1", "1")
+    try:
+        back_to_end_state(page)
+        h = end_hint(page)
+        box = stage_box(page)
+        px, py = box["x"] + h["x"], box["y"] + h["y"]
+        y0 = m3(page, "yaw")
+        page.mouse.move(px, py)
+        page.mouse.down()
+        page.mouse.move(px - 100, py, steps=10)
+        page.mouse.up()
+        page.wait_for_timeout(100)
+        y1 = m3(page, "yaw")
+        dom = hint_dom(page)
+        pes = [dom[k]["pe"] for k in ("end-arrow", "end-marker")] + [
+            x for k in ("end-arrow", "end-marker") for x in dom[k]["kidsPe"]
+        ]
+        ok = (
+            h["mode"] == "edge"
+            and abs(y1 - y0) >= 0.4
+            and all(p == "none" for p in pes)
+        )
+        return (
+            ok,
+            f"e:mode={h['mode']} at=({px:.0f},{py:.0f}) dyaw={y1 - y0:.2f} pointerEvents={pes}",
+            errors,
+        )
+    finally:
+        close(page)
+
+
+def check_p5(browser, base):
+    """终点方向提示的各状态：a 转向终点后隐藏；b 被墙挡住时出标记；c 提示与截图里光柱
+    是否看得见一致；d 第一人称原地转圈时箭头坐标始终有限；e 提示不挡指针。"""
+    ok = True
+    details = []
+    errs = []
+    for fn in (p5_hidden, p5_marker, p5_consistency, p5_cross_plane, p5_pointer):
+        try:
+            good, d, e = fn(browser, base)
+        except Exception as exc:
+            good, d, e = False, f"{fn.__name__}: {type(exc).__name__}: {exc}", []
+        ok = ok and good
+        details.append(("" if good else "FAIL ") + d)
+        errs += e
+    ok_err, msg = no_errors(errs)
+    return ok and ok_err, (" | ".join(details) + " " + msg).strip()
 
 
 CHECKS = {
@@ -3617,6 +3935,8 @@ CHECKS = {
     "p2": check_p2,
     "p3": check_p3,
     "p4a": check_p4a,
+    "p4b": check_p4b,
+    "p5": check_p5,
 }
 
 

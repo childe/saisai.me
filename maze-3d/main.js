@@ -72,6 +72,11 @@ import {
   BEAM_HEIGHT,
   SPARK_COUNT,
   beamPulse,
+  segmentBlocked,
+  HINT_INSET,
+  BEAM_SAMPLE_HEIGHTS,
+  edgeArrow,
+  endHintMode,
 } from './effects.js';
 
 const EYE_HEIGHT = 0.45;
@@ -582,10 +587,12 @@ function start() {
 
   function applyWallVisibility() {
     const segVisible = new Array(segments.length);
+    const visibleSegs = [];
     for (let i = 0; i < segments.length; i++) {
       const s = segments[i];
       const visible = !fogOn || wallInView(s, display, fogRadius);
       segVisible[i] = visible;
+      if (visible) visibleSegs.push(s);
       tmpPos.set(s.x, WALL_HEIGHT / 2, s.z);
       tmpQuat.setFromAxisAngle(yAxis, s.along === 'z' ? Math.PI / 2 : 0);
       tmpScale.setScalar(visible ? 1 : 0);
@@ -603,6 +610,75 @@ function start() {
       feet.setMatrixAt(i, tmpMatrix);
     }
     feet.instanceMatrix.needsUpdate = true;
+    // 终点方向提示的遮挡判断只算看得见的墙（不外扩）
+    hintBoxes = wallBoxes3d(segmentBoxes(visibleSegs), WALL_HEIGHT, 0);
+  }
+
+  // ---------- 终点方向提示 ----------
+  // 光柱采样点都看不见时提示终点方向：都在画面外 → 边框箭头；在画面内但被墙挡住 → 标记
+  let hintBoxes = [];
+  const endArrowEl = $('end-arrow');
+  const endArrowHead = endArrowEl.querySelector('.end-arrow-head');
+  const endMarkerEl = $('end-marker');
+  const endDistEls = [...document.querySelectorAll('#end-arrow .end-dist, #end-marker .end-dist')];
+  const endHint = { mode: 'hidden', x: 0, y: 0, angle: 0, distance: 0 };
+  let shownHintMode = null;
+  let shownHintDist = null;
+  const hintWorld = new THREE.Vector3();
+  const hintCam = new THREE.Vector3();
+  const hintNdc = new THREE.Vector3();
+
+  // 在 updateCamera 之后、render 之前调用
+  function updateEndHint() {
+    const W = stage.clientWidth;
+    const H = stage.clientHeight;
+    const ex = size - 0.5;
+    const ez = size - 0.5;
+    camera.updateMatrixWorld();
+    const samples = [];
+    let low = null; // 高度 0.4 的采样点在相机空间的坐标，供 edgeArrow
+    let top = null; // 画面内最高采样点的 CSS 像素位置，供标记
+    for (const h of BEAM_SAMPLE_HEIGHTS) {
+      hintWorld.set(ex, h, ez);
+      hintCam.copy(hintWorld).applyMatrix4(camera.matrixWorldInverse);
+      if (low === null) low = { x: hintCam.x, y: hintCam.y, z: hintCam.z };
+      let inView = false;
+      if (-hintCam.z > camera.near) {
+        hintNdc.copy(hintCam).applyMatrix4(camera.projectionMatrix);
+        inView = Math.abs(hintNdc.x) <= 1 && Math.abs(hintNdc.y) <= 1;
+        if (inView) top = { x: ((hintNdc.x + 1) / 2) * W, y: ((1 - hintNdc.y) / 2) * H };
+      }
+      samples.push({ inView, occluded: segmentBlocked(camera.position, hintWorld, hintBoxes) });
+    }
+    const mode = state === 'won' ? 'hidden' : endHintMode(samples);
+    const arrow = edgeArrow(low, W, H, HINT_INSET);
+    endHint.mode = mode;
+    endHint.angle = arrow.angle;
+    endHint.distance = Math.round(Math.hypot(ex - playerState.x, ez - playerState.z));
+    if (mode === 'marker' && top) {
+      endHint.x = Math.min(W - HINT_INSET, Math.max(HINT_INSET, top.x));
+      endHint.y = Math.min(H - HINT_INSET, Math.max(HINT_INSET, top.y));
+    } else {
+      endHint.x = arrow.x;
+      endHint.y = arrow.y;
+    }
+
+    if (mode !== shownHintMode) {
+      endArrowEl.hidden = mode !== 'edge';
+      endMarkerEl.hidden = mode !== 'marker';
+      shownHintMode = mode;
+    }
+    if (endHint.distance !== shownHintDist) {
+      for (const el of endDistEls) el.textContent = `${endHint.distance} 格`;
+      shownHintDist = endHint.distance;
+    }
+    const at = `translate(${endHint.x}px, ${endHint.y}px) translate(-50%, -50%)`;
+    if (mode === 'edge') {
+      endArrowEl.style.transform = at;
+      endArrowHead.style.transform = `rotate(${endHint.angle}rad)`;
+    } else if (mode === 'marker') {
+      endMarkerEl.style.transform = at;
+    }
   }
 
   function kindAt(row, col) {
@@ -1194,6 +1270,7 @@ function start() {
     updateCamera(dt);
     syncGround();
     updateSceneFog();
+    updateEndHint();
     if (view === 'first') drawMinimap();
     renderer.render(scene, camera);
     rafId = requestAnimationFrame(frame);
@@ -1443,6 +1520,10 @@ function start() {
     // 光柱对象的 visible 开关（不代表屏幕上看得见）
     get beamEnabled() {
       return beam.visible;
+    },
+    // 终点方向提示的最近一次结果；x、y 为相对 #stage 左上角的 CSS 像素
+    get endHint() {
+      return { ...endHint };
     },
     get footStripCount() {
       return footStrips.length;
