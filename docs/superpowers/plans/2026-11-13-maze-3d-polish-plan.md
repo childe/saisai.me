@@ -33,6 +33,7 @@
 2. 终点格上的光柱是加法混合，会改变终点格在截图里的颜色，使 `t5` 的「终点色可分辨」检查失真。Task 6 把光柱网格加入 `floorSamplePoints` 的遮挡物列表，只取光柱后面没覆盖到的采样点；t5 必须仍 PASS。
 3. 光柱脉动和粒子是随时间变化的像素：凡比较两张截图的旧检查（`g3` 在 yaw = 3π/4 对比关雾前后像素）会被动画干扰。Task 6 提供 `setBeamForTest({ paused: true })`；Task 9 在 `g3` 截图前调用它。
 4. 「再来一局」在彩带播放中途点击：彩带必须立即停、画布清空、按钮可点。Task 8 的 p6 在通关后 0.5 秒内点击并断言。
+6. 性能对比 `t7` 的基线开局朝南、当前版本开局 `3π/4`：Task 9 Step 1 用两边共用的 `perf_fixed_start` 统一朝向、俯仰、缩放后再计时，并比较 `endPos`/`wins` 确认轨迹一致。
 5. 第一人称原地转一整圈时终点穿过相机平面（`cz` 过 0）：箭头坐标必须始终有限、不跳到无穷。Task 3 单测覆盖 `cz` 从 +0.5 到 −0.5，Task 7 的 p5 每帧记录 `endHint`。
 
 ---
@@ -481,7 +482,7 @@ git commit -m "feat(maze-3d): 通关彩带"
 ### Task 9: 截图、性能与全量验收
 
 **Files:**
-- Modify: `tests/browser/maze3d_accept.py`（新增 `check_p8`；`SHOTS` 默认值；`--write` 头部「人工检查」文案；修正受开局朝向 / 动画影响的旧检查）
+- Modify: `tests/browser/maze3d_accept.py`（新增 `check_p8`；`perf_fixed_start` 与 `perf_round` 的 `prepare`/`debug` 参数，`check_t7` 统一起始条件；`SHOTS` 默认值；`--write` 头部「人工检查」文案；修正受开局朝向 / 动画影响的旧检查）
 - Modify: `maze-3d/README.md`
 - Modify: `tests/browser/test-results.txt`（由 `--write` 生成）
 
@@ -494,7 +495,12 @@ git commit -m "feat(maze-3d): 通关彩带"
 - `SHOTS` 默认改为 `/Users/jialiu/Projects/saisai.me/.xdev/20261113-141153-maze-3d-polish/screenshots`。
 - `--write` 头部「人工检查」改为：查看该目录下 `polish-*-start.png`（开局迷宫占画面主体、阴影、暗边、光柱）与 `polish-*-arrow.png`（边缘箭头与距离）。保持 `自动检查：` 行格式（`tests/maze-3d-accept-report.test.mjs` 守着）。
 - `README.md` 加一段：终点有光柱和闪光，看不到光柱时画面边缘有箭头和距离；通关有彩带（系统开启「减少动态效果」时不播放）。
-- 性能（spec 测试 7）由现有 `t7` 覆盖（基线 vs 各主题，1.3 倍阈值），不新增检查。
+- 性能（spec 测试 7）沿用 `t7`（基线 vs 各主题，1.3 倍阈值），但**必须先统一两边的起始条件**：基线开局 `yaw = π`、当前版本开局 `yaw = 3π/4`，原 `perf_round` 不带 `debug=1`，两边按同样按键走出的轨迹、碰撞、迷雾更新和画面负载都不同，结论可能误通过也可能误失败。不能等 FAIL 后再修。改法：
+  - 新增一个两边共用的固定场景准备函数 `perf_fixed_start(page)`：`set_test_input(page, yaw=math.pi, pitch=<基线开局 pitch，从基线页面 __maze3d 读出后写死为常量>)`，然后 `set_test_input(page)` 还回真实输入；`setZoomForTest(<基线默认缩放常量>)`；场景雾保持默认（不调用 `setSceneFogForTest`）；主题仍由 `init_script` 指定。小人保持在开局格不传送。只调用基线也有的钩子（`setInputForTest`、`setZoomForTest`），不调用本次新增的钩子。
+  - `perf_round` 增加参数 `prepare=None`、`debug=False`：`debug=True` 时 URL 追加 `&debug=1`；`wait_idle` 之后若有 `prepare` 就调用它，再 `wait_for_timeout(800)` 等相机跟随稳定，然后才 `resetFrameStats()`。默认参数下行为不变（`check_9` 不受影响）。
+  - `check_t7` 的基线与各主题调用都传 `debug=True, prepare=perf_fixed_start`；驱动保持 `play_continuous`（同样的按键序列）。
+  - 一致性记录：`perf_round` 在驱动结束后多返回 `endPos`（`playerPos`）与 `wins`（驱动中点击「再来一局」的次数，`play_continuous` 改为返回该计数）；`fmt_perf` 把两者写进 detail。`check_t7` 判定前比较：任一主题与基线 `wins` 不同，或 `endPos` 水平距离 > 1.5 格，返回 `None, detail + " | INCONCLUSIVE: trajectory differs"`，不给出 PASS/FAIL。
+  - 硬件为 SwiftShader 时仍按原逻辑返回 INCONCLUSIVE。
 
 - [ ] **Step 2: 准备基线并跑全量**
 
@@ -515,12 +521,14 @@ Expected: 记录所有 FAIL 项。
 - 原因是开局朝向不再朝南：在该检查打开页面、`wait_idle` 之后加 `set_test_input(page, yaw=math.pi)` + `set_test_input(page)` 恢复原前提，并在注释写明。
 - 原因是光柱 / 粒子动画让前后两张截图像素不同（已知 `g3`）：在截图前调用 `setBeamForTest({ paused: true })`。
 
+`t7` 不在本步处理范围：它的起始条件已在 Step 1 统一；若 Step 1 改完后 `t7` 仍 FAIL，属于真实性能退化，要改产品代码，不许改检查。
+
 修改后重跑失败项直到 PASS，然后 `black`。
 
 - [ ] **Step 4: 全量写结果**
 
 Run: `~/tmp/fuck/c/.venv/bin/python tests/browser/maze3d_accept.py --write --baseline-root "$B"`
-Expected: 退出码 0，`test-results.txt` 中 `自动检查：PASS`；p1 含 `baseline frac=`；t7 各主题 `ok avg ≤ 1.3 × baseline`（若 t7 为 INCONCLUSIVE（SwiftShader），如实保留，不改判定）；截图目录有 8 张 `polish-*.png`。
+Expected: 退出码 0，`test-results.txt` 中 `自动检查：PASS`；p1 含 `baseline frac=`；t7 各主题 `ok avg ≤ 1.3 × baseline`，detail 里基线与各主题的 `endPos`、`wins` 一致（若 t7 为 INCONCLUSIVE（SwiftShader，或 trajectory differs 重跑一次仍不一致），如实保留，不改判定）；截图目录有 8 张 `polish-*.png`。
 
 - [ ] **Step 5: Commit**
 
