@@ -14,6 +14,7 @@ import {
   fogRing,
   groundFogFarMax,
   groundHalfExtent,
+  followFogRange,
   summarizeFrames,
   createFrameMeter,
   shouldDowngrade,
@@ -523,17 +524,27 @@ function start() {
     placeFollow(1 - Math.pow(0.001, dt), false);
   }
 
+  // 距离雾：第一人称按视野半径；跟随视角整个迷宫都在 near 以内，只让外围地面向地平线渐隐。
+  // 每帧调用（只改两个数字），缩放、切视角、迷雾开关、尺寸变化都会立即生效
+  let sceneFogEnabled = true; // setSceneFogForTest 用
   function updateSceneFog() {
-    if (view !== 'first') {
+    if (!sceneFogEnabled) {
       scene.fog = null;
       return;
     }
-    const far = fogOn ? fogRadius + 0.5 : size * 1.5;
+    let near;
+    let far;
+    if (view === 'first') {
+      near = 0.5;
+      far = fogOn ? fogRadius + 0.5 : size * 1.5;
+    } else {
+      ({ near, far } = followFogRange(idealDistance(), size));
+    }
     if (scene.fog) {
-      scene.fog.near = 0.5;
+      scene.fog.near = near;
       scene.fog.far = far;
     } else {
-      scene.fog = new THREE.Fog(THEMES[themeId].fogColor, 0.5, far);
+      scene.fog = new THREE.Fog(THEMES[themeId].fogColor, near, far);
     }
   }
 
@@ -876,17 +887,21 @@ function start() {
     return '#' + c.toString(16).padStart(6, '0');
   }
 
+  // 等距柱状天空：纵向对应世界仰角。上半部从天顶 sky.top 渐变到地平线 sky.bottom，
+  // 下半部是纯雾色，与远处雾化的地面接上，不随相机俯仰在屏幕上移动
   function makeSkyTexture(theme) {
     const canvas = document.createElement('canvas');
-    canvas.width = 2;
+    canvas.width = 8;
     canvas.height = TEX_SIZE;
     const ctx = canvas.getContext('2d');
     const grad = ctx.createLinearGradient(0, 0, 0, TEX_SIZE);
     grad.addColorStop(0, hexCss(theme.sky.top));
-    grad.addColorStop(1, hexCss(theme.sky.bottom));
+    grad.addColorStop(0.5, hexCss(theme.sky.bottom));
+    grad.addColorStop(1, hexCss(theme.fogColor));
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 2, TEX_SIZE);
+    ctx.fillRect(0, 0, 8, TEX_SIZE);
     const tex = new THREE.CanvasTexture(canvas);
+    tex.mapping = THREE.EquirectangularReflectionMapping;
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.generateMipmaps = false;
     tex.minFilter = THREE.LinearFilter;
@@ -975,6 +990,7 @@ function start() {
     star.rotation.y += dt;
     updateCamera(dt);
     syncGround();
+    updateSceneFog();
     if (view === 'first') drawMinimap();
     renderer.render(scene, camera);
     rafId = requestAnimationFrame(frame);
@@ -1089,6 +1105,22 @@ function start() {
     return out;
   }
 
+  // 画面上一点（相对 canvas 左上角的 CSS 像素）是否落在迷宫物体上：未隐藏的墙、地板、星星、可见的小人
+  function screenHitsScene(x, y) {
+    camera.updateMatrixWorld();
+    walls.boundingSphere = null;
+    const canvas = renderer.domElement;
+    const ndc = new THREE.Vector2((x / canvas.clientWidth) * 2 - 1, 1 - (y / canvas.clientHeight) * 2);
+    raycaster.setFromCamera(ndc, camera);
+    raycaster.far = Infinity;
+    const hits = raycaster.intersectObjects([walls, floor, star, player], true);
+    return hits.some((h) => {
+      if (!player.visible && isPlayerPart(h.object)) return false;
+      if (h.object === walls && h.instanceId !== undefined && instanceHidden(walls, h.instanceId)) return false;
+      return true;
+    });
+  }
+
   // 画面中心 50% 区域 16×16 网格取样：不同颜色数、亮度总体标准差、5%–95% 分位差
   function wallContrast() {
     renderer.render(scene, camera);
@@ -1190,6 +1222,11 @@ function start() {
     },
     floorSamplePoints,
     wallContrast,
+    get sceneFog() {
+      if (!scene.fog) return null;
+      return { near: scene.fog.near, far: scene.fog.far, color: '#' + scene.fog.color.getHexString() };
+    },
+    screenHitsScene,
     floorColorHex(row, col) {
       floor.getColorAt(row * size + col, tmpColor);
       return '#' + tmpColor.getHexString();
@@ -1291,6 +1328,10 @@ function start() {
       player.position.set(playerState.x, 0, playerState.z);
       recomputeFog();
       snapCamera();
+    };
+    window.__maze3d.setSceneFogForTest = (enabled) => {
+      sceneFogEnabled = Boolean(enabled);
+      updateSceneFog();
     };
     window.__maze3d.setZoomForTest = (z) => {
       cameraZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
