@@ -1,6 +1,8 @@
 // 入口：指针事件 → action，state → render。
 import { createEditor, reduce, activeSpace } from './lib/editor.js';
-import { hitTest, terminalPoint, wireRoute, snap, GRID } from './lib/geometry.js';
+import {
+  hitTest, terminalPoint, snap, GRID, wirePoints, nearestOnRoute, startTrace, stepTrace, tracePath, dragSegment,
+} from './lib/geometry.js';
 import { render, miniArt, buzzerVolume } from './view.js';
 import { createBuzzer } from './sound.js';
 import { TASKS } from './lib/tasks.js';
@@ -47,21 +49,70 @@ const scale = () => board.getScreenCTM()?.a || 1;
 const circuit = () => activeSpace(state).circuit;
 
 // ---------- 画布 ----------
+// 手势在按下时锁定命中类型（gesture.hit.kind），移动中不改判。
 let gesture = null;
 
 function setOverlay(html) {
   dom.overlay.innerHTML = html;
 }
 
+const toPts = pts => pts.map(([x, y]) => `${x * GRID},${y * GRID}`).join(' ');
+const partById = id => circuit().parts.find(x => x.id === id);
+const wireById = id => circuit().wires.find(w => w.id === id);
+const sameEnd = (a, b) => a.part !== undefined && a.part === b.part && a.term === b.term;
+
+// 拉线的落点：别的端点、另一根导线上的点，或者只是手指位置（end 为 null）。
+function dropTarget(g, from) {
+  const target = hitTest(circuit(), g, scale());
+  if (target?.kind === 'terminal' && !sameEnd(from, target)) {
+    const pt = terminalPoint(partById(target.part), target.term);
+    return {
+      end: { part: target.part, term: target.term },
+      pt,
+      mark: `<circle cx="${pt[0] * GRID}" cy="${pt[1] * GRID}" r="16" fill="none" stroke="#0ea5b7" stroke-width="4"/>`,
+    };
+  }
+  if (target?.kind === 'wire' && target.id !== from.wire) {
+    const pts = wirePoints(circuit(), wireById(target.id));
+    if (pts) {
+      const { P } = nearestOnRoute(pts, g);
+      return { end: { wire: target.id, at: P }, pt: P, mark: `<circle cx="${P[0] * GRID}" cy="${P[1] * GRID}" r="10" fill="#0ea5b7"/>` };
+    }
+  }
+  return { end: null, pt: g, mark: '' };
+}
+
+// 松手时按落点连线；路线取手指轨迹。
+function finishWire(gs, g) {
+  const d = dropTarget(g, gs.from);
+  if (!d.end) return;
+  dispatch({ type: 'connect', from: gs.from, to: d.end, via: tracePath(gs.trace, d.pt).slice(1, -1) });
+}
+
 board.addEventListener('pointerdown', e => {
   if (gesture) return;
   const g = toGrid(e);
-  const hit = hitTest(circuit(), g, scale());
-  gesture = { id: e.pointerId, hit, sx: e.clientX, sy: e.clientY, moved: false, dragging: false };
+  const c = circuit();
+  const selWire = state.selection?.kind === 'wire' ? state.selection.id : null;
+  const hit = hitTest(c, g, scale(), selWire);
+  gesture = { id: e.pointerId, hit, selWire, sx: e.clientX, sy: e.clientY, moved: false, dragging: false };
   if (hit?.kind === 'part') {
-    const p = circuit().parts.find(x => x.id === hit.id);
+    const p = c.parts.find(x => x.id === hit.id);
     gesture.offset = [p.x - g[0], p.y - g[1]];
     gesture.last = [p.x, p.y];
+  } else if (hit?.kind === 'terminal') {
+    gesture.from = { part: hit.part, term: hit.term };
+    gesture.trace = startTrace(terminalPoint(c.parts.find(x => x.id === hit.part), hit.term));
+  } else if (hit?.kind === 'handle') {
+    const w = c.wires.find(x => x.id === hit.wire);
+    gesture.base = wirePoints(c, w);
+    gesture.seg = hit.seg;
+    gesture.down = g;
+    gesture.lastVia = JSON.stringify(Array.isArray(w.via) ? w.via : gesture.base.slice(1, -1));
+  } else if (hit?.kind === 'wire') {
+    const { P } = nearestOnRoute(wirePoints(c, c.wires.find(x => x.id === hit.id)), g);
+    gesture.from = { wire: hit.id, at: P };
+    gesture.trace = startTrace(P);
   }
   try { board.setPointerCapture(e.pointerId); } catch { /* 指针已结束时忽略 */ }
   e.preventDefault();
@@ -73,18 +124,20 @@ board.addEventListener('pointermove', e => {
   if (dist > DRAG_PX) gesture.moved = true;
   const { hit } = gesture;
   const g = toGrid(e);
-  if (hit?.kind === 'terminal') {
-    const p = circuit().parts.find(x => x.id === hit.part);
-    const from = terminalPoint(p, hit.term);
-    const pts = wireRoute(from, g).map(([x, y]) => `${x * GRID},${y * GRID}`).join(' ');
-    const target = hitTest(circuit(), g, scale());
-    const mark = target?.kind === 'terminal'
-      ? (() => {
-        const tp = terminalPoint(circuit().parts.find(x => x.id === target.part), target.term);
-        return `<circle cx="${tp[0] * GRID}" cy="${tp[1] * GRID}" r="16" fill="none" stroke="#0ea5b7" stroke-width="4"/>`;
-      })()
-      : '';
-    setOverlay(`<polyline class="preview" points="${pts}"/>${mark}`);
+  if (hit?.kind === 'terminal' || (hit?.kind === 'wire' && gesture.moved)) {
+    const samples = e.getCoalescedEvents?.() ?? [];
+    for (const ev of samples.length ? samples : [e]) gesture.trace = stepTrace(gesture.trace, toGrid(ev));
+    const d = dropTarget(g, gesture.from);
+    setOverlay(`<polyline class="preview" points="${toPts(tracePath(gesture.trace, d.pt))}"/>${d.mark}`);
+  } else if (hit?.kind === 'handle' && gesture.moved) {
+    // 传相对按下位置的位移，不传指针绝对坐标。
+    const via = dragSegment(gesture.base, gesture.seg, [g[0] - gesture.down[0], g[1] - gesture.down[1]]);
+    const key = JSON.stringify(via);
+    if (key !== gesture.lastVia) {
+      dispatch({ type: 'setWireVia', id: hit.wire, via, coalesce: gesture.dragging });
+      gesture.dragging = true;
+      gesture.lastVia = key;
+    }
   } else if (hit?.kind === 'part' && gesture.moved) {
     const [x, y] = snap([g[0] + gesture.offset[0], g[1] + gesture.offset[1]]);
     if (x !== gesture.last[0] || y !== gesture.last[1]) {
@@ -97,19 +150,24 @@ board.addEventListener('pointermove', e => {
 
 function endGesture(e, cancelled) {
   if (!gesture || e.pointerId !== gesture.id) return;
-  const { hit, moved } = gesture;
+  const gs = gesture;
+  const { hit, moved } = gs;
   gesture = null;
   setOverlay('');
   if (cancelled) return;
+  const g = toGrid(e);
   if (!hit) { dispatch({ type: 'select', target: null }); return; }
   switch (hit.kind) {
-    case 'terminal': {
-      const target = hitTest(circuit(), toGrid(e), scale());
-      if (target?.kind === 'terminal' && !(target.part === hit.part && target.term === hit.term)) {
-        dispatch({ type: 'connect', from: { part: hit.part, term: hit.term }, to: { part: target.part, term: target.term } });
+    case 'terminal':
+      if (!moved && partById(hit.part)?.type === 'node') {
+        dispatch({ type: 'select', target: { kind: 'part', id: hit.part } });
+        break;
       }
+      finishWire(gs, g);
       break;
-    }
+    case 'handle':
+      if (!moved) dispatch({ type: 'splitWire', id: hit.wire, at: g });
+      break;
     case 'lever':
       if (!moved) dispatch({ type: 'toggle', id: hit.id });
       break;
@@ -117,7 +175,9 @@ function endGesture(e, cancelled) {
       if (!moved) dispatch({ type: 'select', target: { kind: 'part', id: hit.id } });
       break;
     case 'wire':
-      dispatch({ type: 'select', target: { kind: 'wire', id: hit.id } });
+      if (moved) finishWire(gs, g);
+      else if (gs.selWire === hit.id) dispatch({ type: 'splitWire', id: hit.id, at: g });
+      else dispatch({ type: 'select', target: { kind: 'wire', id: hit.id } });
       break;
     default:
   }

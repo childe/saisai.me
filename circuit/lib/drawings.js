@@ -46,6 +46,12 @@ const glowCircle = (cx, cy, base, glow, color = '#ffd84d') =>
 const LED_COLORS = { red: '#ff4b3e', green: '#3ccf5a', blue: '#3c8bff', yellow: '#ffd23c' };
 
 const DRAW = {
+  // 连接点：一个实心圆点，本身就是端点（不再叠白色端点圆）。
+  node(part, style) {
+    return style === 'cartoon'
+      ? `<circle class="node-dot" data-term="o" cx="0" cy="0" r="7" fill="#b87333" stroke="${INK}" stroke-width="2"/>`
+      : `<circle class="node-dot" data-term="o" cx="0" cy="0" r="5" fill="${INK}"/>`;
+  },
   battery(part, style, vis) {
     const cells = part.params.cells;
     let body = '';
@@ -250,7 +256,8 @@ function meter(letter, style, vis) {
 export function drawPart(part, style, visual) {
   const draw = DRAW[part.type];
   if (!draw) return '';
-  return `<g class="part-art ${style}">${upright(draw(part, style, visual), part.rot)}${terms(part)}</g>`;
+  const ends = part.type === 'node' ? '' : terms(part);
+  return `<g class="part-art ${style}">${upright(draw(part, style, visual), part.rot)}${ends}</g>`;
 }
 
 // 文字基线到字形中心的大致偏移（约 0.35em），按 styles.css 里的字号。

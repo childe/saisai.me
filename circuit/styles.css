@@ -152,6 +152,7 @@ body {
 .wire { fill: none; stroke: #c0392b; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
 .wire.selected { stroke: var(--accent); stroke-width: 8; }
 .term { fill: #fff; stroke: var(--ink); stroke-width: 3; }
+.handle { fill: #fff; stroke: var(--accent); stroke-width: 3; }
 .part .sel { fill: none; stroke: var(--accent); stroke-width: 3; stroke-dasharray: 8 6; }
 .part text { font-family: inherit; fill: var(--ink); }
 .part .label { font-size: 15px; }
