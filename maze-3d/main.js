@@ -973,9 +973,12 @@ function start() {
   });
 
   let lastTime = performance.now();
+  let loopStart = lastTime;
   function frame(now) {
     rafId = null;
-    meter.tick(now);
+    // 主线程刚被长任务（如首帧前的预渲染）卡住时，紧接着的 rAF 时间戳可能早于 startLoop()，
+    // 用它做基准会把那次卡顿算进帧时间；这类时间戳不计入统计
+    if (now >= loopStart) meter.tick(now);
     if (quality === 'high' && shouldDowngrade(meter.window())) downgrade();
     if (slowMs > 0) {
       const t0 = performance.now();
@@ -1000,6 +1003,7 @@ function start() {
     if (rafId !== null) return;
     meter.reset();
     lastTime = performance.now();
+    loopStart = lastTime;
     rafId = requestAnimationFrame(frame);
   }
 
@@ -1034,6 +1038,11 @@ function start() {
 
   applyTheme(themeId);
   buildMaze(seed, size);
+  // 首帧前先渲染一次：着色器编译、纹理上传、天空转立方体贴图都在这里完成，
+  // 不计入帧时间统计，避免启动时的一次性开销误触发降画质
+  syncGround();
+  updateSceneFog();
+  renderer.render(scene, camera);
   startLoop();
 
   // ---------- 调试对象 ----------
