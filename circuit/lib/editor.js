@@ -1,7 +1,9 @@
 // 编辑器 state 与 reducer：撤销、元件栏上限、清空确认、模式切换。
 import {
   createCircuit, addPart, movePart, rotatePart, removePart, setParam, addWire, removeWire, findPart,
+  setWireVia, splitWire, resolveEnd,
 } from './circuit.js';
+import { wirePoints, nearestOnRoute } from './geometry.js';
 import { createDamage, repair } from './damage.js';
 import { settle, tick } from './engine.js';
 import { TASKS, evaluateTask, remainingPalette } from './tasks.js';
@@ -89,9 +91,24 @@ export function reduce(state, action) {
     case 'rotate':
       return commit(state, rotatePart(c, action.id));
     case 'connect': {
-      const r = addWire(c, action.from, action.to);
+      // 两端可以是端点，也可以是导线上的一点（先分割）；任一步失败，整个动作作废。
+      const { from, to } = action;
+      if (from?.wire !== undefined && from.wire === to?.wire) return state;
+      const r1 = resolveEnd(c, from);
+      const r2 = r1 && resolveEnd(r1.circuit, to);
+      const r = r2 && addWire(r2.circuit, r1.end, r2.end, action.via);
       return r ? commit(state, r.circuit) : state;
     }
+    case 'splitWire': {
+      const w = c.wires.find(x => x.id === action.id);
+      const pts = w && wirePoints(c, w);
+      if (!pts) return state;
+      const s = splitWire(c, w.id, nearestOnRoute(pts, action.at).P);
+      if (!s) return state;
+      return commit(state, s.circuit, { extra: { selection: { kind: 'part', id: s.node } } });
+    }
+    case 'setWireVia':
+      return commit(state, setWireVia(c, action.id, action.via), { coalesce: !!action.coalesce });
     case 'toggle': {
       const p = findPart(c, action.id);
       if (p?.type === 'switch') return commit(state, setParam(c, p.id, 'closed', !p.params.closed));
