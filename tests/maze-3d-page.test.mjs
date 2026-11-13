@@ -14,6 +14,7 @@ const OWN = [
   'game-logic.js',
   'themes.js',
   'wall-geometry.js',
+  'movement.js',
   'README.md',
 ];
 
@@ -57,10 +58,6 @@ test('page has all controls', () => {
     'id="show-path-btn"',
     'id="hide-path-btn"',
     'id="win"',
-    'id="btn-up"',
-    'id="btn-down"',
-    'id="btn-left"',
-    'id="btn-right"',
     '恭喜！你成功走出了迷宫！',
     '再来一局',
     '<title>3D 迷宫</title>',
@@ -70,6 +67,7 @@ test('page has all controls', () => {
   assert.match(html, /id="fog-minus"[^>]*>−</);
   assert.match(html, /id="fog-plus"[^>]*>\+</);
   for (const name of OWN) assert.ok(!read(name).includes('alert('), name);
+  assert.ok(!html.includes('class="dpad"'));
 });
 
 test('webgl fallback', () => {
@@ -79,20 +77,20 @@ test('webgl fallback', () => {
   assert.ok(read('main.js').includes('no-webgl'));
 });
 
-test('dpad buttons are at least 56px and manipulation', () => {
-  const html = read('index.html');
-  const m = html.match(/\.dpad button\s*\{([^}]*)\}/);
-  assert.ok(m, '.dpad button rule');
-  const body = m[1];
-  const px = (prop) => {
-    const r = body.match(new RegExp(`(?:^|[;\\s])${prop}\\s*:\\s*(\\d+)px`));
-    return r ? Number(r[1]) : null;
-  };
-  const w = px('min-width') ?? px('width');
-  const h = px('min-height') ?? px('height');
-  assert.ok(w !== null && w >= 56, `width ${w}`);
-  assert.ok(h !== null && h >= 56, `height ${h}`);
-  assert.match(body, /touch-action\s*:\s*manipulation/);
+test('stage disables touch gestures', () => {
+  const m = read('index.html').match(/#stage\s*\{([^}]*)\}/);
+  assert.ok(m, '#stage rule');
+  assert.match(m[1], /touch-action\s*:\s*none/);
+});
+
+test('main uses shared size constants', () => {
+  const src = read('main.js');
+  const m = src.match(/import\s*\{([^}]*)\}\s*from\s*['"]\.\/movement\.js['"]/);
+  assert.ok(m, 'imports ./movement.js');
+  for (const name of ['WALL_LENGTH', 'WALL_HEIGHT', 'WALL_THICKNESS', 'PLAYER_RADIUS']) {
+    assert.match(m[1], new RegExp(`\\b${name}\\b`), name);
+  }
+  assert.ok(!src.includes('BoxGeometry(1.1'));
 });
 
 test('viewport meta', () => {
@@ -127,4 +125,24 @@ test('no image files in maze-3d', () => {
     readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(d, e.name)) : [e.name]));
   const imgs = walk(dir).filter((n) => /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i.test(n));
   assert.deepEqual(imgs, []);
+});
+
+test('joystick overlay does not take pointer events', () => {
+  const html = read('index.html');
+  assert.ok(html.includes('id="stick"') && html.includes('id="stick-knob"'));
+  const m = html.match(/#stick\s*\{([^}]*)\}/);
+  assert.ok(m && /pointer-events\s*:\s*none/.test(m[1]));
+  // #stick 直接位于 #stage 内：stage 开标签与 #stick 之间没有闭合标签，#stick 闭合后紧跟 stage 闭合
+  assert.match(
+    html,
+    /<div id="stage">(?:(?!<\/div>)[\s\S])*<div id="stick"[^>]*>\s*<div id="stick-knob"><\/div>\s*<\/div>\s*<\/div>/,
+  );
+});
+
+test('fullscreen button and two hint texts', () => {
+  const html = read('index.html');
+  assert.match(html, /id="fullscreen-btn"[^>]*hidden[^>]*>全屏</);
+  assert.ok(html.includes('WASD / 方向键移动，拖动鼠标转视角'));
+  assert.ok(html.includes('左边拖动走路，右边拖动转视角'));
+  assert.match(html, /@media\s*\(pointer:\s*coarse\)/);
 });

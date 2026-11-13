@@ -12,6 +12,7 @@ import argparse
 import datetime
 import io
 import json
+import math
 import os
 import socket
 import subprocess
@@ -47,7 +48,7 @@ WASD = {"up": "w", "down": "s", "left": "a", "right": "d"}
 PW = None  # main() 中赋值，供需要设备描述的检查使用
 BASELINE_ROOT = None  # --baseline-root：改动前代码的副本，供对比检查使用
 SHOTS = Path(
-    "/Users/jialiu/Projects/saisai.me/.xdev/20261113-001535-maze-3d-themes/screenshots"
+    "/Users/jialiu/Projects/saisai.me/.xdev/20261113-091931-maze-3d-free-move/screenshots"
 )  # --shots 覆盖
 DIRS = {"up": (-1, 0), "down": (1, 0), "left": (0, -1), "right": (0, 1)}
 
@@ -136,14 +137,6 @@ def pos(page):
     return {"row": p["row"], "col": p["col"]}
 
 
-def next_stop(page, d, at=None):
-    return logic(
-        page,
-        "L.findNextIntersection(M.connections, arg.at || M.player, arg.d)",
-        {"d": d, "at": at},
-    )
-
-
 def path_dir(page, end=None):
     """沿最短路下一步的方向；已在终点返回 None。"""
     path = logic(
@@ -159,6 +152,193 @@ def path_dir(page, end=None):
         if (r, c) == (dr, dc):
             return name
     return None
+
+
+DIR_YAW = {"up": 0.0, "right": math.pi / 2, "down": math.pi, "left": 3 * math.pi / 2}
+
+WALK_JS = """async ([row, col, center, timeoutMs]) => {
+  const L = await import('/maze-3d/game-logic.js');
+  const M = window.__maze3d;
+  return await new Promise((resolve) => {
+    const t0 = performance.now();
+    const done = (ok) => { M.setInputForTest(null); resolve(ok); };
+    const tick = () => {
+      if (M.state === 'won') return done(true);
+      const cell = M.playerCell;
+      const p = M.playerPos;
+      const at = cell.row === row && cell.col === col;
+      if (at && (!center || Math.hypot(p.x - col - 0.5, p.z - row - 0.5) < 0.1)) return done(true);
+      if (performance.now() - t0 > timeoutMs) return done(false);
+      let tr = row;
+      let tc = col;
+      if (!at) {
+        const path = L.findPath(M.connections, cell, { row, col });
+        if (path.length < 2) return done(false);
+        [tr, tc] = path[1];
+      }
+      const tx = tc + 0.5;
+      const tz = tr + 0.5;
+      const dist = Math.hypot(tx - p.x, tz - p.z);
+      const yaw = Math.atan2(tx - p.x, -(tz - p.z));
+      // 最后一格要停在格心时减速，避免低帧率下绕着格心打转
+      const forward = at && center ? Math.min(1, dist * 2.5) : 1;
+      M.setInputForTest({ forward, strafe: 0, turn: 0, yaw });
+      requestAnimationFrame(tick);
+    };
+    tick();
+  });
+}"""
+
+
+def walk_to(page, row, col, center=True, timeout_ms=60000):
+    """用 setInputForTest 沿 findPath 的格子路线走到 (row, col)；页面须带 &debug=1。
+
+    center=True 时还要停到距格心 < 0.1。走向终点时一律传 center=False：
+    一进终点格就判胜、速度清零，小人停在终点格边缘。返回「到达目标格或已胜利」。
+    """
+    ok = page.evaluate(WALK_JS, [row, col, center, timeout_ms])
+    page.wait_for_timeout(200)
+    return bool(ok)
+
+
+def walk_to_exit(page):
+    n = m3(page, "size")
+    ok = walk_to(page, n - 1, n - 1, center=False)
+    return ok and m3(page, "state") == "won"
+
+
+def set_test_input(page, **kw):
+    page.evaluate("(v) => window.__maze3d.setInputForTest(v)", kw or None)
+
+
+def face_yaw(page, yaw):
+    """把视角水平朝向设为 yaw，然后恢复真实输入。"""
+    set_test_input(page, yaw=yaw)
+    set_test_input(page)
+
+
+def open_dir(page):
+    """当前格第一个能走的方向名。"""
+    return logic(
+        page,
+        "['down', 'right', 'up', 'left'].find((d) => {"
+        " const [dr, dc] = L.DIRS[d]; const p = M.playerCell;"
+        " return L.canMove(M.connections, p, { row: p.row + dr, col: p.col + dc }); })",
+    )
+
+
+def face_open(page):
+    d = open_dir(page)
+    face_yaw(page, DIR_YAW[d])
+    return d
+
+
+WALL_DIR_JS = """(() => {
+  const p = arg || M.playerCell;
+  return ['up', 'right', 'down', 'left'].find((d) => {
+    const [dr, dc] = L.DIRS[d];
+    const q = { row: p.row + dr, col: p.col + dc };
+    const inside = q.row >= 0 && q.row < M.size && q.col >= 0 && q.col < M.size;
+    return inside && !L.canMove(M.connections, p, q);
+  }) || null;
+})()"""
+
+
+def wall_dir(page, cell=None):
+    """当前格（或 cell）四个方向中第一个有内部墙段的方向名，没有返回 None。"""
+    return logic(page, WALL_DIR_JS, cell)
+
+
+def find_wall_cell(page):
+    """从 (0,0) 按 BFS 找最近的有内部墙的格子，走到格心，返回墙的方向名。"""
+    cell = logic(
+        page,
+        """(() => {
+          const seen = new Set(['0,0']);
+          const q = [{ row: 0, col: 0 }];
+          for (let i = 0; i < q.length; i++) {
+            const p = q[i];
+            for (const [dr, dc] of Object.values(L.DIRS)) {
+              const n = { row: p.row + dr, col: p.col + dc };
+              const inside = n.row >= 0 && n.row < M.size && n.col >= 0 && n.col < M.size;
+              if (inside && !L.canMove(M.connections, p, n)) return p;
+              if (!L.canMove(M.connections, p, n) || seen.has(n.row + ',' + n.col)) continue;
+              seen.add(n.row + ',' + n.col);
+              q.push(n);
+            }
+          }
+          return null;
+        })()""",
+    )
+    if cell is None or not walk_to(page, cell["row"], cell["col"]):
+        return None
+    return wall_dir(page)
+
+
+RECORD_JS = """([expr, ms]) => {
+  window.__rec = { values: [], done: false };
+  const t0 = performance.now();
+  const tick = () => {
+    window.__rec.values.push(window.__maze3d[expr]);
+    if (performance.now() - t0 < ms) requestAnimationFrame(tick);
+    else window.__rec.done = true;
+  };
+  requestAnimationFrame(tick);
+}"""
+
+
+def record_frames(page, expr, ms, during=None):
+    """每帧记录 __maze3d[expr]，ms 毫秒后返回数组；during 在记录期间执行。"""
+    page.evaluate(RECORD_JS, [expr, ms])
+    if during:
+        during()
+    page.wait_for_function("() => window.__rec.done", timeout=ms + 10000)
+    return page.evaluate("() => window.__rec.values")
+
+
+def play_continuous(page, seconds=8):
+    """按住 w，交替按住 / 松开 ArrowRight 各 1 秒；胜利就点「再来一局」并重新按下 w。"""
+    page.keyboard.down("w")
+    t0 = time.time()
+    turning = False
+    try:
+        while time.time() - t0 < seconds:
+            if m3(page, "state") == "won":
+                page.click("#again-btn")
+                wait_idle(page)
+                page.keyboard.up("w")
+                page.keyboard.down("w")
+            if turning:
+                page.keyboard.up("ArrowRight")
+            else:
+                page.keyboard.down("ArrowRight")
+            turning = not turning
+            page.wait_for_timeout(1000)
+    finally:
+        page.keyboard.up("ArrowRight")
+        page.keyboard.up("w")
+
+
+def pos_of(page):
+    return m3(page, "playerPos")
+
+
+def moved(a, b, eps=1e-6):
+    return math.hypot(a["x"] - b["x"], a["z"] - b["z"]) > eps
+
+
+def cdp_touch(cdp, kind, points):
+    cdp.send(
+        "Input.dispatchTouchEvent",
+        {
+            "type": kind,
+            "touchPoints": [{"x": x, "y": y, "id": i} for i, (x, y) in points.items()],
+        },
+    )
+
+
+def stage_box(page):
+    return box_of(page, "#stage")
 
 
 def url_seed(page):
@@ -242,77 +422,22 @@ def check_12(browser, base):
         context.close()
 
 
-def press_dir(page, mode, d):
-    if mode == "keys":
-        page.keyboard.press(KEYS[d])
-    elif mode == "wasd":
-        page.keyboard.press(WASD[d])
-    else:
-        page.click(f"#btn-{d}")
-
-
-def check_2(browser, base):
-    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
-    try:
-        wait_idle(page)
-        log = []
-        for mode in ["keys", "wasd", "buttons"]:
-            for d in ["right", "down", "left", "up"]:
-                before = pos(page)
-                exp = next_stop(page, d)
-                press_dir(page, mode, d)
-                wait_settled(page)
-                page.wait_for_timeout(50)
-                now = m3(page, "player")
-                got = {"row": now["row"], "col": now["col"]}
-                want = exp if exp else before
-                if got != want:
-                    return False, f"{mode} {d} from {before}: got {got} want {want}"
-                if exp and now["facing"] != d:
-                    return False, f"{mode} {d}: facing {now['facing']}"
-                log.append(f"{mode}:{d}->{got['row']},{got['col']}")
-        # 往墙走：找一个走不动的方向
-        blocked = None
-        for d in ["up", "left", "down", "right"]:
-            if next_stop(page, d) is None:
-                blocked = d
-                break
-        if blocked is None:
-            return False, "no blocked direction found at " + str(pos(page))
-        before = pos(page)
-        page.keyboard.press(KEYS[blocked])
-        page.wait_for_timeout(300)
-        if pos(page) != before or m3(page, "state") != "idle":
-            return False, f"walked into wall {blocked}"
-        ok, msg = no_errors(errors)
-        return ok, f"{' '.join(log)} wall={blocked} {msg}".strip()
-    finally:
-        close(page)
-
-
-def walk_to_win(page, limit=200):
-    for _ in range(limit):
-        if m3(page, "state") == "won":
-            return True
-        d = path_dir(page)
-        if d is None:
-            return m3(page, "state") == "won"
-        page.keyboard.press(KEYS[d])
-        wait_settled(page)
-    return m3(page, "state") == "won"
-
-
 def check_6(browser, base):
-    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    """沿最短路走到终点出现恭喜提示；「再来一局」后回到起点格中心、朝南、换新 seed。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
     try:
         wait_idle(page)
-        if not walk_to_win(page):
-            return False, f"did not win, player={m3(page, 'player')}"
+        if not walk_to_exit(page):
+            return (
+                False,
+                f"did not win, cell={m3(page, 'playerCell')} state={m3(page, 'state')}",
+            )
         page.wait_for_timeout(100)
         win_visible = page.is_visible("#win")
         text = page.inner_text("#win")
-        if not win_visible or "恭喜！你成功走出了迷宫！" not in text:
-            return False, f"win visible={win_visible} text={text!r}"
+        state = m3(page, "state")
+        if not win_visible or "恭喜！你成功走出了迷宫！" not in text or state != "won":
+            return False, f"win visible={win_visible} text={text!r} state={state}"
         seed_before = url_seed(page)
         gen = m3(page, "generation")
         page.click("#again-btn")
@@ -320,13 +445,18 @@ def check_6(browser, base):
         page.wait_for_timeout(100)
         hidden = not page.is_visible("#win")
         gen2 = m3(page, "generation")
-        p = pos(page)
+        cell = m3(page, "playerCell")
+        p = pos_of(page)
+        off = math.hypot(p["x"] - 0.5, p["z"] - 0.5)
+        yaw = m3(page, "yaw")
         seed_after = url_seed(page)
         seed_m = str(m3(page, "seed"))
         ok = (
             hidden
             and gen2 == gen + 1
-            and p == {"row": 0, "col": 0}
+            and cell == {"row": 0, "col": 0}
+            and off < 1e-6
+            and abs(yaw - math.pi) < 1e-9
             and seed_after != seed_before
             and seed_after == seed_m
         )
@@ -334,8 +464,8 @@ def check_6(browser, base):
         return (
             ok and ok_err,
             (
-                f"won; again: hidden={hidden} gen {gen}->{gen2} player={p} "
-                f"seed {seed_before}->{seed_after} (__maze3d.seed={seed_m}) {msg}"
+                f"won; again: hidden={hidden} gen {gen}->{gen2} cell={cell} pos={p} yaw={yaw:.4f}"
+                f" seed {seed_before}->{seed_after} (__maze3d.seed={seed_m}) {msg}"
             ).strip(),
         )
     finally:
@@ -343,21 +473,24 @@ def check_6(browser, base):
 
 
 def check_6b(browser, base):
-    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    """胜利后按住 w：小人不动，状态仍为 won。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
     try:
         wait_idle(page)
-        if not walk_to_win(page):
+        if not walk_to_exit(page):
             return False, "did not win"
-        before = m3(page, "player")
-        page.keyboard.press("ArrowUp")
-        page.wait_for_timeout(300)
-        # 胜利遮罩盖住了方向按钮，直接派发 pointerdown 验证处理函数本身会丢弃输入
-        page.dispatch_event("#btn-left", "pointerdown")
-        page.wait_for_timeout(300)
-        after = m3(page, "player")
+        before = pos_of(page)
+        page.keyboard.down("w")
+        page.wait_for_timeout(1000)
+        after = pos_of(page)
         state = m3(page, "state")
-        ok = after == before and state == "won"
-        return ok, f"before={before} after={after} state={state}"
+        page.keyboard.up("w")
+        ok = not moved(before, after) and state == "won"
+        ok_err, msg = no_errors(errors)
+        return (
+            ok and ok_err,
+            f"before={before} after={after} state={state} {msg}".strip(),
+        )
     finally:
         close(page)
 
@@ -420,166 +553,116 @@ def check_13(browser, base):
     return True, " ".join(details)
 
 
-def check_14(browser, base):
-    """跟随视角移动全过程中相机水平朝向保持朝北（偏航 0）。"""
-    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
-    try:
-        wait_idle(page)
-        if m3(page, "view") != "follow":
-            return False, f"default view={m3(page, 'view')}"
-        # 南北移动不会让 lookAt 产生偏航，要找一次横向（东西）移动
-        d = None
-        for _ in range(50):
-            d = next(
-                (h for h in ["right", "left"] if next_stop(page, h) is not None), None
-            )
-            if d is not None:
-                break
-            step = path_dir(page)
-            if step is None:
-                break
-            page.keyboard.press(KEYS[step])
-            wait_settled(page)
-        if d is None:
-            return False, f"no horizontal move found, player={pos(page)}"
-        page.wait_for_timeout(1000)  # 等相机追上，从静止状态开始记录
-        start = pos(page)
-        # 每帧记录相机偏航，直到移动结束后再多记 1 秒（覆盖相机追赶阶段）
-        page.evaluate(
-            "() => { window.__yaws = []; const tick = () => {"
-            " window.__yaws.push(window.__maze3d.cameraYaw);"
-            " if (window.__yaws.length < 600) requestAnimationFrame(tick); };"
-            " requestAnimationFrame(tick); }"
-        )
-        page.keyboard.press(KEYS[d])
-        wait_settled(page)
-        page.wait_for_timeout(1000)
-        yaws = page.evaluate("() => window.__yaws.slice()")
-        worst = max(abs(y) for y in yaws) if yaws else None
-        moved = pos(page) != start
-        ok_err, msg = no_errors(errors)
-        ok = ok_err and moved and len(yaws) > 10 and worst < 1e-6
-        return (
-            ok,
-            f"dir={d} frames={len(yaws)} maxYaw={worst} moved={moved} {msg}".strip(),
-        )
-    finally:
-        close(page)
+REPEAT_KEYDOWN_JS = (
+    "() => window.dispatchEvent(new KeyboardEvent('keydown',"
+    " { code: 'KeyW', key: 'w', repeat: true }))"
+)
 
 
-def entrance_dir(page):
-    for d in ["down", "right"]:
-        if next_stop(page, d) is not None:
-            return d
-    return None
+def hold_still_with_repeats(page, ms=300):
+    """按住 w 期间模拟实体键盘自动重复：每 50ms 再发一次 keydown（repeat=true）；返回期间的位置。"""
+    seen = []
+    t0 = time.time()
+    while time.time() - t0 < ms / 1000:
+        page.keyboard.down("w")  # 已按下的键再 down = repeat 事件
+        page.evaluate(REPEAT_KEYDOWN_JS)
+        seen.append(pos_of(page))
+        page.wait_for_timeout(50)
+    seen.append(pos_of(page))
+    return seen
 
 
 def check_11(browser, base):
+    """按住方向键时重建迷宫、窗口失焦、切后台：按键集合清空，小人停下且不会自己继续走。"""
     details = []
-    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
     try:
         wait_idle(page)
-        # (a) 动画中途切换尺寸 / 重新生成
+        # (a) 按住 w 时切换尺寸 / 重新生成
         for target, want_size in [("#size-15", 15), ("#regen-btn", 15)]:
-            d = entrance_dir(page)
+            face_open(page)
             gen = m3(page, "generation")
-            page.keyboard.press(KEYS[d])
-            state_at_click = page.evaluate(
-                "sel => { const s = window.__maze3d.state;"
-                " document.querySelector(sel).click(); return s; }",
-                target,
+            start = pos_of(page)
+            page.keyboard.down("w")
+            page.wait_for_timeout(300)
+            walking = moved(start, pos_of(page))
+            page.evaluate("(sel) => document.querySelector(sel).click()", target)
+            seen = hold_still_with_repeats(page)
+            still = all(
+                abs(p["x"] - 0.5) < 1e-9 and abs(p["z"] - 0.5) < 1e-9 for p in seen
             )
-            page.wait_for_timeout(1000)
+            page.keyboard.up("w")
+            face_open(page)
+            page.keyboard.down("w")
+            page.wait_for_timeout(300)
+            page.keyboard.up("w")
+            resumed = moved(seen[-1], pos_of(page))
+            page.wait_for_timeout(200)
             ok = (
-                state_at_click == "moving"
+                walking
+                and still
+                and resumed
                 and m3(page, "size") == want_size
-                and pos(page) == {"row": 0, "col": 0}
                 and m3(page, "generation") == gen + 1
                 and m3(page, "state") == "idle"
             )
-            details.append(f"a:{target} state_at_click={state_at_click} ok={ok}")
+            details.append(
+                f"a:{target} walking={walking} stillAfterRebuild={still} resumed={resumed} ok={ok}"
+            )
             if not ok:
-                return False, " ".join(details) + f" player={pos(page)}"
-    finally:
-        close(page)
+                return False, " ".join(details) + f" seen={seen[:3]}"
+            page.click("#regen-btn")
+            wait_idle(page)
 
-    # (b) 20ms 内连按 5 次，只走一次
-    page, errors2 = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
-    try:
-        wait_idle(page)
-        d = entrance_dir(page)
-        exp = next_stop(page, d)
-        for _ in range(5):
-            page.keyboard.press(KEYS[d])
-        wait_settled(page)
-        page.wait_for_timeout(500)
-        got = pos(page)
-        ok = got == exp
-        details.append(f"b:{d} got={got} want={exp}")
+        # (b) 按住 w 时窗口失焦
+        face_open(page)
+        start = pos_of(page)
+        page.keyboard.down("w")
+        page.wait_for_timeout(300)
+        walking = moved(start, pos_of(page))
+        page.evaluate("() => window.dispatchEvent(new Event('blur'))")
+        page.wait_for_timeout(200)
+        p1 = pos_of(page)
+        page.wait_for_timeout(300)
+        p2 = pos_of(page)
+        page.keyboard.up("w")
+        ok = walking and not moved(p1, p2)
+        details.append(f"b:blur walking={walking} stopped={not moved(p1, p2)}")
         if not ok:
             return False, " ".join(details)
-    finally:
-        close(page)
 
-    # (c) 按住 800ms（自动连发），松开后不再多走
-    page, errors3 = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
-    try:
+        # (c) 按住 w 时切后台再回来
+        page.click("#regen-btn")
         wait_idle(page)
-        d = entrance_dir(page)
-        key = KEYS[d]
-        page.keyboard.down(key)
-        t0 = time.time()
-        while time.time() - t0 < 0.8:
-            page.wait_for_timeout(33)
-            page.keyboard.down(key)  # 再次 down = repeat 事件
-        page.keyboard.up(key)
-        wait_settled(page)
-        p1 = pos(page)
-        s1 = m3(page, "state")
-        page.wait_for_timeout(500)
-        p2 = pos(page)
-        s2 = m3(page, "state")
-        ok = p1 == p2 and s1 == s2
-        details.append(f"c:{d} after_release={p1} later={p2} state={s1}->{s2}")
+        face_open(page)
+        start = pos_of(page)
+        page.keyboard.down("w")
+        page.wait_for_timeout(300)
+        walking = moved(start, pos_of(page))
+        page.evaluate(
+            "() => { Object.defineProperty(document, 'visibilityState',"
+            " { value: 'hidden', configurable: true });"
+            " document.dispatchEvent(new Event('visibilitychange')); }"
+        )
+        page.wait_for_timeout(100)
+        page.evaluate(
+            "() => { Object.defineProperty(document, 'visibilityState',"
+            " { value: 'visible', configurable: true });"
+            " document.dispatchEvent(new Event('visibilitychange')); }"
+        )
+        page.wait_for_timeout(200)
+        p1 = pos_of(page)
+        page.wait_for_timeout(300)
+        p2 = pos_of(page)
+        page.keyboard.up("w")
+        ok = walking and not moved(p1, p2)
+        details.append(f"c:visibility walking={walking} stopped={not moved(p1, p2)}")
         if not ok:
             return False, " ".join(details)
+        ok, msg = no_errors(errors)
+        return ok, (" ".join(details) + " " + msg).strip()
     finally:
         close(page)
-
-    # (d) 第一人称前进途中切换视角：动画丢弃，小人落在点击时的显示格
-    page, errors4 = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
-    try:
-        wait_idle(page)
-        page.click("#view-btn")
-        facing = face_walkable(page)
-        if facing is None:
-            return False, " ".join(details) + " d: no walkable direction"
-        page.keyboard.press("ArrowUp")
-        at_click = page.evaluate(
-            "() => { const M = window.__maze3d; const s = M.state; const d = M.display;"
-            " document.getElementById('view-btn').click(); return { state: s, display: d }; }"
-        )
-        state = m3(page, "state")
-        p1 = pos(page)
-        page.wait_for_timeout(1000)
-        p2 = pos(page)
-        ok = (
-            at_click["state"] == "moving"
-            and state == "idle"
-            and p1 == at_click["display"]
-            and p2 == p1
-        )
-        details.append(
-            f"d:state_at_click={at_click['state']} display={at_click['display']}"
-            f" player={p1} later={p2} state={state}"
-        )
-        if not ok:
-            return False, " ".join(details)
-    finally:
-        close(page)
-
-    ok, msg = no_errors(errors + errors2 + errors3 + errors4)
-    return ok, (" ".join(details) + " " + msg).strip()
 
 
 FOG_STATE_JS = """(() => {
@@ -608,7 +691,7 @@ def click_until_disabled(page, sel, limit=40):
 
 
 def check_4(browser, base):
-    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=20")
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=20&debug=1")
     details = []
     try:
         wait_idle(page)
@@ -657,16 +740,18 @@ def check_4(browser, base):
         details.append(f"d:reload fog={fog}")
         if not ok:
             return False, " ".join(details)
-        # (e) 空闲时不重算，移动后重算
+        # (e) 静止时不重算；跨进相邻格恰好重算一次
         n0 = m3(page, "fogRecomputeCount")
         page.wait_for_timeout(1000)
         n1 = m3(page, "fogRecomputeCount")
-        d = entrance_dir(page)
-        page.keyboard.press(KEYS[d])
-        wait_settled(page)
+        d = open_dir(page)
+        dr, dc = DIRS[d]
+        arrived = walk_to(page, dr, dc)
         n2 = m3(page, "fogRecomputeCount")
-        ok = n0 == n1 and n2 > n1
-        details.append(f"e:count {n0}->{n1} idle, ->{n2} after move")
+        r = logic(page, FOG_STATE_JS, 25)
+        ok = n0 == n1 and arrived and n2 == n1 + 1 and r["wallMismatch"] == 0
+        ok = ok and r["floorMismatch"] == 0
+        details.append(f"e:count {n0}->{n1} idle, ->{n2} after walk {d} {r}")
         if not ok:
             return False, " ".join(details)
         ok, msg = no_errors(errors)
@@ -688,29 +773,38 @@ PATH_STATE_JS = """(() => {
 })()"""
 
 
+PATH_STATE_JS = """(() => {
+  const path = L.findPath(M.connections, M.player, { row: M.size - 1, col: M.size - 1 });
+  const on = new Set(path.map(([r, c]) => r * M.size + c));
+  let bad = 0;
+  for (let row = 0; row < M.size; row++)
+    for (let col = 0; col < M.size; col++) {
+      const red = M.floorColorHex(row, col) === '#ff6b6b';
+      if (red !== on.has(row * M.size + col)) bad++;
+    }
+  return { len: path.length, bad };
+})()"""
+
+
 def check_5(browser, base):
-    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
     details = []
     try:
-        wait_idle(page)
-        page.keyboard.press(KEYS[entrance_dir(page)])
         wait_idle(page)
         page.click("#show-path-btn")
         r = logic(page, PATH_STATE_JS)
         details.append(f"show:{r} showPath={m3(page, 'showPath')}")
         if r["bad"] != 0 or r["len"] < 2:
             return False, " ".join(details)
-        # 再走一步，路径按新位置重算
-        moved = False
-        for d in ["right", "down", "left", "up"]:
-            if next_stop(page, d) is not None:
-                page.keyboard.press(KEYS[d])
-                wait_settled(page)
-                moved = True
-                break
-        r = logic(page, PATH_STATE_JS)
-        details.append(f"after-move({moved}) at {pos(page)}:{r}")
-        if not moved or r["bad"] != 0:
+        # 走到路径上第二格，道路按新位置重算
+        path = logic(
+            page,
+            "L.findPath(M.connections, M.playerCell, {row: M.size - 1, col: M.size - 1})",
+        )
+        arrived = walk_to(page, path[1][0], path[1][1])
+        r2 = logic(page, PATH_STATE_JS)
+        details.append(f"after-walk({arrived}) at {pos(page)}:{r2}")
+        if not arrived or r2["bad"] != 0 or r2["len"] != r["len"] - 1:
             return False, " ".join(details)
         page.click("#hide-path-btn")
         res = logic(
@@ -794,74 +888,63 @@ def minimap_data(page):
     return page.evaluate("() => document.getElementById('minimap').toDataURL()")
 
 
-def face_walkable(page):
-    """第一人称下转身到一个可走的方向，返回该方向；找不到返回 None。"""
-    for _ in range(4):
-        facing = m3(page, "player")["facing"]
-        if next_stop(page, facing) is not None:
-            return facing
-        page.keyboard.press("ArrowLeft")
-        wait_idle(page)
-    return None
-
-
 def check_3(browser, base):
-    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    """切换视角：保留 yaw，pitch 改为该视角默认值；第一人称显示小地图、隐藏小人。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
     details = []
     try:
         wait_idle(page)
+        face_yaw(page, 2.0)
+        yaw0 = m3(page, "yaw")
         page.click("#view-btn")
         page.wait_for_timeout(100)
         view = m3(page, "view")
         text = page.inner_text("#view-btn")
         mini = page.is_visible("#minimap")
         pv = m3(page, "playerVisible")
+        yaw1 = m3(page, "yaw")
+        pitch1 = m3(page, "pitch")
         details.append(
             f"first: view={view} btn={text} minimap={mini} playerVisible={pv}"
+            f" yaw {yaw0:.4f}->{yaw1:.4f} pitch={pitch1}"
         )
-        if not (view == "first" and text == "切换到跟随视角" and mini and pv is False):
+        if not (
+            view == "first"
+            and text == "切换到跟随视角"
+            and mini
+            and pv is False
+            and abs(yaw1 - yaw0) < 1e-9
+            and pitch1 == 0
+        ):
             return False, " ".join(details)
-        start = pos(page)
-        turns = []
-        for key, how in [
-            ("ArrowLeft", "left"),
-            ("ArrowRight", "right"),
-            ("ArrowDown", "back"),
-            ("ArrowDown", "back"),
-        ]:
-            before = m3(page, "player")["facing"]
-            want = logic(page, "L.turn(arg.f, arg.h)", {"f": before, "h": how})
-            page.keyboard.press(key)
-            wait_idle(page)
-            got = m3(page, "player")["facing"]
-            turns.append(f"{key}:{before}->{got}")
-            if got != want or pos(page) != start:
-                return False, " ".join(details + turns) + f" want={want}"
-        if turns[0] != "ArrowLeft:down->right":
-            return False, " ".join(details + turns)
-        details.append(" ".join(turns))
-        facing = face_walkable(page)
-        if facing is None:
-            return False, " ".join(details) + " no walkable direction"
-        before = pos(page)
-        exp = next_stop(page, facing)
         img0 = minimap_data(page)
-        page.keyboard.press("ArrowUp")
-        wait_settled(page)
-        got = pos(page)
+        page.keyboard.down("ArrowRight")
+        page.wait_for_timeout(300)
+        page.keyboard.up("ArrowRight")
+        page.wait_for_timeout(100)
         img1 = minimap_data(page)
-        details.append(
-            f"forward {facing}: {before}->{got} want={exp} minimapChanged={img0 != img1}"
-        )
-        if got != exp or img0 == img1:
+        details.append(f"turn: minimapChanged={img0 != img1}")
+        if img0 == img1:
             return False, " ".join(details)
+        yaw2 = m3(page, "yaw")
         page.click("#view-btn")
         page.wait_for_timeout(100)
         view = m3(page, "view")
         mini = page.is_visible("#minimap")
         pv = m3(page, "playerVisible")
-        details.append(f"follow: view={view} minimap={mini} playerVisible={pv}")
-        ok = view == "follow" and not mini and pv is True
+        yaw3 = m3(page, "yaw")
+        pitch_deg = math.degrees(m3(page, "pitch"))
+        details.append(
+            f"follow: view={view} minimap={mini} playerVisible={pv}"
+            f" yawKept={abs(yaw3 - yaw2) < 1e-9} pitch={pitch_deg:.2f}deg"
+        )
+        ok = (
+            view == "follow"
+            and not mini
+            and pv is True
+            and abs(yaw3 - yaw2) < 1e-9
+            and abs(pitch_deg - 40) <= 0.5
+        )
         ok_err, msg = no_errors(errors)
         return ok and ok_err, (" ".join(details) + " " + msg).strip()
     finally:
@@ -891,6 +974,7 @@ def inside(inner, outer, eps=0.5):
 
 
 def check_8(browser, base):
+    """375px 宽：无横向滚动；舞台、摇杆与按钮互不重叠；小地图在舞台内。"""
     page, errors = open_page(
         browser,
         f"{base}{PAGE}?seed={S}&size=10",
@@ -904,24 +988,38 @@ def check_8(browser, base):
         wait_idle(page)
         page.wait_for_timeout(300)
         sw = page.evaluate("() => document.documentElement.scrollWidth")
-        canvas = box_of(page, "#stage > canvas:not(#minimap)")
-        cx = canvas["x"] + canvas["width"] / 2
-        cy = canvas["y"] + canvas["height"] / 2
-        center = {"x": cx - 60, "y": cy - 60, "width": 120, "height": 120}
-        bad = []
-        for d in ["up", "down", "left", "right"]:
-            b = box_of(page, f"#btn-{d}")
-            if intersects(b, center) or b["width"] < 56 or b["height"] < 56:
-                bad.append(f"{d}:{b}")
+        stage = stage_box(page)
+        buttons = [
+            b
+            for b in (
+                page.locator("button").nth(i).bounding_box()
+                for i in range(page.locator("button").count())
+            )
+            if b
+        ]
+        bad = [b for b in buttons if intersects(b, stage)]
+        cdp = page.context.new_cdp_session(page)
+        tx = stage["x"] + stage["width"] * 0.25
+        ty = stage["y"] + stage["height"] * 0.5
+        cdp_touch(cdp, "touchStart", {1: (tx, ty)})
+        page.wait_for_timeout(200)
+        stick = box_of(page, "#stick")
+        stick_ok = (
+            stick is not None
+            and inside(stick, stage)
+            and not any(intersects(stick, b) for b in buttons)
+        )
+        cdp_touch(cdp, "touchEnd", {})
         page.click("#view-btn")
         page.wait_for_timeout(200)
         mini = box_of(page, "#minimap")
-        mini_ok = inside(mini, canvas)
+        mini_ok = inside(mini, stage)
         page.screenshot(path=str(SCRATCH / "maze3d-375x667.png"), full_page=True)
         details.append(
-            f"portrait: scrollWidth={sw} dpadBad={bad} minimapInside={mini_ok}"
+            f"portrait: scrollWidth={sw} buttonsOverStage={bad} stick={stick}"
+            f" stickOk={stick_ok} minimapInside={mini_ok}"
         )
-        if sw > 375 or bad or not mini_ok:
+        if sw != 375 or bad or not stick_ok or not mini_ok:
             return False, " ".join(details)
         page.set_viewport_size({"width": 667, "height": 375})
         page.wait_for_timeout(300)
@@ -937,8 +1035,12 @@ def check_8(browser, base):
         close(page)
 
 
-def play_rounds(page):
-    """跟随视角走 10 步（赢了就再来一局），再切第一人称做 10 次前进 / 转身。"""
+def play_rounds_legacy(page):
+    """基线（离散移动）代码用：跟随视角走 10 步（赢了就再来一局），再切第一人称做 10 次前进 / 转身。"""
+
+    def next_stop(d):
+        return logic(page, "L.findNextIntersection(M.connections, M.player, arg)", d)
+
     for _ in range(10):
         if m3(page, "state") == "won":
             page.click("#again-btn")
@@ -959,15 +1061,15 @@ def play_rounds(page):
             page.click("#again-btn")
             wait_idle(page)
         facing = m3(page, "player")["facing"]
-        if i % 3 != 2 and next_stop(page, facing) is not None:
+        if i % 3 != 2 and next_stop(facing) is not None:
             page.keyboard.press("ArrowUp")
         else:
             page.keyboard.press("ArrowLeft")
         wait_settled(page, timeout=15000)
 
 
-def perf_round(browser, base, mobile, init_script=None):
-    """base 可以指向基线服务器；init_script 用来预设主题。"""
+def perf_round(browser, base, mobile, init_script=None, driver=play_continuous):
+    """base 可以指向基线服务器；init_script 用来预设主题；基线代码用 driver=play_rounds_legacy。"""
     if mobile:
         dev = dict(PW.devices["iPhone SE"])
         dev.pop("default_browser_type", None)
@@ -987,7 +1089,7 @@ def perf_round(browser, base, mobile, init_script=None):
         wait_idle(page, timeout=15000)
         page.wait_for_timeout(500)
         page.evaluate("() => window.__maze3d.resetFrameStats()")
-        play_rounds(page)
+        driver(page)
         stats = m3(page, "frameStats()")
         return {
             "count": stats["count"],
@@ -1084,7 +1186,9 @@ def check_9b(browser, base):
 
 def check_9c(browser, base):
     details = []
-    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1&slow=40")
+    page, errors = open_page(
+        browser, f"{base}{PAGE}?seed={S}&size=10&debug=1&slow=40", has_touch=True
+    )
     try:
         wait_ready(page)
         page.wait_for_function("() => window.__maze3d.quality === 'low'", timeout=10000)
@@ -1107,13 +1211,43 @@ def check_9c(browser, base):
         ):
             return False, " ".join(details)
         wait_idle(page, timeout=10000)
-        d = entrance_dir(page)
-        exp = next_stop(page, d)
-        page.keyboard.press(KEYS[d])
-        wait_settled(page, timeout=10000)
-        got = pos(page)
-        details.append(f"move {d}: {got} want {exp}")
-        if got != exp:
+        # 降画质后：键盘、鼠标拖动、触摸摇杆仍然生效
+        face_open(page)
+        p0 = pos_of(page)
+        page.keyboard.down("w")
+        page.wait_for_timeout(500)
+        page.keyboard.up("w")
+        page.wait_for_timeout(300)
+        p1 = pos_of(page)
+        stage = stage_box(page)
+        cx = stage["x"] + stage["width"] / 2
+        cy = stage["y"] + stage["height"] / 2
+        y0 = m3(page, "yaw")
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.mouse.move(cx + 100, cy, steps=5)
+        page.mouse.up()
+        page.wait_for_timeout(300)
+        y1 = m3(page, "yaw")
+        page.click("#regen-btn")
+        wait_idle(page)
+        face_open(page)
+        p2 = pos_of(page)
+        cdp = page.context.new_cdp_session(page)
+        tx = stage["x"] + stage["width"] * 0.25
+        cdp_touch(cdp, "touchStart", {1: (tx, cy)})
+        for i in range(1, 7):
+            cdp_touch(cdp, "touchMove", {1: (tx, cy - 10 * i)})
+            page.wait_for_timeout(30)
+        page.wait_for_timeout(500)
+        cdp_touch(cdp, "touchEnd", {})
+        page.wait_for_timeout(300)
+        p3 = pos_of(page)
+        details.append(
+            f"keys moved={moved(p0, p1)} mouse yaw {y0:.3f}->{y1:.3f}"
+            f" touch moved={moved(p2, p3)} quality={m3(page, 'quality')}"
+        )
+        if not (moved(p0, p1) and abs(y1 - y0) > 0.1 and moved(p2, p3)):
             return False, " ".join(details)
         page.wait_for_timeout(3000)
         n2 = m3(page, "downgradeCount")
@@ -1246,25 +1380,6 @@ def check_t1(browser, base):
         close(page)
 
 
-def far_direction(page):
-    """找一个下一站与当前格相距至少 2 格的方向；找不到就沿最短路走一步再找，最多 20 次。"""
-    for _ in range(20):
-        here = pos(page)
-        for d in ["right", "down", "left", "up"]:
-            stop = next_stop(page, d)
-            if (
-                stop
-                and abs(stop["row"] - here["row"]) + abs(stop["col"] - here["col"]) >= 2
-            ):
-                return d, stop
-        step = path_dir(page)
-        if step is None:
-            return None, None
-        page.keyboard.press(KEYS[step])
-        wait_settled(page)
-    return None, None
-
-
 CLICK_DURING_JS = (
     "(id) => { const s = window.__maze3d.state;"
     " document.getElementById(id).click(); return s; }"
@@ -1272,39 +1387,40 @@ CLICK_DURING_JS = (
 
 
 def check_t3(browser, base):
-    """移动与转身动画途中切换主题：动画照常完成，迷宫不重建。"""
-    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
+    """按住移动 / 转向键途中切换主题：迷宫不重建，小人继续走、视角继续转。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
     details = []
     try:
         wait_idle(page)
-        d, exp = far_direction(page)
-        if d is None:
-            return False, f"no long move found, player={pos(page)}"
+        face_open(page)
         gen0 = m3(page, "generation")
-        page.keyboard.press(KEYS[d])
-        st = page.evaluate(CLICK_DURING_JS, "theme-castle")
-        wait_settled(page)
-        got = pos(page)
+        page.keyboard.down("w")
+        page.wait_for_timeout(100)
+        page.evaluate("(id) => document.getElementById(id).click()", "theme-castle")
+        p0 = pos_of(page)
+        page.wait_for_timeout(150)
+        p1 = pos_of(page)
+        page.keyboard.up("w")
         gen1 = m3(page, "generation")
         th = m3(page, "theme")
         details.append(
-            f"move {d}: state_at_click={st} pos={got} want={exp} gen {gen0}->{gen1} theme={th}"
+            f"walk: moved after click={moved(p0, p1)} gen {gen0}->{gen1} theme={th}"
         )
-        if st != "moving" or got != exp or gen1 != gen0 or th != "castle":
+        if not moved(p0, p1) or gen1 != gen0 or th != "castle":
             return False, " ".join(details)
         page.click("#view-btn")
-        wait_idle(page)
-        before = m3(page, "player")["facing"]
-        want = logic(page, "L.turn(arg, 'left')", before)
-        page.keyboard.press("ArrowLeft")
-        st = page.evaluate(CLICK_DURING_JS, "theme-brick")
-        wait_idle(page)
-        got = m3(page, "player")["facing"]
+        page.wait_for_timeout(100)
+        page.keyboard.down("ArrowLeft")
+        page.wait_for_timeout(100)
+        page.evaluate("(id) => document.getElementById(id).click()", "theme-brick")
+        y0 = m3(page, "yaw")
+        page.wait_for_timeout(150)
+        y1 = m3(page, "yaw")
+        page.keyboard.up("ArrowLeft")
         th = m3(page, "theme")
-        details.append(
-            f"turn: state_at_click={st} facing {before}->{got} want={want} theme={th}"
-        )
-        if st != "turning" or got != want or th != "brick":
+        gen2 = m3(page, "generation")
+        details.append(f"turn: yaw {y0:.3f}->{y1:.3f} gen={gen2} theme={th}")
+        if not (y1 < y0 and gen2 == gen0 and th == "brick"):
             return False, " ".join(details)
         ok, msg = no_errors(errors)
         return ok, (" ".join(details) + " " + msg).strip()
@@ -1454,12 +1570,25 @@ def screen_metrics(img):
     return {"colors": len(seen), "std": std, "spread": spread}
 
 
-def face_wall(page, max_moves=10):
-    """第一人称下转身到正前方是一段墙（迷宫内部的墙，不是外边界）；返回朝向，找不到返回 None。
+def face_wall_legacy(page, max_moves=10):
+    """基线（离散移动）代码用：第一人称下转身到正前方是一段内部墙；返回朝向，找不到返回 None。
 
     迷宫外边界不画墙，所以要求前方的相邻格在迷宫内。当前格没有这样的墙时，
     朝可走的方向前进一站再找，最多前进 max_moves 次。
     """
+
+    def next_stop(d):
+        return logic(page, "L.findNextIntersection(M.connections, M.player, arg)", d)
+
+    def face_walkable():
+        for _ in range(4):
+            facing = m3(page, "player")["facing"]
+            if next_stop(facing) is not None:
+                return facing
+            page.keyboard.press("ArrowLeft")
+            wait_idle(page)
+        return None
+
     for _ in range(max_moves + 1):
         n = m3(page, "size")
         for i in range(4):
@@ -1467,12 +1596,12 @@ def face_wall(page, max_moves=10):
             dr, dc = DIRS[p["facing"]]
             r, c = p["row"] + dr, p["col"] + dc
             inside_maze = 0 <= r < n and 0 <= c < n
-            if inside_maze and next_stop(page, p["facing"]) is None:
+            if inside_maze and next_stop(p["facing"]) is None:
                 return p["facing"]
             if i < 3:
                 page.keyboard.press("ArrowLeft")
                 wait_idle(page)
-        if face_walkable(page) is None:
+        if face_walkable() is None:
             return None
         page.keyboard.press("ArrowUp")
         wait_settled(page)
@@ -1500,7 +1629,7 @@ def check_t2(browser, base):
         try:
             wait_idle(page)
             page.click("#view-btn")
-            facing = face_wall(page)
+            facing = face_wall_legacy(page)
             page.wait_for_timeout(300)
             base_m = screen_metrics(canvas_image(page))
             details.append(f"baseline(facing={facing}): {fmt_metrics(base_m)}")
@@ -1512,12 +1641,17 @@ def check_t2(browser, base):
     all_ok = True
     for tid in THEME_IDS:
         page, errors = open_page(
-            browser, f"{base}{PAGE}?seed={S}&size=10", init_script=theme_init(tid)
+            browser,
+            f"{base}{PAGE}?seed={S}&size=10&debug=1",
+            init_script=theme_init(tid),
         )
         try:
             wait_idle(page)
+            facing = find_wall_cell(page)
             page.click("#view-btn")
-            facing = face_wall(page)
+            if facing is not None:
+                set_test_input(page, yaw=DIR_YAW[facing], pitch=0)
+                set_test_input(page)
             page.wait_for_timeout(300)
             wc = m3(page, "wallContrast()")
             sm = screen_metrics(canvas_image(page))
@@ -1592,6 +1726,21 @@ def rgb_dist(a, b):
     return sum((x - y) ** 2 for x, y in zip(a, b)) ** 0.5
 
 
+def walk_near_end(page, dist):
+    """沿最短路走到第一个与终点切比雪夫距离 <= dist 的格子（不进终点）。"""
+    n = m3(page, "size")
+    end = {"row": n - 1, "col": n - 1}
+    path = logic(
+        page,
+        "L.findPath(M.connections, M.playerCell, {row: M.size - 1, col: M.size - 1})",
+    )
+    for r, c in path:
+        cell = {"row": r, "col": c}
+        if cell != end and chebyshev(cell, end) <= dist:
+            return walk_to(page, r, c)
+    return False
+
+
 def check_t5(browser, base):
     """各主题下五类地板格（普通、起点、终点、道路、迷雾）在屏幕上两两颜色距离 ≥ 60。"""
     details = []
@@ -1599,7 +1748,7 @@ def check_t5(browser, base):
     for tid in THEME_IDS:
         page, errors = open_page(
             browser,
-            f"{base}{PAGE}?seed={S}&size=10",
+            f"{base}{PAGE}?seed={S}&size=10&debug=1",
             init_script=theme_init(tid) + preset_storage("0", "1"),
         )
         got = {}
@@ -1609,20 +1758,14 @@ def check_t5(browser, base):
             n = m3(page, "size")
             end = {"row": n - 1, "col": n - 1}
             # 场景 A：迷雾关、道路关
-            page.keyboard.press(KEYS[entrance_dir(page)])
+            d = open_dir(page)
+            walk_to(page, *DIRS[d])
             settle_camera(page)
             img = canvas_image(page)
             got["start"], _ = sample_kind(page, img, [(0, 0)], "start")
             got["floor"], at = sample_kind(page, img, cells_by_distance(page), "floor")
             notes.append(f"floor@{at}")
-            for _ in range(60):
-                if chebyshev(pos(page), end) <= 2:
-                    break
-                d = path_dir(page)
-                if d is None or next_stop(page, d) == end:
-                    break
-                page.keyboard.press(KEYS[d])
-                wait_settled(page)
+            walk_near_end(page, 2)
             settle_camera(page)
             img = canvas_image(page)
             end_a, _ = sample_kind(page, img, [(n - 1, n - 1)], "end")
@@ -1663,15 +1806,7 @@ def check_t5(browser, base):
                 f"fog@{at} C fog={fog_state} floorC={floor_c} endKindC={end_kind_c}"
             )
             # 场景 D：继续前进到终点旁边（不进终点）
-            for _ in range(60):
-                here = pos(page)
-                if chebyshev(here, end) <= 1 and here != end:
-                    break
-                d = path_dir(page)
-                if d is None:
-                    break
-                page.keyboard.press(KEYS[d])
-                wait_settled(page)
+            walk_near_end(page, 1)
             here = pos(page)
             settle_camera(page)
             img = canvas_image(page)
@@ -1740,7 +1875,12 @@ def check_t7(browser, base):
                 args=["--use-angle=metal", "--enable-gpu"],
             )
             try:
-                runs = [("baseline", perf_round(gb, bbase, mobile=True))]
+                runs = [
+                    (
+                        "baseline",
+                        perf_round(gb, bbase, mobile=True, driver=play_rounds_legacy),
+                    )
+                ]
                 if "swiftshader" in runs[0][1]["renderer"].lower():
                     attempts.append(
                         f"headless={headless} renderer={runs[0][1]['renderer']!r}"
@@ -1805,10 +1945,13 @@ def check_t7b(browser, base):
         details.append(f"after downgrade anisotropy={an0}")
         if an0 != [1, 1, 1]:
             return False, " ".join(details)
-        page.click("#view-btn")
-        facing = face_wall(page)
+        facing = find_wall_cell(page)
         if facing is None:
             return False, " ".join(details) + " no wall to face"
+        page.click("#view-btn")
+        set_test_input(page, yaw=DIR_YAW[facing], pitch=0)
+        set_test_input(page)
+        page.wait_for_timeout(300)
         for tid in THEME_IDS:
             click_theme(page, tid)
             th = m3(page, "theme")
@@ -1848,7 +1991,7 @@ def check_t9(browser, base):
     for tid in THEME_IDS:
         page, errors = open_page(
             browser,
-            f"{base}{PAGE}?seed={S}&size=10",
+            f"{base}{PAGE}?seed={S}&size=10&debug=1",
             viewport={"width": 1280, "height": 800},
             init_script=theme_init(tid),
         )
@@ -1859,12 +2002,15 @@ def check_t9(browser, base):
             canvas_image(page).save(f)
             files.append(f)
             page.click("#view-btn")
-            face_walkable(page)
+            face_open(page)
             page.wait_for_timeout(300)
             f = SHOTS / f"{tid}-first.png"
             canvas_image(page).save(f)
             files.append(f)
-            face_wall(page)
+            d = find_wall_cell(page)
+            if d is not None:
+                set_test_input(page, yaw=DIR_YAW[d], pitch=0)
+                set_test_input(page)
             page.wait_for_timeout(300)
             f = SHOTS / f"{tid}-first-wall.png"
             canvas_image(page).save(f)
@@ -1878,13 +2024,517 @@ def check_t9(browser, base):
     return ok, f"dir={SHOTS} files={len(good)}/12 {msg}".strip()
 
 
+# ---------------------------------------------------------------- free move
+
+
+def check_f1(browser, base):
+    """按住 w 0.5 秒：位置逐帧连续变化，没有一格一格的跳变。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 640, "height": 480},
+    )
+    try:
+        wait_idle(page)
+        page.wait_for_timeout(300)
+        face_open(page)
+
+        def hold():
+            page.keyboard.down("w")
+            page.wait_for_timeout(500)
+            page.keyboard.up("w")
+
+        frames = record_frames(page, "playerPos", 600, during=hold)
+        steps = [
+            math.hypot(b["x"] - a["x"], b["z"] - a["z"])
+            for a, b in zip(frames, frames[1:])
+        ]
+        total = math.hypot(
+            frames[-1]["x"] - frames[0]["x"], frames[-1]["z"] - frames[0]["z"]
+        )
+        distinct = len({(round(p["x"], 9), round(p["z"], 9)) for p in frames})
+        worst = max(steps) if steps else None
+        ok_err, msg = no_errors(errors)
+        ok = (
+            ok_err
+            and worst is not None
+            and worst < 0.1
+            and total > 0.5
+            and distinct >= 10
+        )
+        return (
+            ok,
+            (
+                f"frames={len(frames)} maxStep={worst:.4f} total={total:.3f} distinct={distinct} {msg}"
+            ).strip(),
+        )
+    finally:
+        close(page)
+
+
+def check_f2(browser, base):
+    """按住 → 0.75 秒：yaw 连续增加约 90°，逐帧平滑。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 640, "height": 480},
+    )
+    try:
+        wait_idle(page)
+        page.wait_for_timeout(300)
+
+        def hold():
+            page.keyboard.down("ArrowRight")
+            page.wait_for_timeout(750)
+            page.keyboard.up("ArrowRight")
+
+        yaws = record_frames(page, "yaw", 1000, during=hold)
+        deltas = [math.degrees(b - a) for a, b in zip(yaws, yaws[1:])]
+        total = math.degrees(yaws[-1] - yaws[0])
+        ok_err, msg = no_errors(errors)
+        ok = ok_err and abs(total - 90) <= 15 and all(0 <= d < 10 for d in deltas)
+        return (
+            ok,
+            (
+                f"frames={len(yaws)} total={total:.1f}deg maxStep={max(deltas):.2f}deg"
+                f" minStep={min(deltas):.2f}deg {msg}"
+            ).strip(),
+        )
+    finally:
+        close(page)
+
+
+def wall_face_distance(p, cell, d):
+    """圆心到 cell 的 d 方向墙面的水平距离（墙厚 0.1，墙面 = 格边界内缩 0.05）。"""
+    r, c = cell["row"], cell["col"]
+    if d == "up":
+        return p["z"] - (r + 0.05)
+    if d == "down":
+        return (r + 1 - 0.05) - p["z"]
+    if d == "left":
+        return p["x"] - (c + 0.05)
+    return (c + 1 - 0.05) - p["x"]
+
+
+def check_f3(browser, base):
+    """朝墙按住前进 2 秒：小人停在墙前，不穿墙。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    try:
+        wait_idle(page)
+        d = find_wall_cell(page)
+        if d is None:
+            return False, "no wall cell"
+        cell = m3(page, "playerCell")
+        face_yaw(page, DIR_YAW[d])
+        page.keyboard.down("w")
+        page.wait_for_timeout(2000)
+        page.keyboard.up("w")
+        page.wait_for_timeout(200)
+        cell2 = m3(page, "playerCell")
+        p = pos_of(page)
+        dist = wall_face_distance(p, cell, d)
+        ok_err, msg = no_errors(errors)
+        ok = ok_err and cell2 == cell and dist >= 0.28 - 0.01 and dist < 0.35
+        return (
+            ok,
+            f"cell={cell}->{cell2} dir={d} pos={p} faceDist={dist:.4f} {msg}".strip(),
+        )
+    finally:
+        close(page)
+
+
+def check_f4(browser, base):
+    """触屏：左半边摇杆走路、右半边拖动转视角、两指同时操作、拖出画布松手 / 取消、窄屏 40% 处按下。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 900, "height": 600},
+        has_touch=True,
+    )
+    details = []
+    try:
+        wait_idle(page)
+        page.wait_for_timeout(300)
+        cdp = page.context.new_cdp_session(page)
+        st = stage_box(page)
+        lx = st["x"] + st["width"] * 0.25
+        rx = st["x"] + st["width"] * 0.75
+        cy = st["y"] + st["height"] * 0.5
+        scroll0 = page.evaluate("() => window.scrollY")
+
+        def regen():
+            # 用脚本点击：page.click 会把按钮滚进视口，干扰 scrollY 断言
+            page.evaluate("() => document.getElementById('regen-btn').click()")
+
+        def stick_hidden():
+            return page.evaluate("() => document.getElementById('stick').hidden")
+
+        # (a) 左半边摇杆
+        face_open(page)
+        p0 = pos_of(page)
+        cdp_touch(cdp, "touchStart", {1: (lx, cy)})
+        for i in range(1, 11):
+            cdp_touch(cdp, "touchMove", {1: (lx, cy - 6 * i)})
+            page.wait_for_timeout(50)
+        visible = not stick_hidden()
+        cdp_touch(cdp, "touchEnd", {})
+        page.wait_for_timeout(300)
+        p1 = pos_of(page)
+        ok_a = moved(p0, p1) and visible
+        details.append(f"a:moved={moved(p0, p1)} stickVisible={visible}")
+
+        # (b) 右半边单指拖动
+        y0, pi0 = m3(page, "yaw"), m3(page, "pitch")
+        cdp_touch(cdp, "touchStart", {2: (rx, cy)})
+        for i in range(1, 5):
+            cdp_touch(cdp, "touchMove", {2: (rx + 20 * i, cy + 10 * i)})
+            page.wait_for_timeout(30)
+        cdp_touch(cdp, "touchEnd", {})
+        page.wait_for_timeout(200)
+        y1, pi1 = m3(page, "yaw"), m3(page, "pitch")
+        ok_b = abs(y1 - y0) > 0.1 and abs(pi1 - pi0) > 0.05
+        details.append(f"b:yaw {y0:.3f}->{y1:.3f} pitch {pi0:.3f}->{pi1:.3f}")
+
+        # (c) 两指同时：左摇杆 + 右拖动
+        regen()
+        wait_idle(page)
+        face_open(page)
+        p0 = pos_of(page)
+        y0 = m3(page, "yaw")
+        z0 = m3(page, "cameraZoom")
+        d0 = m3(page, "cameraIdealDistance")
+        cdp_touch(cdp, "touchStart", {1: (lx, cy)})
+        cdp_touch(cdp, "touchStart", {1: (lx, cy), 2: (rx, cy)})
+        for i in range(1, 11):
+            cdp_touch(cdp, "touchMove", {1: (lx, cy - 6 * i), 2: (rx + 8 * i, cy)})
+            page.wait_for_timeout(50)
+        z_mid = m3(page, "cameraZoom")
+        cdp_touch(cdp, "touchEnd", {1: (lx, cy - 60)})
+        cdp_touch(cdp, "touchEnd", {})
+        page.wait_for_timeout(300)
+        p1 = pos_of(page)
+        y1 = m3(page, "yaw")
+        z1 = m3(page, "cameraZoom")
+        d1 = m3(page, "cameraIdealDistance")
+        ok_c = moved(p0, p1) and abs(y1 - y0) > 0.1 and z0 == z_mid == z1 and d0 == d1
+        details.append(
+            f"c:moved={moved(p0, p1)} yaw {y0:.3f}->{y1:.3f} zoom {z0}->{z_mid}->{z1}"
+        )
+
+        # (e) 摇杆手指拖出画布后松开；(f) 同样用 touchCancel
+        res = {}
+        for kind in ["touchEnd", "touchCancel"]:
+            face_open(page)
+            cdp_touch(cdp, "touchStart", {1: (lx, cy)})
+            for i in range(1, 6):
+                cdp_touch(cdp, "touchMove", {1: (lx, cy - 8 * i)})
+                page.wait_for_timeout(40)
+            out_y = st["y"] + st["height"] + 50
+            cdp_touch(cdp, "touchMove", {1: (lx, out_y)})
+            page.wait_for_timeout(100)
+            if kind == "touchEnd":
+                cdp_touch(cdp, "touchEnd", {})
+            else:
+                cdp_touch(cdp, "touchCancel", {})
+            page.wait_for_timeout(300)
+            q1 = pos_of(page)
+            page.wait_for_timeout(300)
+            q2 = pos_of(page)
+            res[kind] = (not moved(q1, q2)) and stick_hidden()
+            regen()
+            wait_idle(page)
+        details.append(f"e/f:{res}")
+
+        # (d) 页面不滚动
+        scroll1 = page.evaluate("() => window.scrollY")
+        details.append(f"d:scrollY {scroll0}->{scroll1}")
+
+        # (g) 窄屏：stage 宽度 40% 处按下成为摇杆
+        page.set_viewport_size({"width": 600, "height": 600})
+        page.wait_for_timeout(300)
+        st2 = stage_box(page)
+        cdp_touch(
+            cdp,
+            "touchStart",
+            {3: (st2["x"] + st2["width"] * 0.4, st2["y"] + st2["height"] / 2)},
+        )
+        page.wait_for_timeout(150)
+        ok_g = not stick_hidden()
+        cdp_touch(cdp, "touchEnd", {})
+        details.append(f"g:stickAt40%={ok_g}")
+
+        ok_err, msg = no_errors(errors)
+        ok = (
+            ok_a and ok_b and ok_c and all(res.values()) and scroll0 == scroll1 and ok_g
+        )
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_f5(browser, base):
+    """鼠标拖动改 yaw / pitch；滚轮缩放跟随距离，钳在 0.7×–1.5×。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    details = []
+    try:
+        wait_idle(page)
+        page.wait_for_timeout(300)
+        st = stage_box(page)
+        cx = st["x"] + st["width"] / 2
+        cy = st["y"] + st["height"] / 2
+        y0, p0 = m3(page, "yaw"), m3(page, "pitch")
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.mouse.move(cx + 100, cy + 50, steps=5)
+        page.mouse.up()
+        page.wait_for_timeout(200)
+        y1, p1 = m3(page, "yaw"), m3(page, "pitch")
+        pdeg = math.degrees(p1)
+        ok_drag = (
+            abs(y1 - y0) > 0.1
+            and abs(p1 - p0) > 0.05
+            and 15 - 1e-6 <= pdeg <= 75 + 1e-6
+        )
+        details.append(
+            f"drag: yaw {y0:.3f}->{y1:.3f} pitch {math.degrees(p0):.1f}->{pdeg:.1f}deg"
+        )
+        for _ in range(10):
+            page.mouse.wheel(0, 2000)
+            page.wait_for_timeout(30)
+        page.wait_for_timeout(1500)
+        z_max = m3(page, "cameraZoom")
+        d_max = m3(page, "cameraDistance")
+        for _ in range(10):
+            page.mouse.wheel(0, -2000)
+            page.wait_for_timeout(30)
+        page.wait_for_timeout(1500)
+        z_min = m3(page, "cameraZoom")
+        d_min = m3(page, "cameraDistance")
+        scroll = page.evaluate("() => window.scrollY")
+        details.append(
+            f"wheel: zoom max={z_max} min={z_min} distance {d_max:.3f}/{d_min:.3f} scrollY={scroll}"
+        )
+        ok_err, msg = no_errors(errors)
+        ok = ok_drag and z_max == 1.5 and z_min == 0.7 and d_max > d_min + 0.5
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def segment_hits_box(a, b, box, eps=1e-4):
+    """线段 a→b 是否穿进（各面内缩 eps 的）盒子。"""
+    t0, t1 = 0.0, 1.0
+    for k in ["x", "y", "z"]:
+        lo = box["min" + k.upper()] + eps
+        hi = box["max" + k.upper()] - eps
+        d = b[k] - a[k]
+        if abs(d) < 1e-12:
+            if a[k] <= lo or a[k] >= hi:
+                return False
+            continue
+        u0 = (lo - a[k]) / d
+        u1 = (hi - a[k]) / d
+        if u0 > u1:
+            u0, u1 = u1, u0
+        t0 = max(t0, u0)
+        t1 = min(t1, u1)
+        if t0 >= t1:
+            return False
+    return True
+
+
+def point_in_box(p, box, eps=1e-4):
+    return all(
+        box["min" + k.upper()] + eps < p[k] < box["max" + k.upper()] - eps
+        for k in "xyz"
+    )
+
+
+CAMERA_MIN_DIST = 1.5  # 与 movement.js 一致：收近到这以下时改为抬高俯角
+
+
+def low_pitch_wall_view(page, yaw, shot):
+    """俯角 15°、相机转到身后墙方向，等稳定后检查相机：线段不穿墙、不在盒内、俯角被抬高、距离可用。"""
+    set_test_input(page, yaw=yaw, pitch=math.radians(15))
+    page.wait_for_timeout(1500)
+    target = m3(page, "cameraTarget")
+    cam = m3(page, "cameraPos")
+    boxes = m3(page, "wallBoxes3d")
+    dist = m3(page, "cameraDistance")
+    ideal = m3(page, "cameraIdealDistance")
+    cam_pitch = m3(page, "cameraPitch")
+    hits = [b for b in boxes if segment_hits_box(target, cam, b)]
+    inside_box = [b for b in boxes if point_in_box(cam, b)]
+    colors = m3(page, "sampleDistinctColors()")
+    canvas_image(page).save(SHOTS / shot)
+    usable = dist >= 0.98 * min(ideal, CAMERA_MIN_DIST)
+    lifted = cam_pitch > math.radians(15) + 1e-6
+    ok = not hits and not inside_box and usable and lifted
+    detail = (
+        f"distance={dist:.3f} ideal={ideal:.3f} camPitch={math.degrees(cam_pitch):.1f}"
+        f" hits={len(hits)} camInside={len(inside_box)} colors={colors}"
+    )
+    return ok, detail
+
+
+def check_f6(browser, base):
+    """跟随视角背对墙、低俯角：格心与贴墙两处，相机都抬高俯角从墙顶看过去，线段不穿墙、
+    距离不小于 CAMERA_MIN_DIST（小人不占满画面）；格心 60° 俯角本来就看得过去，不拉近。"""
+    SHOTS.mkdir(parents=True, exist_ok=True)
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 1280, "height": 800},
+    )
+    details = []
+    try:
+        wait_idle(page)
+        d = find_wall_cell(page)
+        if d is None:
+            return False, "no wall cell"
+        back = DIR_YAW[d] + math.pi
+        ok_center, msg = low_pitch_wall_view(page, back, "follow-lowpitch-wall.png")
+        details.append(f"center pitch15 wall={d}: {msg}")
+        set_test_input(page, pitch=math.radians(60))
+        page.wait_for_timeout(1500)
+        dist60 = m3(page, "cameraDistance")
+        ideal60 = m3(page, "cameraIdealDistance")
+        ok_high = dist60 >= 0.98 * ideal60
+        details.append(f"center pitch60: distance={dist60:.3f} ideal={ideal60:.3f}")
+        # 背对墙后退 1 秒，贴到墙上
+        p0 = m3(page, "playerPos")
+        set_test_input(page, forward=-1, yaw=back, pitch=math.radians(15))
+        page.wait_for_timeout(1000)
+        p1 = m3(page, "playerPos")
+        ok_hug, msg = low_pitch_wall_view(page, back, "follow-lowpitch-hug.png")
+        set_test_input(page)
+        moved_back = math.hypot(p1["x"] - p0["x"], p1["z"] - p0["z"])
+        details.append(f"hug moved={moved_back:.3f} pitch15: {msg}")
+        ok_err, msg = no_errors(errors)
+        ok = ok_center and ok_high and ok_hug and moved_back > 0.1
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_f10(browser, base):
+    """打开页面的默认跟随视角（起点朝南，相机在北侧入口外）：不被不渲染的入口封口拉近。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    try:
+        wait_idle(page)
+        page.wait_for_timeout(500)
+        dist = m3(page, "cameraDistance")
+        ideal = m3(page, "cameraIdealDistance")
+        ok_err, msg = no_errors(errors)
+        ok = dist >= 0.98 * ideal
+        return (
+            ok and ok_err,
+            f"start distance={dist:.3f} ideal={ideal:.3f} {msg}".strip(),
+        )
+    finally:
+        close(page)
+
+
+def check_f7(browser, base):
+    """胜利后仍按住 w 点「再来一局」：小人留在起点不动（自动重复也不行），重新按键才走。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    try:
+        wait_idle(page)
+        if not walk_to_exit(page):
+            return False, "did not win"
+        page.keyboard.down("w")
+        page.click("#again-btn")
+        seen = hold_still_with_repeats(page)
+        still = all(abs(p["x"] - 0.5) < 1e-9 and abs(p["z"] - 0.5) < 1e-9 for p in seen)
+        page.keyboard.up("w")
+        face_open(page)
+        start = pos_of(page)
+        page.keyboard.down("w")
+        page.wait_for_timeout(300)
+        page.keyboard.up("w")
+        resumed = moved(start, pos_of(page))
+        ok_err, msg = no_errors(errors)
+        ok = still and resumed and m3(page, "state") == "idle"
+        return (
+            ok and ok_err,
+            f"still={still} samples={len(seen)} resumed={resumed} {msg}".strip(),
+        )
+    finally:
+        close(page)
+
+
+def check_f8(browser, base):
+    """走进距起点 ≥ 3 格的格子：显示格与所在格一致，迷雾按新格计算。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    try:
+        wait_idle(page)
+        cell = logic(
+            page,
+            """(() => {
+              const dist = new Map([['0,0', 0]]);
+              const q = [{ row: 0, col: 0 }];
+              for (let i = 0; i < q.length; i++) {
+                const p = q[i];
+                const dp = dist.get(p.row + ',' + p.col);
+                if (dp >= 3) return p;
+                for (const [dr, dc] of Object.values(L.DIRS)) {
+                  const n = { row: p.row + dr, col: p.col + dc };
+                  if (!L.canMove(M.connections, p, n) || dist.has(n.row + ',' + n.col)) continue;
+                  dist.set(n.row + ',' + n.col, dp + 1);
+                  q.push(n);
+                }
+              }
+              return null;
+            })()""",
+        )
+        arrived = walk_to(page, cell["row"], cell["col"])
+        disp = m3(page, "display")
+        pc = m3(page, "playerCell")
+        r = logic(page, FOG_STATE_JS, m3(page, "fog")["radius"])
+        ok_err, msg = no_errors(errors)
+        ok = (
+            arrived
+            and disp == pc == cell
+            and r["wallMismatch"] == 0
+            and r["floorMismatch"] == 0
+        )
+        return (
+            ok and ok_err,
+            f"target={cell} display={disp} cell={pc} {r} {msg}".strip(),
+        )
+    finally:
+        close(page)
+
+
+def check_f9(browser, base):
+    """依次切视角、切主题、切尺寸、重新生成：无控制台错误，状态正常。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    try:
+        wait_idle(page)
+        steps = (
+            ["#view-btn"]
+            + [f"#theme-{t}" for t in THEME_IDS]
+            + ["#size-20", "#regen-btn"]
+        )
+        for sel in steps:
+            page.click(sel)
+            page.wait_for_timeout(300)
+        state = m3(page, "state")
+        size = m3(page, "size")
+        view = m3(page, "view")
+        ok_err, msg = no_errors(errors)
+        ok = ok_err and state == "idle" and size == 20 and view == "first"
+        return ok, f"state={state} size={size} view={view} {msg}".strip()
+    finally:
+        close(page)
+
+
 # ---------------------------------------------------------------- runner
 
 CHECKS = {
     "1": check_1,
     "10": check_10,
     "12": check_12,
-    "2": check_2,
     "6": check_6,
     "6b": check_6b,
     "7": check_7,
@@ -1898,7 +2548,6 @@ CHECKS = {
     "9b": check_9b,
     "9c": check_9c,
     "13": check_13,
-    "14": check_14,
     "t1": check_t1,
     "t3": check_t3,
     "t4": check_t4,
@@ -1909,6 +2558,16 @@ CHECKS = {
     "t7": check_t7,
     "t7b": check_t7b,
     "t9": check_t9,
+    "f1": check_f1,
+    "f2": check_f2,
+    "f3": check_f3,
+    "f4": check_f4,
+    "f5": check_f5,
+    "f6": check_f6,
+    "f7": check_f7,
+    "f8": check_f8,
+    "f9": check_f9,
+    "f10": check_f10,
 }
 
 
@@ -1977,7 +2636,7 @@ def main():
             + (f" --baseline-root {BASELINE_ROOT}" if BASELINE_ROOT else ""),
             f"自动检查：{'PASS' if all_ok else 'FAIL'}",
             f"基线代码：{BASELINE_ROOT}（merge-base）",
-            f"人工检查：待用户查看 {SHOTS} 下 12 张截图，确认四种风格纹理明显",
+            f"人工检查：待用户查看 {SHOTS} 下截图（四种主题的跟随 / 第一人称 / 面墙，及 follow-lowpitch-wall.png / follow-lowpitch-hug.png），确认斜视角与贴墙视角能看到小人",
             "",
         ]
         RESULTS.write_text("\n".join(header + lines) + "\n", encoding="utf-8")
