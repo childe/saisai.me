@@ -373,7 +373,7 @@ git commit -m "feat(circuit): 手指轨迹生成直角导线路线"
 **Interfaces:**
 - Consumes: `simplifyRoute`、`wirePoints`（Task 2）
 - Produces:
-  - `dragSegment(points: Point[], seg: number, pt: Point): Point[]`（返回新 `via`）— `points` 是**手势开始时**展开的完整折线。水平段：新 `y = clamp(round(pt.y), 0, BOARD.h)`，把 `points[seg]`、`points[seg+1]` 的 y 改为新值；竖直段对称（x，上限 `BOARD.w`）。若 `seg === 0`，在首点后插入 `[A.x, 新y]`（竖直段则 `[新x, A.y]`），首点 A 不动；若 `seg === points.length - 2`，末点前对称插入。最后 `simplifyRoute(...).slice(1, -1)`。
+  - `dragSegment(points: Point[], seg: number, delta: Point): Point[]`（返回新 `via`）— `points` 是**手势开始时**展开的完整折线；`delta` 是指针相对**按下位置**的位移（网格单位，`[g.x - down.x, g.y - down.y]`），不是指针绝对坐标：按下点可以偏离把手中心最多 `termR`，用绝对坐标取整会让线段在手指没有垂直移动时跳格。水平段：新 `y = clamp(round(points[seg].y + delta.y), 0, BOARD.h)`，把 `points[seg]`、`points[seg+1]` 的 y 改为新值；竖直段对称（`x = clamp(round(points[seg].x + delta.x), 0, BOARD.w)`）。若 `seg === 0`，在首点后插入 `[A.x, 新y]`（竖直段则 `[新x, A.y]`），首点 A 不动；若 `seg === points.length - 2`，末点前对称插入。最后 `simplifyRoute(...).slice(1, -1)`。
   - `hitTest(circuit, pt, k = 1, selWire = null)` — `selWire` 为选中导线 id。端点检查之后、拨片之前：对该导线展开折线每段中点 `m`，若 `dist(pt, m) <= termR`，返回最近的 `{ kind: 'handle', wire: selWire, seg }`。`selWire` 为空时行为与改动前完全一致。本体（`part`）检查跳过 `type === 'node'`（连接点没有本体，只有端点）。
 
 - [ ] **Step 1: 写失败测试** `test/wire-handle.test.js`
@@ -386,17 +386,27 @@ import { build } from './helpers.js';
 
 const Z = [[3, 5], [8, 5], [8, 10], [13, 10]];
 
-test('dragSegment moves a middle segment perpendicular and snaps', () => {
-  assert.deepEqual(dragSegment(Z, 1, [10.4, 7]), [[10, 5], [10, 10]]);
-  assert.deepEqual(dragSegment(Z, 1, [8.2, 7]), [[8, 5], [8, 10]]);
-  assert.deepEqual(dragSegment(Z, 1, [3.1, 7]), [[3, 10]]);
+// 第三个参数是指针相对按下位置的位移 delta，不是绝对坐标
+test('dragSegment moves a middle segment perpendicular by the pointer delta and snaps', () => {
+  assert.deepEqual(dragSegment(Z, 1, [2.4, 1.3]), [[10, 5], [10, 10]]);
+  assert.deepEqual(dragSegment(Z, 1, [0.2, -2]), [[8, 5], [8, 10]]);
+  assert.deepEqual(dragSegment(Z, 1, [-4.9, 0]), [[3, 10]]);
 });
 
 test('dragSegment on the first / last / only segment keeps endpoints fixed', () => {
-  assert.deepEqual(dragSegment(Z, 0, [5, 3.2]), [[3, 3], [8, 3], [8, 10]]);
-  assert.deepEqual(dragSegment(Z, 2, [11, 12.4]), [[8, 5], [8, 12], [13, 12]]);
-  assert.deepEqual(dragSegment([[3, 5], [13, 5]], 0, [8, 7]), [[3, 7], [13, 7]]);
-  assert.deepEqual(dragSegment([[3, 5], [13, 5]], 0, [8, 40]), [[3, 18], [13, 18]]);
+  assert.deepEqual(dragSegment(Z, 0, [0.6, -1.8]), [[3, 3], [8, 3], [8, 10]]);
+  assert.deepEqual(dragSegment(Z, 2, [-2, 2.4]), [[8, 5], [8, 12], [13, 12]]);
+  assert.deepEqual(dragSegment([[3, 5], [13, 5]], 0, [0, 2]), [[3, 7], [13, 7]]);
+  assert.deepEqual(dragSegment([[3, 5], [13, 5]], 0, [0, 35]), [[3, 18], [13, 18]]);
+});
+
+test('pressing off the handle centre and moving only along the segment keeps the route', () => {
+  // 在首段把手 (5.5,5) 下方约 0.5 格按下后只水平移动：delta.y 为 0 或很小，路线不变
+  // （若按绝对坐标取整，按下点 y≈5.5 会让线段跳到 y=6）
+  assert.deepEqual(dragSegment(Z, 0, [3, 0]), [[8, 5], [8, 10]]);
+  assert.deepEqual(dragSegment(Z, 0, [-1, 0.4]), [[8, 5], [8, 10]]);
+  // 在中段（竖直）把手右侧按下后只上下移动：delta.x 为 0，路线不变
+  assert.deepEqual(dragSegment(Z, 1, [0, 3]), [[8, 5], [8, 10]]);
 });
 
 // B(5,5) p=(3,5)；L(15,10) a=(13,10)；路线 (3,5)→(13,5)→(13,10)，中点 (8,5)、(13,7.5)
@@ -471,7 +481,7 @@ git commit -m "feat(circuit): 选中导线的线段把手与拖动"
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { addWire, setWireVia, splitWire, resolveEnd, removeWire, removePart } from '../lib/circuit.js';
-import { wirePoints, nearestOnRoute, rotatePoint, terminalPoint } from '../lib/geometry.js';
+import { wirePoints, nearestOnRoute, rotatePoint, terminalPoint, simplifyRoute } from '../lib/geometry.js';
 import { solve } from '../lib/solve.js';
 import { partVisual } from '../lib/viewmodel.js';
 import { createDamage } from '../lib/damage.js';
@@ -481,6 +491,8 @@ import { build } from './helpers.js';
 const norm = pts => pts.map(p => p.map(v => v + 0));
 const route = (c, id) => norm(wirePoints(c, c.wires.find(w => w.id === id)));
 const nodeWires = (c, n) => c.wires.filter(w => w.a.part === n || w.b.part === n);
+// 两段拼接后多出分割点 P（共线中间点），先去共线点再与原路线比较
+const joined = (c, h1, h2) => norm(simplifyRoute([...route(c, h1.id), ...route(c, h2.id).slice(1)]));
 // B(5,5) p=(3,5) n=(7,5)；L(15,10) a=(13,10) b=(17,10)；w1: B.p→L.a 路线 (3,5)→(13,5)→(13,10)
 const bl = (type = 'lamp', t = ['a', 'b']) => {
   const c = build({ parts: { B: ['battery'], L: [type] }, wires: [['B.p', `L.${t[0]}`], [`L.${t[1]}`, 'B.n']] });
@@ -513,7 +525,9 @@ test('splitWire keeps the route and halves r; refuses endpoints', () => {
   const [h1, h2] = s.circuit.wires.slice(0, 2);
   assert.deepEqual([h1.a, h1.b, h2.a, h2.b], [{ part: 'B', term: 'p' }, { part: s.node, term: 'o' }, { part: s.node, term: 'o' }, { part: 'L', term: 'a' }]);
   assert.deepEqual([h1.r, h2.r], [PHYS.R_WIRE / 2, PHYS.R_WIRE / 2]);
-  assert.deepEqual([...route(s.circuit, h1.id), ...route(s.circuit, h2.id).slice(1)], before);
+  assert.deepEqual(route(s.circuit, h1.id), [[3, 5], [8, 5]]);
+  assert.deepEqual(route(s.circuit, h2.id), [[8, 5], [13, 5], [13, 10]]);
+  assert.deepEqual(joined(s.circuit, h1, h2), before);
   assert.equal(splitWire(c, 'w1', [3, 5]), null);
   assert.equal(splitWire(c, 'w1', [8, 6]), null);
 });
@@ -551,7 +565,9 @@ test('same-part U wire: split on each segment and merge, all four rotations', ()
       const s = splitWire(c, 'w1', P);
       assert.ok(s, `rot=${rot} at=${at}`);
       const [h1, h2] = s.circuit.wires;
-      assert.deepEqual([...route(s.circuit, h1.id), ...route(s.circuit, h2.id).slice(1)], orig, `rot=${rot}`);
+      assert.deepEqual(route(s.circuit, h1.id).at(-1), norm([P])[0], `rot=${rot} h1 ends at P`);
+      assert.deepEqual(route(s.circuit, h2.id)[0], norm([P])[0], `rot=${rot} h2 starts at P`);
+      assert.deepEqual(joined(s.circuit, h1, h2), orig, `rot=${rot}`);
       const m = removePart(s.circuit, s.node);
       assert.deepEqual(route(m, m.wires[0].id), orig, `rot=${rot} merged`);
     }
@@ -862,7 +878,7 @@ git commit -m "feat(circuit): 连接点与导线把手的画法"
 
 - `pointerdown`：`selWire = state.selection?.kind === 'wire' ? state.selection.id : null`；`hit = hitTest(circuit(), g, scale(), selWire)`。
   - `terminal`：`gesture.from = { part, term }`，`gesture.trace = startTrace(terminalPoint(...))`。
-  - `handle`：`gesture.base = wirePoints(circuit(), wire)`、`gesture.seg = hit.seg`、`gesture.lastVia = JSON.stringify(当前 via 或 base.slice(1,-1))`。
+  - `handle`：`gesture.base = wirePoints(circuit(), wire)`、`gesture.seg = hit.seg`、`gesture.down = g`（按下时的网格坐标，不取整）、`gesture.lastVia = JSON.stringify(当前 via 或 base.slice(1,-1))`。
   - `wire`：`P = nearestOnRoute(wirePoints(...), g).P`；`gesture.from = { wire: hit.id, at: P }`，`gesture.trace = startTrace(P)`。
   - `part` / `lever`：原逻辑。
 - `pointermove`（对 `terminal`，以及 `wire` 且 `moved`）：`trace = stepTrace(trace, g)`（若浏览器支持 `e.getCoalescedEvents`，对每个合并事件依次 `stepTrace`）。`target = hitTest(circuit(), g, scale())`：
@@ -870,7 +886,7 @@ git commit -m "feat(circuit): 连接点与导线把手的画法"
   - `wire` 且 `target.id !== from.wire` → 终点 `P' = nearestOnRoute(...).P`，在 `P'` 画 `<circle r="10" fill="#0ea5b7"/>`。
   - 否则终点 = 手指位置 `g`。
   - 预览 `<polyline class="preview">` 的点 = `tracePath(trace, 终点)`。
-- `pointermove`（`handle` 且 `moved`）：`via = dragSegment(base, seg, g)`；`JSON.stringify(via) !== lastVia` 时 `dispatch({ type: 'setWireVia', id, via, coalesce: gesture.dragging })`，然后 `dragging = true`、更新 `lastVia`。（只在路线真的变了时派发，保证第一次派发不带 coalesce、撤销栈有一条记录。）
+- `pointermove`（`handle` 且 `moved`）：`via = dragSegment(base, seg, [g[0] - down[0], g[1] - down[1]])`（传相对按下位置的位移，不传 `g` 本身）；`JSON.stringify(via) !== lastVia` 时 `dispatch({ type: 'setWireVia', id, via, coalesce: gesture.dragging })`，然后 `dragging = true`、更新 `lastVia`。（只在路线真的变了时派发，保证第一次派发不带 coalesce、撤销栈有一条记录。）
 - `endGesture`（`cancelled` 时只清预览，直接返回）：
   - `terminal`：
     - `!moved` 且起点元件是 `node` → `select { kind: 'part', id }`。
@@ -895,7 +911,8 @@ Run: `python3 -m http.server 8765 --directory /Users/jialiu/Projects/saisai.me/.
   2. 沿直线拖动时手指上下小幅抖动（< 1 格）：导线是直线，没有锯齿。
   3. 轻点导线 → 出现把手；拖中段把手：线段平移、两侧跟着伸缩，不拉出新导线；撤销一次回到拖动前。
   4. 轻点中段把手（不拖）：在把手位置出现连接点，连接点被选中，面板只有「删除」。
-  5. 元件两端之间连一根 U 形导线（旧式自动走线：先放元件再连同一元件的两端），选中后轻点底部横段：外观不变，多一个圆点。
+  5. 旧式自动 U 形（无 `via`）：新手势总写 `via`，自由搭建里画不出旧路线，改用预设夹具。切到任务模式，选任务「保险丝救场」（`TASKS[9]`）；其预设导线 `w5` 连电池 `p1` 的 p、n 两端，是旧式自动 U 形，路线 `(4,8)→(4,9.5)→(8,9.5)→(8,8)`。轻点该导线选中，再轻点底部横段（y = 9.5，x 在 4–8 之间）：外观不变，横段上多一个圆点。
+  5b. 新手势画的 U 形：自由搭建里放一个电池，从 + 端点按住，向下拖 2 格、横向拖到 − 端点正下方、再向上拖到 − 端点松手：生成的 U 形拐点与手指轨迹一致且在整格上；选中后轻点底部横段：外观不变，多一个圆点。
   6. 在导线中间加连接点，从连接点拉一根线到另一盏灯：两灯按并联发光。
   7. 从一根导线（未选中）上按住拖出，松手在另一根导线上：两头都自动生成连接点；撤销一次全部恢复。
   8. 选中连接点（两根导线）点「删除」：两根合并成一根，路线不变。
