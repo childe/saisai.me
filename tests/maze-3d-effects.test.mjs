@@ -1,6 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startYaw, LOOK_AHEAD, lookAheadTarget, segmentBlocked } from '../maze-3d/effects.js';
+import {
+  startYaw,
+  LOOK_AHEAD,
+  lookAheadTarget,
+  segmentBlocked,
+  edgeArrow,
+  endHintMode,
+  HINT_INSET,
+  BEAM_SAMPLE_HEIGHTS,
+} from '../maze-3d/effects.js';
 import { slabInterval, wallBoxes3d, segmentBoxes, WALL_HEIGHT } from '../maze-3d/movement.js';
 
 // ---------- Task 1: 开局朝向 ----------
@@ -46,4 +55,44 @@ test('slabInterval', () => {
   const b = { minX: 0, maxX: 1, minY: 0, maxY: 1, minZ: 0, maxZ: 1 };
   assert.deepEqual(slabInterval([-1, 0.5, 0.5], [1, 0, 0], b), [1, 2]);
   assert.equal(slabInterval([-1, 2, 0.5], [1, 0, 0], b), null);
+});
+
+// ---------- Task 3: 方向提示 ----------
+test('edgeArrow places arrow on inset border', () => {
+  const W = 1280, H = 720, I = 28;
+  const onBorder = (p, w = W, h = H) =>
+    (Math.abs(p.x - I) < 1e-6 || Math.abs(p.x - (w - I)) < 1e-6 || Math.abs(p.y - I) < 1e-6 || Math.abs(p.y - (h - I)) < 1e-6) &&
+    p.x >= I - 1e-6 && p.x <= w - I + 1e-6 && p.y >= I - 1e-6 && p.y <= h - I + 1e-6;
+  let a = edgeArrow({ x: -1, y: 0, z: -5 }, W, H, I);
+  assert.ok(Math.abs(a.x - I) < 1e-9 && Math.abs(a.angle - Math.PI) < 1e-9);
+  a = edgeArrow({ x: 1, y: 0, z: -5 }, W, H, I);
+  assert.ok(Math.abs(a.x - (W - I)) < 1e-9 && Math.abs(a.angle) < 1e-9);
+  a = edgeArrow({ x: 0, y: 1, z: -5 }, W, H, I);
+  assert.ok(Math.abs(a.y - I) < 1e-9 && Math.abs(a.angle + Math.PI / 2) < 1e-9);
+  a = edgeArrow({ x: 0, y: -1, z: -5 }, W, H, I);
+  assert.ok(Math.abs(a.y - (H - I)) < 1e-9 && Math.abs(a.angle - Math.PI / 2) < 1e-9);
+  a = edgeArrow({ x: 1, y: 1, z: -5 }, W, H, I);
+  assert.ok(onBorder(a) && a.x > W / 2 && a.y < H / 2);
+  a = edgeArrow({ x: 1, y: 0, z: 5 }, W, H, I);
+  assert.ok(Math.abs(a.x - (W - I)) < 1e-9);
+  a = edgeArrow({ x: 0, y: 0, z: 5 }, W, H, I);
+  assert.ok(Math.abs(a.x - W / 2) < 1e-9 && Math.abs(a.y - (H - I)) < 1e-9 && Math.abs(a.angle - Math.PI / 2) < 1e-9);
+  let prev = null;
+  for (let i = 0; i <= 100; i++) {
+    const z = 0.5 - 0.01 * i;
+    const p = edgeArrow({ x: 1, y: 0, z }, W, H, I);
+    assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.angle), `z ${z}`);
+    if (prev) assert.ok(Math.hypot(p.x - prev.x, p.y - prev.y) <= 2);
+    prev = p;
+  }
+  for (const [w, h] of [[1280, 720], [800, 800], [720, 1280]]) {
+    assert.ok(onBorder(edgeArrow({ x: 3, y: 2, z: -1 }, w, h, I), w, h), `${w}x${h}`);
+  }
+  assert.equal(HINT_INSET, 28);
+  assert.deepEqual(BEAM_SAMPLE_HEIGHTS, [0.4, 1.5, 3, 5]);
+});
+test('endHintMode', () => {
+  assert.equal(endHintMode([{ inView: true, occluded: true }, { inView: true, occluded: false }]), 'hidden');
+  assert.equal(endHintMode([{ inView: true, occluded: true }, { inView: false, occluded: false }]), 'marker');
+  assert.equal(endHintMode([{ inView: false, occluded: false }, { inView: false, occluded: true }]), 'edge');
 });

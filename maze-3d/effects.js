@@ -31,3 +31,35 @@ export function segmentBlocked(a, b, boxes) {
   }
   return false;
 }
+
+// ---------- 终点方向提示 ----------
+export const HINT_INSET = 28; // 箭头所在边框相对 #stage 的内缩，CSS 像素
+export const BEAM_SAMPLE_HEIGHTS = [0.4, 1.5, 3, 5]; // 光柱采样点：终点格中心上方的高度
+
+// 终点在相机空间的坐标 cam → 内缩边框上的箭头位置（相对画面左上角的 CSS 像素）与角度。
+// 不做透视除法：方向取 (cx, −cy)，相机背后也给出正确的左右上下，跨越相机平面时连续
+export function edgeArrow(cam, viewW, viewH, inset) {
+  let dx = cam.x;
+  let dy = 0 - cam.y; // 不写 -cam.y：cam.y = 0 时得到 −0，atan2 会给出 −π
+  const len = Math.hypot(dx, dy);
+  if (!(len >= 1e-6)) {
+    dx = 0;
+    dy = 1;
+  } else {
+    dx /= len;
+    dy /= len;
+  }
+  const halfW = Math.max(0, viewW / 2 - inset);
+  const halfH = Math.max(0, viewH / 2 - inset);
+  const tx = dx === 0 ? Infinity : halfW / Math.abs(dx);
+  const ty = dy === 0 ? Infinity : halfH / Math.abs(dy);
+  const t = Math.min(tx, ty);
+  return { x: viewW / 2 + dx * t, y: viewH / 2 + dy * t, angle: Math.atan2(dy, dx) };
+}
+
+// 各采样点 {inView, occluded} → 'hidden'（有点看得见）| 'marker'（画面内的点全被挡）| 'edge'（都不在画面内）
+export function endHintMode(samples) {
+  if (samples.some((s) => s.inView && !s.occluded)) return 'hidden';
+  if (samples.some((s) => s.inView)) return 'marker';
+  return 'edge';
+}
