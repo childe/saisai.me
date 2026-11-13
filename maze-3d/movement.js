@@ -233,3 +233,180 @@ export function smoothCameraDistance(dCur, dWant, dSafe, k) {
   if (dCur > dSafe) return dSafe;
   return Math.min(dCur + (dWant - dCur) * k, dSafe);
 }
+
+// ---------- 输入换算 ----------
+export const TURN_SPEED = (2 * Math.PI) / 3; // 弧度/秒（120°/秒）
+export const STICK_DEAD_ZONE = 0.1;
+export const LOOK_SPEED = 0.005; // 弧度/像素
+
+const KEY_MAP = {
+  KeyW: ['forward', 1],
+  ArrowUp: ['forward', 1],
+  KeyS: ['forward', -1],
+  ArrowDown: ['forward', -1],
+  KeyD: ['strafe', 1],
+  KeyA: ['strafe', -1],
+  ArrowRight: ['turn', 1],
+  KeyE: ['turn', 1],
+  ArrowLeft: ['turn', -1],
+  KeyQ: ['turn', -1],
+};
+
+// 按键集合（KeyboardEvent.code）→ 输入；相反键抵消，斜向归一化
+export function inputFromKeys(keys) {
+  const sign = { forward: 0, strafe: 0, turn: 0 };
+  const seen = { forward: new Set(), strafe: new Set(), turn: new Set() };
+  for (const code of keys) {
+    const m = KEY_MAP[code];
+    if (m) seen[m[0]].add(m[1]);
+  }
+  for (const axis of Object.keys(sign)) {
+    for (const v of seen[axis]) sign[axis] += v;
+  }
+  let { forward, strafe } = sign;
+  const len = Math.hypot(forward, strafe);
+  if (len > 1) {
+    forward /= len;
+    strafe /= len;
+  }
+  return { forward, strafe, turn: sign.turn };
+}
+
+// 摇杆偏移（屏幕像素，向下为 +dy）→ 输入；屏幕向上 = 前进
+export function inputFromStick(dx, dy, radius, deadZone = STICK_DEAD_ZONE) {
+  const len = Math.hypot(dx, dy);
+  if (!(len > 0) || !(radius > 0)) return { forward: 0, strafe: 0 };
+  const m = Math.min(len / radius, 1);
+  if (m < deadZone) return { forward: 0, strafe: 0 };
+  const amp = (m - deadZone) / (1 - deadZone);
+  return { forward: (-dy / len) * amp, strafe: (dx / len) * amp };
+}
+
+// 原地更新按键集合；返回 code 是否为识别的方向 / 转向键。
+// 自动重复的 keydown 不加入集合：按下状态只由首次 keydown 建立，清空后持续按住的键不会被重新激活。
+export function applyKeyEvent(keys, e) {
+  const known = Object.prototype.hasOwnProperty.call(KEY_MAP, e.code);
+  if (e.type === 'keyup') {
+    keys.delete(e.code);
+  } else if (e.type === 'keydown') {
+    if (known && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) keys.add(e.code);
+  }
+  return known;
+}
+
+// ---------- 手势仲裁 ----------
+// 每个指针在 down 时分配角色（stick / look / pinch），之后移到另一半边也不改变。
+export function createPointerRouter() {
+  const pointers = new Map(); // id → { x, y }
+  let stickId = null;
+  let lookId = null;
+  let secondId = null; // 有值时 lookId 与 secondId 处于捏合
+  let stick = { active: false, originX: 0, originY: 0, dx: 0, dy: 0 };
+  let lookDx = 0;
+  let lookDy = 0;
+  let zoom = 1;
+  let pinchBase = 0;
+
+  const pinchDist = () => {
+    const a = pointers.get(lookId);
+    const b = pointers.get(secondId);
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
+  const clearStick = () => {
+    stickId = null;
+    stick = { active: false, originX: 0, originY: 0, dx: 0, dy: 0 };
+  };
+
+  function down(e) {
+    if (pointers.has(e.id)) return false;
+    if (e.kind === 'mouse' || e.side !== 'left') {
+      if (lookId === null) {
+        lookId = e.id;
+      } else if (e.kind !== 'mouse' && secondId === null) {
+        secondId = e.id;
+      } else {
+        return false;
+      }
+      pointers.set(e.id, { x: e.x, y: e.y });
+      if (secondId !== null) pinchBase = pinchDist();
+      return true;
+    }
+    if (stickId !== null) return false;
+    stickId = e.id;
+    pointers.set(e.id, { x: e.x, y: e.y });
+    stick = { active: true, originX: e.x, originY: e.y, dx: 0, dy: 0 };
+    return true;
+  }
+
+  function move(e) {
+    const p = pointers.get(e.id);
+    if (!p) return;
+    const px = p.x;
+    const py = p.y;
+    p.x = e.x;
+    p.y = e.y;
+    if (e.id === stickId) {
+      stick = { ...stick, dx: e.x - stick.originX, dy: e.y - stick.originY };
+    } else if (secondId !== null) {
+      const d = pinchDist();
+      if (pinchBase > 0 && d > 0) zoom *= pinchBase / d;
+      pinchBase = d;
+    } else if (e.id === lookId) {
+      lookDx += e.x - px;
+      lookDy += e.y - py;
+    }
+  }
+
+  function up(id) {
+    if (!pointers.has(id)) return;
+    pointers.delete(id);
+    if (id === stickId) {
+      clearStick();
+    } else if (id === lookId) {
+      lookId = secondId; // 捏合中抬起一指：剩下那根恢复为视角指针，以当前位置为基准
+      secondId = null;
+      pinchBase = 0;
+    } else if (id === secondId) {
+      secondId = null;
+      pinchBase = 0;
+    }
+  }
+
+  function reset() {
+    pointers.clear();
+    clearStick();
+    lookId = null;
+    secondId = null;
+    lookDx = 0;
+    lookDy = 0;
+    zoom = 1;
+    pinchBase = 0;
+  }
+
+  return {
+    down,
+    move,
+    up,
+    cancel: up,
+    reset,
+    consume() {
+      const out = { look: { dx: lookDx, dy: lookDy }, zoom };
+      lookDx = 0;
+      lookDy = 0;
+      zoom = 1;
+      return out;
+    },
+    get stick() {
+      return { ...stick };
+    },
+    roles() {
+      const out = {};
+      for (const id of pointers.keys()) {
+        if (id === stickId) out[id] = 'stick';
+        else if (secondId !== null && (id === lookId || id === secondId)) out[id] = 'pinch';
+        else if (id === lookId) out[id] = 'look';
+      }
+      return out;
+    },
+  };
+}

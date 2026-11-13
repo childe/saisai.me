@@ -299,3 +299,194 @@ test('smoothCameraDistance: always <= dSafe, snaps in, eases out', () => {
   assert.ok(seq[5] > 3 && seq[5] < 8);
   for (let i = 6; i < seq.length; i++) assert.ok(seq[i] >= seq[i - 1]);
 });
+
+// ---------- Task 3: 输入换算与手势状态机 ----------
+import {
+  TURN_SPEED,
+  STICK_DEAD_ZONE,
+  LOOK_SPEED,
+  inputFromKeys,
+  inputFromStick,
+  applyKeyEvent,
+  createPointerRouter,
+} from '../maze-3d/movement.js';
+
+test('input constants', () => {
+  assert.ok(near(TURN_SPEED, (2 * Math.PI) / 3));
+  assert.equal(STICK_DEAD_ZONE, 0.1);
+  assert.equal(LOOK_SPEED, 0.005);
+});
+
+test('inputFromKeys combos', () => {
+  const k = (...codes) => inputFromKeys(new Set(codes));
+  assert.deepEqual(k('KeyW'), { forward: 1, strafe: 0, turn: 0 });
+  assert.equal(k('KeyW', 'KeyS').forward, 0);
+  const wd = k('KeyW', 'KeyD');
+  assert.ok(near(wd.forward, Math.SQRT1_2) && near(wd.strafe, Math.SQRT1_2));
+  assert.equal(k('ArrowRight').turn, 1);
+  assert.equal(k('ArrowLeft').turn, -1);
+  assert.equal(k('KeyQ', 'KeyE').turn, 0);
+  assert.equal(k('ArrowDown').forward, -1);
+  assert.equal(k('KeyA').strafe, -1);
+  const ua = k('ArrowUp', 'KeyA');
+  assert.ok(near(Math.hypot(ua.forward, ua.strafe), 1));
+  assert.deepEqual(k(), { forward: 0, strafe: 0, turn: 0 });
+});
+
+test('inputFromStick dead zone and scaling', () => {
+  assert.deepEqual(inputFromStick(4, 0, 50), { forward: 0, strafe: 0 });
+  assert.deepEqual(inputFromStick(0, 0, 50), { forward: 0, strafe: 0 });
+  assert.ok(near(inputFromStick(0, -50, 50).forward, 1));
+  assert.ok(near(inputFromStick(0, -100, 50).forward, 1));
+  assert.ok(near(inputFromStick(50 * 0.55, 0, 50).strafe, 0.5));
+  const d = inputFromStick(30, -40, 50);
+  assert.ok(near(Math.hypot(d.forward, d.strafe), 1));
+  assert.ok(near(d.strafe, 0.6) && near(d.forward, 0.8));
+});
+
+test('applyKeyEvent ignores auto-repeat', () => {
+  const keys = new Set();
+  const ev = (type, code, extra = {}) => ({
+    type,
+    code,
+    repeat: false,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    ...extra,
+  });
+  assert.equal(applyKeyEvent(keys, ev('keydown', 'KeyW')), true);
+  assert.ok(keys.has('KeyW'));
+  keys.clear();
+  for (let i = 0; i < 3; i++) applyKeyEvent(keys, ev('keydown', 'KeyW', { repeat: true }));
+  assert.equal(keys.size, 0);
+  applyKeyEvent(keys, ev('keyup', 'KeyW'));
+  applyKeyEvent(keys, ev('keydown', 'KeyW'));
+  assert.ok(keys.has('KeyW'));
+  applyKeyEvent(keys, ev('keyup', 'KeyW', { repeat: true, metaKey: true }));
+  assert.equal(keys.size, 0);
+  applyKeyEvent(keys, ev('keydown', 'KeyW', { metaKey: true }));
+  applyKeyEvent(keys, ev('keydown', 'KeyS', { ctrlKey: true }));
+  applyKeyEvent(keys, ev('keydown', 'KeyD', { altKey: true }));
+  assert.equal(keys.size, 0);
+  assert.equal(applyKeyEvent(keys, ev('keydown', 'KeyX')), false);
+  assert.equal(keys.size, 0);
+  assert.equal(applyKeyEvent(keys, ev('keydown', 'ArrowUp')), true);
+  assert.ok(keys.has('ArrowUp'));
+});
+
+const touch = (id, x, y, side, kind = 'touch') => ({ id, kind, x, y, side });
+
+test('left stick and right look together do not zoom', () => {
+  const r = createPointerRouter();
+  assert.equal(r.down(touch(1, 100, 300, 'left')), true);
+  assert.equal(r.down(touch(2, 600, 300, 'right')), true);
+  r.move({ id: 1, x: 130, y: 280 });
+  r.move({ id: 2, x: 650, y: 310 });
+  assert.deepEqual(r.stick, { active: true, originX: 100, originY: 300, dx: 30, dy: -20 });
+  assert.deepEqual(r.consume(), { look: { dx: 50, dy: 10 }, zoom: 1 });
+  assert.deepEqual(r.consume(), { look: { dx: 0, dy: 0 }, zoom: 1 });
+});
+
+function pinched() {
+  const r = createPointerRouter();
+  r.down(touch(2, 600, 300, 'right'));
+  r.down(touch(3, 700, 300, 'right'));
+  return r;
+}
+
+test('two right fingers pinch', () => {
+  const r = pinched();
+  assert.equal(r.roles()[2], 'pinch');
+  assert.equal(r.roles()[3], 'pinch');
+  r.move({ id: 3, x: 800, y: 300 });
+  r.move({ id: 2, x: 590, y: 300 });
+  const c = r.consume();
+  assert.ok(near(c.zoom, 100 / 210), `zoom=${c.zoom}`);
+  assert.deepEqual(c.look, { dx: 0, dy: 0 });
+});
+
+test('lifting one pinch finger resumes look without jump', () => {
+  const r = pinched();
+  r.move({ id: 3, x: 800, y: 300 });
+  r.move({ id: 2, x: 590, y: 300 });
+  r.consume();
+  r.up(3);
+  assert.equal(r.roles()[2], 'look');
+  assert.equal(r.roles()[3], undefined);
+  r.move({ id: 2, x: 600, y: 300 });
+  const c = r.consume();
+  assert.equal(c.look.dx, 10);
+  assert.equal(c.zoom, 1);
+  // 再按下新的右侧手指：以当前两指距离为新基准
+  r.down(touch(4, 650, 300, 'right'));
+  r.move({ id: 4, x: 700, y: 300 });
+  assert.ok(near(r.consume().zoom, 50 / 100));
+});
+
+test('third right finger and second left finger are ignored', () => {
+  const r = pinched();
+  assert.equal(r.down(touch(4, 750, 300, 'right')), false);
+  assert.equal(r.down(touch(5, 100, 300, 'left')), true);
+  assert.equal(r.down(touch(6, 120, 300, 'left')), false);
+  const roles = r.roles();
+  assert.equal(roles[4], undefined);
+  assert.equal(roles[6], undefined);
+  r.move({ id: 6, x: 500, y: 500 });
+  r.move({ id: 4, x: 900, y: 300 });
+  assert.equal(r.stick.dx, 0);
+  assert.deepEqual(r.consume(), { look: { dx: 0, dy: 0 }, zoom: 1 });
+});
+
+test('stick finger crossing to right half keeps its role', () => {
+  const r = createPointerRouter();
+  r.down(touch(1, 100, 300, 'left'));
+  r.move({ id: 1, x: 700, y: 300 });
+  r.down(touch(2, 650, 300, 'right'));
+  assert.equal(r.roles()[2], 'look');
+  r.down(touch(3, 750, 300, 'right'));
+  assert.deepEqual(r.roles(), { 1: 'stick', 2: 'pinch', 3: 'pinch' });
+  r.move({ id: 1, x: 720, y: 300 });
+  assert.equal(r.consume().zoom, 1);
+  assert.equal(r.stick.dx, 620);
+});
+
+test('cancel equals up and is idempotent', () => {
+  const r = createPointerRouter();
+  r.down(touch(1, 100, 300, 'left'));
+  r.move({ id: 1, x: 140, y: 300 });
+  r.cancel(1);
+  assert.equal(r.stick.active, false);
+  assert.equal(r.stick.dx, 0);
+  r.up(1);
+  r.cancel(1);
+  assert.deepEqual(r.roles(), {});
+  r.down(touch(2, 600, 300, 'right'));
+  r.cancel(2);
+  r.cancel(2);
+  assert.deepEqual(r.roles(), {});
+});
+
+test('reset clears everything', () => {
+  const r = pinched();
+  r.down(touch(1, 100, 300, 'left'));
+  r.move({ id: 1, x: 150, y: 300 });
+  r.move({ id: 3, x: 900, y: 300 });
+  r.reset();
+  assert.deepEqual(r.roles(), {});
+  const s = r.stick;
+  assert.equal(s.active, false);
+  assert.equal(s.dx, 0);
+  assert.equal(s.dy, 0);
+  assert.deepEqual(r.consume(), { look: { dx: 0, dy: 0 }, zoom: 1 });
+  assert.equal(r.down(touch(7, 100, 300, 'left')), true);
+});
+
+test('mouse is look on either half', () => {
+  const r = createPointerRouter();
+  assert.equal(r.down(touch(1, 100, 300, 'left', 'mouse')), true);
+  assert.equal(r.roles()[1], 'look');
+  r.move({ id: 1, x: 110, y: 305 });
+  assert.deepEqual(r.consume().look, { dx: 10, dy: 5 });
+  assert.equal(r.stick.active, false);
+});
