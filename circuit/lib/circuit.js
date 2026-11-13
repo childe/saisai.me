@@ -9,7 +9,12 @@ export function cloneCircuit(c) {
   return {
     ...c,
     parts: c.parts.map(p => ({ ...p, params: { ...p.params } })),
-    wires: c.wires.map(w => ({ ...w, a: { ...w.a }, b: { ...w.b } })),
+    wires: c.wires.map(w => {
+      const k = { ...w, a: { ...w.a }, b: { ...w.b } };
+      if (Array.isArray(w.via)) k.via = w.via.map(p => [...p]);
+      else delete k.via;
+      return k;
+    }),
   };
 }
 

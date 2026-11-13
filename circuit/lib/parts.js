@@ -49,7 +49,14 @@ export const PARTS = Object.freeze({
   ammeter: { label: '电流表', ...two('p', 'n'), params: {}, lever: false },
   voltmeter: { label: '电压表', ...two('p', 'n'), params: {}, lever: false },
   fuse: { label: '保险丝', ...two('a', 'b'), params: { rating: { default: 1, options: [0.5, 1, 2] } }, lever: false },
+  // 连接点：只有一个端点、没有本体，不出现在元件栏里。
+  node: { label: '连接点', terms: ['o'], termPos: { o: [0, 0] }, params: {}, lever: false },
 });
+
+// 导线电阻：分割、合并出来的导线带 r，其余用默认值。
+export function wireR(w) {
+  return w.r ?? PHYS.R_WIRE;
+}
 
 export function defaultParams(type) {
   const def = PARTS[type];

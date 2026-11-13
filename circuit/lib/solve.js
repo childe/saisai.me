@@ -1,5 +1,5 @@
 // 电路求解：连通分量 + 节点分析（诺顿等效电池，无附加行）。
-import { PARTS, PHYS } from './parts.js';
+import { PARTS, PHYS, wireR } from './parts.js';
 import { solveLinear } from './linalg.js';
 import { terminalPoint } from './geometry.js';
 
@@ -118,7 +118,9 @@ function solveComponent(nodeKeys, parts, wires, broken, ref, ledVd) {
     if (i >= 0) I[i] -= cur;
     if (j >= 0) I[j] += cur;
   };
-  for (let i = 0; i < m; i++) G[i][i] += PHYS.GMIN;
+  // GMIN 是对地电导；连接点不贡献电导，跳过它的端点。
+  const nodeTerms = new Set(parts.filter(p => p.type === 'node').map(p => key(p.id, 'o')));
+  for (const [k, i] of idx) if (!nodeTerms.has(k)) G[i][i] += PHYS.GMIN;
   for (const p of parts) {
     for (const [t0, t1, g] of conductancesOf(p, broken)) stampG(key(p.id, t0), key(p.id, t1), g);
     const emf = emfOf(p, broken);
@@ -131,7 +133,7 @@ function solveComponent(nodeKeys, parts, wires, broken, ref, ledVd) {
       stampI(key(p.id, 'a'), key(p.id, 'k'), ieq);
     }
   }
-  for (const w of wires) stampG(key(w.a.part, w.a.term), key(w.b.part, w.b.term), 1 / PHYS.R_WIRE);
+  for (const w of wires) stampG(key(w.a.part, w.a.term), key(w.b.part, w.b.term), 1 / wireR(w));
   const x = m ? solveLinear(G, I) : [];
   if (!x) return null;
   const V = { [ref]: 0 };
@@ -182,6 +184,7 @@ function readPart(p, V, broken) {
       const i = broken.has(p.id) ? 0 : ledI(vv);
       return { v: vv, i, p: vv * i };
     }
+    case 'node': return { v: 0, i: 0, p: 0 };
     case 'spdt': {
       const vv = v('c') - v(p.params.to);
       const i = gOf('c', p.params.to) * vv;
@@ -232,7 +235,7 @@ export function solve(circuit, broken = new Set(), opts = { maxIter: 100 }) {
   const wires = {};
   for (const w of circuit.wires) {
     const va = nodes[key(w.a.part, w.a.term)] ?? 0, vb = nodes[key(w.b.part, w.b.term)] ?? 0;
-    wires[w.id] = { i: (va - vb) / PHYS.R_WIRE };
+    wires[w.id] = { i: (va - vb) / wireR(w) };
   }
   for (const r of Object.values(parts)) if (![r.v, r.i, r.p].every(Number.isFinite)) return failed(circuit, bk);
   return { ok: true, rev: circuit.rev, topoRev: circuit.topoRev, brokenKey: bk, nodes, parts, wires };
