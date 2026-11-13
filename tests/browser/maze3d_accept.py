@@ -686,7 +686,7 @@ FLOOR_WANT_JS = """
   const hex = (c) => '#' + c.toString(16).padStart(6, '0');
   const want = { floor: hex(t.floorBase), fog: hex(t.fogFloor),
     fogEdge: hex(T.mixHex(t.floorBase, t.fogFloor, 0.5)),
-    start: '#4caf50', end: '#e53935', path: '#ff6b6b' };
+    start: '#4caf50', end: '#e53935', path: '#ffd740' };
   const wantKind = (cell, onPath) => L.floorKind(cell, M.size, {
     inView: !M.fog.on || L.isInFogView(M.display, cell, arg),
     onPath,
@@ -803,7 +803,7 @@ PATH_STATE_JS = """(() => {
   let bad = 0;
   for (let row = 0; row < M.size; row++)
     for (let col = 0; col < M.size; col++) {
-      const red = M.floorColorHex(row, col) === '#ff6b6b';
+      const red = M.floorColorHex(row, col) === '#ffd740';
       if (red !== on.has(row * M.size + col)) bad++;
     }
   return { len: path.length, bad };
@@ -816,7 +816,7 @@ PATH_STATE_JS = """(() => {
   let bad = 0;
   for (let row = 0; row < M.size; row++)
     for (let col = 0; col < M.size; col++) {
-      const red = M.floorColorHex(row, col) === '#ff6b6b';
+      const red = M.floorColorHex(row, col) === '#ffd740';
       if (red !== on.has(row * M.size + col)) bad++;
     }
   return { len: path.length, bad };
@@ -852,7 +852,7 @@ def check_5(browser, base):
               let red = 0;
               for (let row = 0; row < M.size; row++)
                 for (let col = 0; col < M.size; col++)
-                  if (M.floorColorHex(row, col) === '#ff6b6b') red++;
+                  if (M.floorColorHex(row, col) === '#ffd740') red++;
               const endCell = { row: M.size - 1, col: M.size - 1 };
               return {
                 red,
@@ -1361,9 +1361,9 @@ def check_t1(browser, base):
         if b2 != builds or tc != 5 or gm != ground_maps[THEME_IDS[-1]]:
             return False, " ".join(details)
         page.click("#show-path-btn")
-        red0 = logic(page, COUNT_HEX_JS, "#ff6b6b")
+        red0 = logic(page, COUNT_HEX_JS, "#ffd740")
         click_theme(page, "garden")
-        red1 = logic(page, COUNT_HEX_JS, "#ff6b6b")
+        red1 = logic(page, COUNT_HEX_JS, "#ffd740")
         details.append(f"path red {red0}->{red1}")
         if red0 == 0 or red0 != red1:
             return False, " ".join(details)

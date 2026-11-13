@@ -81,7 +81,7 @@ const STICK_RADIUS = 50; // 虚拟摇杆底座半径，CSS 像素
 const COLORS = {
   start: 0x4caf50,
   end: 0xe53935,
-  path: 0xff6b6b,
+  path: 0xffd740, // 金黄；与终点红区分（见 design 第 6 节）
   player: 0xff9800,
   star: 0xffd600,
 };
