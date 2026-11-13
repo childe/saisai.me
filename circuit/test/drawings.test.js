@@ -39,3 +39,13 @@ test('text stays upright when the part is rotated', () => {
   }
   assert.doesNotMatch(drawPart(mk('battery'), 'cartoon', vis({ alarm: true })), /<text[^>]*transform=/);
 });
+
+test('node renders as a dot in both styles and stays out of the palette', () => {
+  for (const [style, r] of [['cartoon', 7], ['symbol', 5]]) {
+    const s = drawPart(mk('node'), style, vis());
+    assert.match(s, new RegExp(`class="node-dot"[^>]*r="${r}"`));
+    assert.match(s, /data-term="o"/);
+    assert.doesNotMatch(s, /NaN|undefined|Infinity|class="term"/);
+  }
+  assert.equal(PART_TYPES.includes('node'), false);
+});

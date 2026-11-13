@@ -66,10 +66,18 @@ export function wireItems(state, space, extra = () => '') {
     if (!pts) continue;
     const ptsAttr = pts.map(([x, y]) => `${x * GRID},${y * GRID}`).join(' ');
     const selected = sel?.kind === 'wire' && sel.id === w.id;
+    // 选中导线：每段中点画一个把手。
+    let handles = '';
+    if (selected) {
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const cx = ((pts[i][0] + pts[i + 1][0]) / 2) * GRID, cy = ((pts[i][1] + pts[i + 1][1]) / 2) * GRID;
+        handles += `<circle class="handle" cx="${cx}" cy="${cy}" r="10"/>`;
+      }
+    }
     items.push({
       id: w.id,
       attrs: { 'data-id': w.id, class: 'wire-g' },
-      html: `<polyline class="wire${selected ? ' selected' : ''}" points="${ptsAttr}"/>${extra(w, ptsAttr)}`,
+      html: `<polyline class="wire${selected ? ' selected' : ''}" points="${ptsAttr}"/>${extra(w, ptsAttr)}${handles}`,
     });
   }
   return items;
@@ -86,7 +94,7 @@ function partItems(state, space) {
       const period = Math.round((1 / Math.abs(vis.spin)) * 100) / 100;
       art = art.replace('class="fan"', `class="fan spinning" style="animation-duration:${period}s;animation-direction:${vis.spin < 0 ? 'reverse' : 'normal'}"`);
     }
-    const selBox = selected ? `<rect class="sel" x="-74" y="-${p.type === 'rheostat' || PARTS[p.type].lever ? 84 : 46}" width="148" height="${p.type === 'rheostat' || PARTS[p.type].lever ? 130 : 92}" rx="12"/>` : '';
+    const selBox = !selected ? '' : p.type === 'node' ? '<circle class="sel" cx="0" cy="0" r="16"/>' : `<rect class="sel" x="-74" y="-${p.type === 'rheostat' || PARTS[p.type].lever ? 84 : 46}" width="148" height="${p.type === 'rheostat' || PARTS[p.type].lever ? 130 : 92}" rx="12"/>`;
     return {
       id: p.id,
       vis,
@@ -129,7 +137,10 @@ function renderPanel(dom, state, space) {
   let html = null, key = 'none';
   if (sel?.kind === 'part') {
     const p = circuit.parts.find(x => x.id === sel.id);
-    if (p) {
+    if (p?.type === 'node') {
+      key = JSON.stringify(['node', p.id]);
+      if (key !== panelKey) html = '<h2>连接点</h2><div class="row"><button class="btn danger" data-action="deletePart">删除</button></div>';
+    } else if (p) {
       const def = PARTS[p.type];
       const task = state.mode === 'task' ? TASKS[state.task.index] : null;
       const locked = task?.locked?.[p.type] ?? [];
