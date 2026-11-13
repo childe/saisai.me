@@ -93,3 +93,13 @@ export function wallFootStrips(segments) {
   });
   return out;
 }
+
+// ---------- 终点光柱与闪光粒子 ----------
+export const BEAM_RADIUS = 0.35;
+export const BEAM_HEIGHT = 6;
+export const SPARK_COUNT = 20;
+
+// 光柱透明度倍率随时间（秒）正弦脉动，取值 [0.7, 1.0]
+export function beamPulse(t) {
+  return 0.85 + 0.15 * Math.sin(2 * t);
+}

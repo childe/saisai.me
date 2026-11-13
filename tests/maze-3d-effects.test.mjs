@@ -13,6 +13,10 @@ import {
   shadowLook,
   FOOT_STRIP_WIDTH,
   wallFootStrips,
+  BEAM_RADIUS,
+  BEAM_HEIGHT,
+  SPARK_COUNT,
+  beamPulse,
 } from '../maze-3d/effects.js';
 import { MazeGenerator } from '../maze-3d/maze-core.js';
 import { wallSegments } from '../maze-3d/game-logic.js';
@@ -150,4 +154,14 @@ test('wallFootStrips: two per inner wall, one inward per outer wall', () => {
     }
   }
   assert.equal(bySeg.size, segs.length);
+});
+
+// ---------- Task 6: 光柱 ----------
+test('beamPulse stays in [0.7, 1]', () => {
+  let lo = Infinity, hi = -Infinity;
+  for (let t = 0; t < 10; t += 0.01) { const v = beamPulse(t); lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  assert.ok(lo >= 0.7 - 1e-12 && hi <= 1 + 1e-12 && lo < 0.71 && hi > 0.99);
+  assert.equal(BEAM_RADIUS, 0.35);
+  assert.equal(BEAM_HEIGHT, 6);
+  assert.equal(SPARK_COUNT, 20);
 });

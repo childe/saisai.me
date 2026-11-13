@@ -68,6 +68,10 @@ import {
   shadowLook,
   FOOT_STRIP_WIDTH,
   wallFootStrips,
+  BEAM_RADIUS,
+  BEAM_HEIGHT,
+  SPARK_COUNT,
+  beamPulse,
 } from './effects.js';
 
 const EYE_HEIGHT = 0.45;
@@ -264,6 +268,92 @@ function start() {
     return new THREE.CanvasTexture(canvas);
   }
 
+  // 终点光柱：开口圆柱，金黄，底部 0.45 不透明度渐变到顶部透明，加法混合、不写深度、不受雾影响；
+  // 透明度倍率随时间脉动。不受迷雾隐藏
+  const beam = new THREE.Mesh(
+    new THREE.CylinderGeometry(BEAM_RADIUS, BEAM_RADIUS, BEAM_HEIGHT, 24, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0xffd54f,
+      map: makeBeamTexture(),
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  beam.frustumCulled = false;
+  beam.renderOrder = 2;
+  scene.add(beam);
+
+  // 光柱周围上升的闪光粒子：位置相对终点格中心，到顶从底部重生
+  const sparkData = [];
+  const sparkPos = new Float32Array(SPARK_COUNT * 3);
+  for (let i = 0; i < SPARK_COUNT; i++) {
+    sparkData.push({
+      angle: Math.random() * Math.PI * 2,
+      radius: 0.15 + Math.random() * 0.35,
+      speed: 0.6 + Math.random() * 0.6,
+      y: Math.random() * BEAM_HEIGHT,
+    });
+  }
+  const sparkGeometry = new THREE.BufferGeometry();
+  sparkGeometry.setAttribute('position', new THREE.BufferAttribute(sparkPos, 3));
+  const sparks = new THREE.Points(
+    sparkGeometry,
+    new THREE.PointsMaterial({
+      map: radialTex,
+      color: 0xfff3b0,
+      size: 0.12,
+      sizeAttenuation: true,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false,
+    }),
+  );
+  sparks.frustumCulled = false;
+  sparks.renderOrder = 3;
+  scene.add(sparks);
+  let beamTime = 0;
+  let beamPaused = false; // setBeamForTest 用：暂停脉动与粒子
+  writeSparks();
+
+  function writeSparks() {
+    for (let i = 0; i < SPARK_COUNT; i++) {
+      const p = sparkData[i];
+      sparkPos[i * 3] = Math.cos(p.angle) * p.radius;
+      sparkPos[i * 3 + 1] = p.y;
+      sparkPos[i * 3 + 2] = Math.sin(p.angle) * p.radius;
+    }
+    sparkGeometry.attributes.position.needsUpdate = true;
+  }
+
+  function updateBeam(dt) {
+    if (beamPaused) return;
+    beamTime += dt;
+    beam.material.opacity = beamPulse(beamTime);
+    for (const p of sparkData) {
+      p.y += p.speed * dt;
+      if (p.y > BEAM_HEIGHT) p.y -= BEAM_HEIGHT;
+    }
+    writeSparks();
+  }
+
+  // 1×64 竖向渐变：底端（v = 0）alpha 0.45 → 顶端透明
+  function makeBeamTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, 64);
+    grad.addColorStop(0, 'rgba(255,255,255,0)');
+    grad.addColorStop(1, 'rgba(255,255,255,0.45)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 1, 64);
+    return new THREE.CanvasTexture(canvas);
+  }
+
   // 64×64 白色径向渐变：中心 alpha 0.35、边缘 0；阴影与终点粒子共用
   function makeRadialTexture() {
     const n = 64;
@@ -412,6 +502,8 @@ function start() {
     state = 'idle';
 
     star.position.set(size - 0.5, 0.6, size - 0.5);
+    beam.position.set(size - 0.5, BEAM_HEIGHT / 2, size - 0.5);
+    sparks.position.set(size - 0.5, 0, size - 0.5);
 
     document.querySelectorAll('.size-btn').forEach((b) => {
       b.classList.toggle('active', Number(b.dataset.size) === size);
@@ -1098,6 +1190,7 @@ function start() {
     updatePlayer(dt);
     updateStick();
     star.rotation.y += dt;
+    updateBeam(dt);
     updateCamera(dt);
     syncGround();
     updateSceneFog();
@@ -1186,7 +1279,7 @@ function start() {
 
   const raycaster = new THREE.Raycaster();
 
-  // 地板格顶面上 5 个取样点（格心与四个内缩点）中，相机看得到、没被墙 / 星星 / 小人挡住的点；
+  // 地板格顶面上 5 个取样点（格心与四个内缩点）中，相机看得到、没被墙 / 星星 / 小人 / 光柱挡住的点；
   // 返回相对 renderer canvas 左上角的 CSS 像素坐标
   function floorSamplePoints(row, col) {
     camera.updateMatrixWorld();
@@ -1208,9 +1301,11 @@ function start() {
       const dir = point.clone().sub(camera.position).normalize();
       raycaster.set(camera.position, dir);
       raycaster.far = dist;
-      const hits = raycaster.intersectObjects([walls, star, player], true);
+      // 光柱是加法混合，会改变它后面地板的颜色：被光柱覆盖的点也不取样
+      const hits = raycaster.intersectObjects([walls, star, player, beam], true);
       const blocked = hits.some((h) => {
         if (h.distance >= dist - 0.01) return false;
+        if (h.object === beam && !beam.visible) return false;
         if (!player.visible && isPlayerPart(h.object)) return false;
         if (h.object === walls && h.instanceId !== undefined && instanceHidden(walls, h.instanceId)) return false;
         return true;
@@ -1345,6 +1440,10 @@ function start() {
     get segments() {
       return segments;
     },
+    // 光柱对象的 visible 开关（不代表屏幕上看得见）
+    get beamEnabled() {
+      return beam.visible;
+    },
     get footStripCount() {
       return footStrips.length;
     },
@@ -1471,6 +1570,11 @@ function start() {
     window.__maze3d.setSceneFogForTest = (enabled) => {
       sceneFogEnabled = Boolean(enabled);
       updateSceneFog();
+    };
+    // visible 只切光柱圆柱（不切粒子）；paused 为真时光柱脉动与粒子位置停止推进
+    window.__maze3d.setBeamForTest = (v = {}) => {
+      if (typeof v.visible === 'boolean') beam.visible = v.visible;
+      if (typeof v.paused === 'boolean') beamPaused = v.paused;
     };
     window.__maze3d.setZoomForTest = (z) => {
       cameraZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));

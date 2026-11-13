@@ -19,6 +19,10 @@
   - Task 9 Step 3 增加第三类允许的旧检查修改：观察点从小人移到前瞻点。
   - black 路径改为 `/opt/homebrew/bin/black`（`~/tmp/fuck/c/.venv/bin/black` 不存在）。
   - Task 2–8 不受前瞻影响，内容不变。
+- **r3（2026-11-13，实现阶段 Task 6 受阻后修订）**：Task 1–5 已提交（`a3cbbc1..1f529a6`），Task 6（光柱 / 粒子）已实现但未提交。加入光柱后 `t5` 在城堡主题下终点与道路的屏幕颜色距离为 55.6 / 56.9，低于 60（改动前为 62.7，本就是全场最小的一对：终点红 `0xe53935` 与道路红 `0xff6b6b` 同为红色系，原始 RGB 距离只有 78.0）。用户选定方案：3D 道路颜色由红色改为金黄色（design.md 新增第 6 节）。本次修订：
+  - Task 6 增加「起点（r3）」说明与 Step 4b「道路改为金黄色」：给出 `COLORS.path = 0xffd740` 的验算表（四个主题下与终点、起点、普通地板、雾地板、过渡色、小人橙色的 RGB 欧氏距离最小 89.8 ≥ 60），新增读取 `main.js` 的 `COLORS` 做距离检查的 node 单测，替换单测与浏览器检查中写死的旧道路色常量（只改颜色常量，不放宽阈值）。
+  - Task 6 Step 5 的浏览器检查范围加入用到道路色常量的 `4`、`5`、`f8`、`t1`；Step 6 的 `git add` 加入 `tests/maze-3d-themes.test.mjs`。
+  - Global Constraints 加一行道路颜色。Task 1–5、Task 7–9 不受影响，内容不变。
 
 ## Global Constraints
 
@@ -31,6 +35,7 @@
 - 光柱：开口圆柱，半径 0.35、高 6、金黄，底部透明度 0.45 → 顶部 0（竖向渐变纹理），`AdditiveBlending`、`depthWrite: false`、`fog: false`；透明度倍率在 [0.7, 1.0] 随时间正弦变化；20 颗上升粒子（`Points`，`sizeAttenuation: true`，`fog: false`），到顶从底部重生；光柱与粒子不受迷雾隐藏；原有星星保留。
 - 彩带：覆盖画面的 2D `<canvas id="confetti">`（放在 `#stage` 之外，否则会破坏验收脚本的 `#stage > canvas:not(#minimap)` 选择器），`position: fixed; inset: 0; pointer-events: none; z-index: 9`（`#win` 是 10）；约 120 片，持续 2.5 秒后 0.5 秒淡出并停止绘制；只在 `updatePlayer()` 里 `state` 变 `'won'` 那一刻启动；`buildMaze()` 开头立即取消（停绘、清画布、`confettiActive = false`）；`prefers-reduced-motion: reduce` 时不播放。
 - 方向提示：三种 `mode`（`'hidden' | 'marker' | 'edge'`）；采样点 = 终点格中心上方 0.4、1.5、3、5；「在画面内」= 相机空间 `−z > near` 且 NDC x、y ∈ [−1, 1]；遮挡 = 相机位置到采样点线段与当前可见墙盒（外扩 0）slab 求交；边框内缩 28px；距离 = 小人到终点格中心的水平距离四舍五入，文案 `「N 格」`；通关后 `mode` 固定 `'hidden'`；箭头与标记 `pointer-events: none`。
+- 道路颜色（r3）：3D 页面 `COLORS.path = 0xffd740`（金黄，CSS `#ffd740`）；终点仍为 `0xe53935`；与四个主题的终点、起点、`floorBase`、`fogFloor`、过渡色 `mixHex(floorBase, fogFloor, 0.5)`、小人 `COLORS.player` 的 RGB 欧氏距离都 ≥ 60；2D 迷宫页面的道路颜色不变。
 - 新纹理（阴影/粒子共用的径向纹理、暗边纹理、光柱纹理）启动时各建一次，不随主题重建，不计入 `textureCount`（`liveTextures` 不变）。
 - 性能：同条件平均帧时间不超过改动前（`origin/main` = `3aa67ab`）的 1.3 倍。
 - 截图目录：`/Users/jialiu/Projects/saisai.me/.xdev/20261113-141153-maze-3d-polish/screenshots/`。
@@ -389,10 +394,13 @@ git commit -m "feat(maze-3d): 墙脚暗边"
 
 ### Task 6: 终点光柱与闪光粒子
 
+**起点（r3）**：worktree 里已有本任务 Step 1–4 的未提交实现（`effects.js`、`main.js`、`tests/maze-3d-effects.test.mjs`、`tests/browser/maze3d_accept.py` 的改动），**在其上继续，不要删除重做**。已知事实：Step 5 跑 `t5` 时城堡主题终点–道路距离 55.6 / 56.9 < 60 而 FAIL；按用户选定方案由 Step 4b 把道路改成金黄色解决。先确认 Step 1–4 的内容都已在工作区（缺什么补什么），再做 Step 4b。
+
 **Files:**
-- Modify: `maze-3d/effects.js`、`maze-3d/main.js`（场景构建、`buildMaze`、`frame`、`floorSamplePoints`、调试对象）
+- Modify: `maze-3d/effects.js`、`maze-3d/main.js`（场景构建、`buildMaze`、`frame`、`floorSamplePoints`、调试对象；r3：`COLORS.path` 约第 84 行）
 - Test: `tests/maze-3d-effects.test.mjs`
-- Modify: `tests/browser/maze3d_accept.py`（新增 `check_p4a`、助手 `project_css`）
+- Modify: `tests/maze-3d-themes.test.mjs`（r3：`ground and fogFloor colors` 里的道路色常量；新增道路色距离单测）
+- Modify: `tests/browser/maze3d_accept.py`（新增 `check_p4a`、助手 `project_css`；r3：替换写死的旧道路色 `#ff6b6b`）
 
 **Interfaces:**
 - Consumes: Task 4 `makeRadialTexture()`。
@@ -431,17 +439,70 @@ Expected: FAIL。
 4. 对 `BASELINE_ROOT` 同条件（不调用基线没有的钩子：用 `page.evaluate` 判断 `setBeamForTest` 存在才调用）求 `diff_base`。
 5. 判定 `diff ≥ diff_base + BEAM_LUMA_MARGIN`；常量 `BEAM_LUMA_MARGIN` 先跑一次看两者数值后定，不得小于 5，写进脚本并在 details 打印 `diff`、`diff_base`、`margin`。
 
+- [ ] **Step 4b（r3）: 道路颜色改为金黄色 `0xffd740`**
+
+**色值验算**（数据来源：`maze-3d/main.js` 的 `COLORS`——`start 0x4caf50`、`end 0xe53935`、`player 0xff9800`；`maze-3d/themes.js` 的 `floorBase`、`fogFloor`；过渡色 = `mixHex(floorBase, fogFloor, 0.5)`。距离 = RGB 欧氏距离，阈值 60，沿用 t5 规则）。
+
+`0xffd740` = (255, 215, 64)：
+
+| 主题 | 终点 | 起点 | 普通地板 | 雾地板 | 过渡色 | 小人橙 |
+| --- | --- | --- | --- | --- | --- | --- |
+| garden（`fffaf0` / `7d8a72`） | 160.5 | 184.1 | 179.4 | 159.2 | 132.0 | 89.8 |
+| brick（`f7f3ee` / `8c8079`） | 160.5 | 184.1 | 176.4 | 155.1 | 134.2 | 89.8 |
+| blocks（`f4f6f8` / `7c8794`） | 160.5 | 184.1 | 186.9 | 175.0 | 153.5 | 89.8 |
+| castle（`aeb3bc` / `575b63`） | 160.5 | 184.1 | 152.4 | 211.7 | 167.9 | 89.8 |
+
+最小值 89.8（小人橙），全部 ≥ 60。旧道路色 `0xff6b6b` 与终点只有 78.0。
+
+屏幕颜色预估（t5 测的是纹理 × 光照后的像素）：用改动前 `test-results.txt` 里 t5 记录的旧道路渲染值除以 `0xff6b6b` 得到每主题每通道系数（城堡约 0.75），乘到 `0xffd740` 上，再与同一份记录里各主题的终点 / 起点 / 地板 / 雾渲染值比较：最小为城堡「道路–普通地板」118.6，「道路–终点」最小 128.0（城堡），离 60 余量很大。落选候选（同一脚本算出）：`0xffc107` 与小人橙只差 41.6；`0xffcc33` 与小人橙 72.8；`0xffd54f` 与光柱同色，城堡渲染后与地板 109.1，余量小于 `0xffd740`。
+
+1. 写失败的单测：`tests/maze-3d-themes.test.mjs` 追加（`readFileSync`、`join`、`here`、`dist`、`mixHex`、`THEMES`、`THEME_IDS` 文件里都已有）：
+
+```js
+test('3D path color is distinguishable from floor kinds and the player', () => {
+  const src = readFileSync(join(here, '..', 'maze-3d', 'main.js'), 'utf8');
+  const block = src.match(/const COLORS = \{([\s\S]*?)\};/)[1];
+  const C = Object.fromEntries(
+    [...block.matchAll(/(\w+):\s*0x([0-9a-f]{6})/gi)].map(([, k, h]) => [k, parseInt(h, 16)]),
+  );
+  assert.equal(C.path, 0xffd740);
+  for (const id of THEME_IDS) {
+    const t = THEMES[id];
+    const refs = {
+      end: C.end, start: C.start, floor: t.floorBase, fog: t.fogFloor,
+      fogEdge: mixHex(t.floorBase, t.fogFloor, 0.5), player: C.player,
+    };
+    for (const [k, c] of Object.entries(refs)) {
+      assert.ok(dist(C.path, c) >= 60, `${id} path vs ${k}: ${dist(C.path, c)}`);
+    }
+  }
+});
+```
+
+同文件 `ground and fogFloor colors` 里 `[t.floorBase, 0x4caf50, 0xe53935, 0xff6b6b]` 的 `0xff6b6b` 改为 `0xffd740`（阈值 60 不变）。
+
+2. Run: `node --test tests/maze-3d-themes.test.mjs`
+   Expected: 新测 FAIL（`C.path` 仍是 `0xff6b6b`）。
+3. `main.js` `COLORS.path` 改为 `0xffd740`，行尾注释写「金黄；与终点红区分（见 design 第 6 节）」。
+4. `tests/browser/maze3d_accept.py` 把所有 `'#ff6b6b'` / `"#ff6b6b"` 字面量改为 `#ffd740`（`FLOOR_WANT_JS` 的 `path`、两处 `PATH_STATE_JS`、`check_5` 内联 JS、`check_t1` 两次 `COUNT_HEX_JS` 调用）。只改颜色常量；变量名（如 `red`）、阈值、判定逻辑都不动。
+5. Run: `grep -rn "ff6b6b" maze-3d tests` 
+   Expected: 无输出（2D 迷宫页面不在 `maze-3d/` 下，不受影响）。
+6. Run: `node --test tests/`
+   Expected: 全部 PASS。
+
 - [ ] **Step 5: 运行确认通过**
 
-Run: `node --test tests/` 然后 `~/tmp/fuck/c/.venv/bin/python tests/browser/maze3d_accept.py --only p4a,t5,5 --baseline-root "$B"`
-Expected: 全部 PASS。
+Run: `node --test tests/` 然后 `~/tmp/fuck/c/.venv/bin/python tests/browser/maze3d_accept.py --only p4a,t5,5,4,f8,t1 --baseline-root "$B"`
+Expected: 全部 PASS；t5 各主题 `min ≥ 60`，details 中各主题 `path=` 渲染值为黄色系（R、G 都明显大于 B）。
+
+升级条件：如果 t5 仍有某对距离 < 60，停止，不要改色值、不要放宽阈值、不要改取样方式；把 t5 的 details 原文写进报告交回编排器。
 
 - [ ] **Step 6: black 并 commit**
 
 ```bash
 /opt/homebrew/bin/black tests/browser/maze3d_accept.py
-git add maze-3d/effects.js maze-3d/main.js tests/maze-3d-effects.test.mjs tests/browser/maze3d_accept.py
-git commit -m "feat(maze-3d): 终点光柱与闪光粒子"
+git add maze-3d/effects.js maze-3d/main.js tests/maze-3d-effects.test.mjs tests/maze-3d-themes.test.mjs tests/browser/maze3d_accept.py
+git commit -m "feat(maze-3d): 终点光柱与闪光粒子，3D 道路改为金黄色"
 ```
 
 ---

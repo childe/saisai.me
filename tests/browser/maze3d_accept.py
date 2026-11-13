@@ -3397,6 +3397,180 @@ def check_p3(browser, base):
         close(page)
 
 
+BEAM_RADIUS = 0.35  # 与 effects.js 一致
+# 光柱区域亮度差至少比基线（没有光柱）高这么多。实测（SwiftShader，garden，格 (6, 2)）：
+# diff≈22.0，diff_base≈−0.1；取 10，留出主题与渲染差异的余量
+BEAM_LUMA_MARGIN = 10
+
+
+def project_css(cam, p, cw, ch):
+    """用 cameraState 的 view（列主序）、fov、aspect 把世界点 p 投影成相对 canvas 左上角的
+    CSS 像素 (x, y)；在近裁剪面以内或相机背后返回 None。"""
+    v = to_camera(cam["view"], p)
+    depth = -v[2]
+    if depth <= cam["near"]:
+        return None
+    f = 1 / math.tan(math.radians(cam["fov"] / 2))
+    nx = (f / cam["aspect"]) * v[0] / depth
+    ny = f * v[1] / depth
+    return ((nx + 1) / 2 * cw, (1 - ny) / 2 * ch)
+
+
+def region_luma(img, ratio, x0, y0, x1, y1):
+    """CSS 像素矩形 [x0, x1] × [y0, y1] 内的平均亮度。"""
+    px = img.load()
+    w, h = img.size
+    xa, xb = max(0, int(x0 * ratio)), min(w - 1, int(math.ceil(x1 * ratio)))
+    ya, yb = max(0, int(y0 * ratio)), min(h - 1, int(math.ceil(y1 * ratio)))
+    total = 0.0
+    n = 0
+    for y in range(ya, yb + 1):
+        for x in range(xa, xb + 1):
+            r, g, b = px[x, y]
+            total += 0.299 * r + 0.587 * g + 0.114 * b
+            n += 1
+    return total / n if n else float("nan")
+
+
+def end_yaw_from(row, col, size=10):
+    """从格 (row, col) 中心指向终点格中心的 yaw。"""
+    dx = (size - 0.5) - (col + 0.5)
+    dz = (size - 0.5) - (row + 0.5)
+    return math.atan2(dx, -dz)
+
+
+def beam_view_setup(page, row, col):
+    """小人传送到 (row, col)，跟随视角 15° 俯角朝终点，暂停光柱动画（基线没有该钩子就跳过），
+    等相机静止；返回 (cameraState, canvas CSS 宽, 高)。"""
+    page.evaluate(f"() => window.__maze3d.teleportForTest({row}, {col})")
+    set_test_input(page, yaw=end_yaw_from(row, col), pitch=math.radians(15))
+    set_test_input(page)
+    page.evaluate(
+        "() => { const M = window.__maze3d;"
+        " if (typeof M.setBeamForTest === 'function') M.setBeamForTest({ paused: true }); }"
+    )
+    wait_camera_still(page)
+    cam = m3(page, "cameraState")
+    cw, ch = page.evaluate(
+        "() => { const c = document.querySelector('#stage > canvas:not(#minimap)');"
+        " return [c.clientWidth, c.clientHeight]; }"
+    )
+    return cam, cw, ch
+
+
+def beam_rect(cam, cw, ch):
+    """终点格中心上方 1.5–3 的光柱段投影成的 CSS 矩形 (x0, y0, x1, y1)，半宽取
+    max(3, 光柱半径在该深度的投影像素)；在相机背后返回 None。"""
+    top = project_css(cam, (9.5, 3.0, 9.5), cw, ch)
+    bot = project_css(cam, (9.5, 1.5, 9.5), cw, ch)
+    if top is None or bot is None:
+        return None
+    mid = to_camera(cam["view"], (9.5, 2.25, 9.5))
+    f = 1 / math.tan(math.radians(cam["fov"] / 2))
+    half = max(3.0, BEAM_RADIUS * f / (-mid[2]) * ch / 2)
+    cx = (top[0] + bot[0]) / 2
+    return (cx - half, min(top[1], bot[1]), cx + half, max(top[1], bot[1]))
+
+
+def beam_view_round(browser, base, cell=None, shot=None):
+    """p4a 的场景：迷雾开、视野 1（终点在迷雾外），跟随视角 15° 俯角朝终点。cell 为 None 时
+    在距终点 Chebyshev 2–8 的格里由远到近找第一个「光柱 1.5–3 段及左右对照区都在画面内」的格
+    （从起点看过去俯角会被 liftPitch 抬高，光柱出画）。返回光柱投影区域与左右相邻同尺寸区域的
+    亮度差、所用的格与提示状态。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 1280, "height": 800},
+        init_script=preset_storage("1", "1"),
+    )
+    try:
+        wait_idle(page)
+        if cell is None:
+            cands = sorted(
+                (
+                    (r, c)
+                    for r in range(10)
+                    for c in range(10)
+                    if 2 <= max(9 - r, 9 - c) <= 8
+                ),
+                key=lambda rc: -math.hypot(9 - rc[0], 9 - rc[1]),
+            )
+        else:
+            cands = [tuple(cell)]
+        chosen = None
+        for rc in cands:
+            cam, cw, ch = beam_view_setup(page, *rc)
+            rect = beam_rect(cam, cw, ch)
+            if rect is None:
+                continue
+            w = rect[2] - rect[0]
+            inside = (
+                rect[0] - 2 * w >= 0
+                and rect[2] + 2 * w <= cw
+                and rect[1] >= 0
+                and rect[3] <= ch
+            )
+            if inside or cell is not None:
+                chosen = rc
+                break
+        if chosen is None:
+            return {"ok": False, "why": "no cell with beam in view", "errors": errors}
+        img = canvas_image(page)
+        if shot:
+            img.save(SHOTS / shot)
+        ratio = img.size[0] / cw
+        x0, y0, x1, y1 = rect
+        w = x1 - x0
+        lum = region_luma(img, ratio, x0, y0, x1, y1)
+        left = region_luma(img, ratio, x0 - 2 * w, y0, x1 - 2 * w, y1)
+        right = region_luma(img, ratio, x0 + 2 * w, y0, x1 + 2 * w, y1)
+        return {
+            "ok": True,
+            "cell": chosen,
+            "diff": lum - max(left, right),
+            "lum": lum,
+            "left": left,
+            "right": right,
+            "rect": rect,
+            "beamEnabled": page.evaluate("() => window.__maze3d.beamEnabled"),
+            "endHint": page.evaluate("() => window.__maze3d.endHint"),
+            "errors": errors,
+        }
+    finally:
+        close(page)
+
+
+def check_p4a(browser, base):
+    """光柱在视锥内：迷雾开、终点在迷雾外，跟随视角朝终点；beamEnabled 为真，截图里光柱投影
+    区域比左右相邻同尺寸区域亮，且亮度差比改动前（没有光柱）至少高 BEAM_LUMA_MARGIN。"""
+    SHOTS.mkdir(parents=True, exist_ok=True)
+    r = beam_view_round(browser, base, shot="polish-beam-view.png")
+    if not r["ok"]:
+        return False, r["why"]
+    detail = (
+        f"cell={r['cell']} beamEnabled={r['beamEnabled']} diff={r['diff']:.1f} lum={r['lum']:.1f}"
+        f" left={r['left']:.1f} right={r['right']:.1f}"
+        f" rect=({', '.join(f'{v:.0f}' for v in r['rect'])})"
+    )
+    ok = r["beamEnabled"] is True
+    if BASELINE_ROOT:
+        proc, bbase = start_server(BASELINE_ROOT)
+        try:
+            b = beam_view_round(browser, bbase, cell=r["cell"])
+        finally:
+            proc.terminate()
+            proc.wait()
+        if not b["ok"]:
+            return False, detail + f" baseline: {b['why']}"
+        detail += f" diff_base={b['diff']:.1f} margin={BEAM_LUMA_MARGIN}"
+        ok = ok and r["diff"] >= b["diff"] + BEAM_LUMA_MARGIN
+    else:
+        ok = False
+        detail += " (needs --baseline-root)"
+    ok_err, msg = no_errors(r["errors"])
+    return ok and ok_err, (detail + " " + msg).strip()
+
+
 CHECKS = {
     "1": check_1,
     "10": check_10,
@@ -3442,6 +3616,7 @@ CHECKS = {
     "p1": check_p1,
     "p2": check_p2,
     "p3": check_p3,
+    "p4a": check_p4a,
 }
 
 
