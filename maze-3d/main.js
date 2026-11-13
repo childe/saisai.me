@@ -19,19 +19,27 @@ import {
   createFrameMeter,
   shouldDowngrade,
 } from './game-logic.js';
+import {
+  THEMES,
+  parseTheme,
+  blockColorIndex,
+  wallShade,
+  paintWall,
+  paintWallTop,
+  paintFloor,
+} from './themes.js';
+import { wallGroupLayout, applyWallUvs } from './wall-geometry.js';
 
 const STEP_MS = 120;
 const TURN_MS = 200;
 const EYE_HEIGHT = 0.45;
 
+// 墙、普通地板格、背景色由主题决定（themes.js）
 const COLORS = {
-  background: 0xbfe3ff,
-  floor: 0xf2efe6,
   start: 0x4caf50,
   end: 0xe53935,
   path: 0xff6b6b,
   fog: 0x333333,
-  wall: 0x7e57c2,
   player: 0xff9800,
   star: 0xffd600,
 };
@@ -72,6 +80,9 @@ function showNoWebGL() {
   document.querySelector('.dpad').style.display = 'none';
 }
 
+// 主题在建 renderer 之前读出，renderer 清屏色要用主题的雾色
+let themeId = parseTheme(storageGet('maze3d.theme'));
+
 let renderer = null;
 if (hasWebGL()) {
   try {
@@ -83,7 +94,7 @@ if (hasWebGL()) {
 
 function createRenderer(antialias) {
   const r = new THREE.WebGLRenderer({ antialias });
-  r.setClearColor(COLORS.background);
+  r.setClearColor(THEMES[themeId].fogColor);
   return r;
 }
 
@@ -117,17 +128,32 @@ function start() {
   stage.insertBefore(renderer.domElement, stage.firstChild);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(COLORS.background);
   const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 200);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+  const hemi = new THREE.HemisphereLight();
+  scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xffffff, 1.0);
   sun.position.set(5, 10, 7);
   scene.add(sun);
 
-  const wallGeometry = new THREE.BoxGeometry(1.1, 0.8, 0.1);
-  const wallMaterial = new THREE.MeshLambertMaterial({ color: COLORS.wall });
+  // 墙：墙面（侧面与两端）用材质 0，墙顶用材质 1；UV 按世界尺寸缩放，纹理不被拉伸
+  const wallGeometry = buildWallGeometry();
+  const wallMaterials = [
+    new THREE.MeshLambertMaterial({ color: 0xffffff }),
+    new THREE.MeshLambertMaterial({ color: 0xffffff }),
+  ];
   const floorGeometry = new THREE.BoxGeometry(1, 0.05, 1);
   const floorMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
+
+  function buildWallGeometry() {
+    const geo = new THREE.BoxGeometry(1.1, 0.8, 0.1);
+    applyWallUvs(geo.attributes.uv.array);
+    geo.attributes.uv.needsUpdate = true;
+    const { index, groups } = wallGroupLayout(geo.index.array);
+    geo.setIndex(index);
+    geo.clearGroups();
+    for (const g of groups) geo.addGroup(g.start, g.count, g.materialIndex);
+    return geo;
+  }
 
   const player = buildPlayer();
   scene.add(player);
@@ -224,8 +250,9 @@ function start() {
     connections = new MazeGenerator(size, size, seed).generate().connections;
     segments = wallSegments(connections);
 
-    walls = new THREE.InstancedMesh(wallGeometry, wallMaterial, segments.length);
+    walls = new THREE.InstancedMesh(wallGeometry, wallMaterials, segments.length);
     walls.frustumCulled = false;
+    colorWalls();
     scene.add(walls);
 
     floor = new THREE.InstancedMesh(floorGeometry, floorMaterial, size * size);
@@ -234,7 +261,7 @@ function start() {
       for (let col = 0; col < size; col++) {
         tmpMatrix.makeTranslation(col + 0.5, -0.025, row + 0.5);
         floor.setMatrixAt(row * size + col, tmpMatrix);
-        floor.setColorAt(row * size + col, tmpColor.setHex(COLORS.floor));
+        floor.setColorAt(row * size + col, tmpColor.setHex(THEMES[themeId].floorBase));
       }
     }
     floor.instanceMatrix.needsUpdate = true;
@@ -331,18 +358,35 @@ function start() {
     walls.instanceMatrix.needsUpdate = true;
   }
 
-  function applyFloorColors() {
+  function kindAt(row, col) {
     const path = onPathSet();
+    return floorKind({ row, col }, size, {
+      inView: cellVisible(row, col),
+      onPath: path ? path.has(row * size + col) : false,
+    });
+  }
+
+  function applyFloorColors() {
+    const floorBase = THEMES[themeId].floorBase;
     for (let row = 0; row < size; row++) {
       for (let col = 0; col < size; col++) {
-        const kind = floorKind({ row, col }, size, {
-          inView: cellVisible(row, col),
-          onPath: path ? path.has(row * size + col) : false,
-        });
-        floor.setColorAt(row * size + col, tmpColor.setHex(COLORS[kind]));
+        const kind = kindAt(row, col);
+        floor.setColorAt(row * size + col, tmpColor.setHex(kind === 'floor' ? floorBase : COLORS[kind]));
       }
     }
     floor.instanceColor.needsUpdate = true;
+  }
+
+  // 每段墙的实例色：积木主题按调色板取色，其他主题是主题底色乘一点明暗变化
+  function colorWalls() {
+    const theme = THEMES[themeId];
+    const palette = theme.blockPalette;
+    for (let i = 0; i < segments.length; i++) {
+      if (palette) tmpColor.setHex(palette[blockColorIndex(i, palette.length)]);
+      else tmpColor.setHex(theme.wallTint).multiplyScalar(wallShade(i));
+      walls.setColorAt(i, tmpColor);
+    }
+    if (walls.instanceColor) walls.instanceColor.needsUpdate = true;
   }
 
   // ---------- 相机 ----------
@@ -401,7 +445,7 @@ function start() {
       scene.fog.near = 0.5;
       scene.fog.far = far;
     } else {
-      scene.fog = new THREE.Fog(COLORS.background, 0.5, far);
+      scene.fog = new THREE.Fog(THEMES[themeId].fogColor, 0.5, far);
     }
   }
 
@@ -675,8 +719,117 @@ function start() {
     renderer = next;
     quality = 'low';
     downgradeCount += 1;
+    // 新 renderer 会重新上传纹理；低画质下不再开各向异性过滤
+    if (currentTextures) {
+      for (const t of [currentTextures.wall, currentTextures.top, currentTextures.floor]) {
+        t.anisotropy = 1;
+        t.needsUpdate = true;
+      }
+    }
     meter.reset();
   }
+
+  // ---------- 主题 ----------
+  const TEX_SIZE = 256;
+  let currentTextures = null;
+  let liveTextures = 0;
+  const textureStats = { builds: 0, lastMs: 0 };
+
+  function textureAnisotropy() {
+    return quality === 'high' ? Math.min(4, renderer.capabilities.getMaxAnisotropy()) : 1;
+  }
+
+  function makeCanvasTexture(paint) {
+    const canvas = document.createElement('canvas');
+    canvas.width = TEX_SIZE;
+    canvas.height = TEX_SIZE;
+    paint(canvas.getContext('2d'), TEX_SIZE);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = textureAnisotropy();
+    liveTextures += 1;
+    return tex;
+  }
+
+  function hexCss(c) {
+    return '#' + c.toString(16).padStart(6, '0');
+  }
+
+  function makeSkyTexture(theme) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = TEX_SIZE;
+    const ctx = canvas.getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, TEX_SIZE);
+    grad.addColorStop(0, hexCss(theme.sky.top));
+    grad.addColorStop(1, hexCss(theme.sky.bottom));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 2, TEX_SIZE);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
+    liveTextures += 1;
+    return tex;
+  }
+
+  function ensureTextures(id) {
+    if (currentTextures && currentTextures.id === id) return;
+    const t0 = performance.now();
+    const next = {
+      id,
+      wall: makeCanvasTexture((ctx, n) => paintWall(id, ctx, n)),
+      top: makeCanvasTexture((ctx, n) => paintWallTop(id, ctx, n)),
+      floor: makeCanvasTexture((ctx, n) => paintFloor(id, ctx, n)),
+      sky: makeSkyTexture(THEMES[id]),
+    };
+    textureStats.builds += 1;
+    textureStats.lastMs = performance.now() - t0;
+    if (currentTextures) {
+      for (const key of ['wall', 'top', 'floor', 'sky']) {
+        currentTextures[key].dispose();
+        liveTextures -= 1;
+      }
+    }
+    currentTextures = next;
+  }
+
+  // 只换外观，不碰游戏状态（动画、位置、视角、迷雾、道路）
+  function applyTheme(id) {
+    id = parseTheme(id);
+    themeId = id;
+    ensureTextures(id);
+    const theme = THEMES[id];
+    const tex = currentTextures;
+    const changed =
+      wallMaterials[0].map !== tex.wall || wallMaterials[1].map !== tex.top || floorMaterial.map !== tex.floor;
+    wallMaterials[0].map = tex.wall;
+    wallMaterials[1].map = tex.top;
+    floorMaterial.map = tex.floor;
+    if (changed) {
+      for (const m of [wallMaterials[0], wallMaterials[1], floorMaterial]) m.needsUpdate = true;
+    }
+    scene.background = tex.sky;
+    renderer.setClearColor(theme.fogColor);
+    if (scene.fog) scene.fog.color.setHex(theme.fogColor);
+    hemi.color.setHex(theme.hemi.sky);
+    hemi.groundColor.setHex(theme.hemi.ground);
+    hemi.intensity = theme.hemi.intensity;
+    sun.color.setHex(theme.sun.color);
+    sun.intensity = theme.sun.intensity;
+    if (walls) colorWalls();
+    if (floor) applyFloorColors();
+    document.querySelectorAll('.theme-btn').forEach((b) => {
+      b.classList.toggle('active', b.dataset.theme === id);
+    });
+    storageSet('maze3d.theme', id);
+  }
+
+  document.querySelectorAll('.theme-btn').forEach((btn) => {
+    btn.addEventListener('click', () => applyTheme(btn.dataset.theme));
+  });
 
   let lastTime = performance.now();
   function frame(now) {
@@ -733,6 +886,7 @@ function start() {
     }
   }
 
+  applyTheme(themeId);
   buildMaze(seed, size);
   startLoop();
 
@@ -753,6 +907,81 @@ function start() {
       }
     }
     return seen.size;
+  }
+
+  function instanceHidden(mesh, i) {
+    mesh.getMatrixAt(i, tmpMatrix);
+    // 不用 decompose：r187 对行列式为 0 的矩阵直接返回缩放 1
+    const e = tmpMatrix.elements;
+    const scale = Math.hypot(e[0], e[1], e[2]) * Math.hypot(e[4], e[5], e[6]);
+    return scale * Math.hypot(e[8], e[9], e[10]) === 0;
+  }
+
+  function isPlayerPart(obj) {
+    for (let o = obj; o; o = o.parent) if (o === player) return true;
+    return false;
+  }
+
+  const raycaster = new THREE.Raycaster();
+
+  // 地板格顶面上 5 个取样点（格心与四个内缩点）中，相机看得到、没被墙 / 星星 / 小人挡住的点；
+  // 返回相对 renderer canvas 左上角的 CSS 像素坐标
+  function floorSamplePoints(row, col) {
+    camera.updateMatrixWorld();
+    walls.boundingSphere = null;
+    const canvas = renderer.domElement;
+    const out = [];
+    const offsets = [
+      [0, 0],
+      [-0.3, -0.3],
+      [0.3, -0.3],
+      [-0.3, 0.3],
+      [0.3, 0.3],
+    ];
+    for (const [dx, dz] of offsets) {
+      const point = new THREE.Vector3(col + 0.5 + dx, 0.001, row + 0.5 + dz);
+      const ndc = point.clone().project(camera);
+      if (Math.abs(ndc.x) > 1 || Math.abs(ndc.y) > 1 || ndc.z > 1) continue;
+      const dist = camera.position.distanceTo(point);
+      const dir = point.clone().sub(camera.position).normalize();
+      raycaster.set(camera.position, dir);
+      raycaster.far = dist;
+      const hits = raycaster.intersectObjects([walls, star, player], true);
+      const blocked = hits.some((h) => {
+        if (h.distance >= dist - 0.01) return false;
+        if (!player.visible && isPlayerPart(h.object)) return false;
+        if (h.object === walls && h.instanceId !== undefined && instanceHidden(walls, h.instanceId)) return false;
+        return true;
+      });
+      if (blocked) continue;
+      out.push({ x: ((ndc.x + 1) / 2) * canvas.clientWidth, y: ((1 - ndc.y) / 2) * canvas.clientHeight });
+    }
+    return out;
+  }
+
+  // 画面中心 50% 区域 16×16 网格取样：不同颜色数、亮度总体标准差、5%–95% 分位差
+  function wallContrast() {
+    renderer.render(scene, camera);
+    const gl = renderer.getContext();
+    const w = gl.drawingBufferWidth;
+    const h = gl.drawingBufferHeight;
+    const px = new Uint8Array(4);
+    const seen = new Set();
+    const lumas = [];
+    for (let i = 0; i < 16; i++) {
+      for (let j = 0; j < 16; j++) {
+        const x = Math.floor(w * (0.25 + (0.5 * (i + 0.5)) / 16));
+        const y = Math.floor(h * (0.25 + (0.5 * (j + 0.5)) / 16));
+        gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        seen.add((px[0] << 16) | (px[1] << 8) | px[2]);
+        lumas.push(0.299 * px[0] + 0.587 * px[1] + 0.114 * px[2]);
+      }
+    }
+    const mean = lumas.reduce((a, b) => a + b, 0) / lumas.length;
+    const std = Math.sqrt(lumas.reduce((a, b) => a + (b - mean) ** 2, 0) / lumas.length);
+    lumas.sort((a, b) => a - b);
+    const spread = lumas[Math.floor(0.95 * 255)] - lumas[Math.floor(0.05 * 255)];
+    return { colors: seen.size, std, spread };
   }
 
   window.__maze3d = {
@@ -788,18 +1017,35 @@ function start() {
     },
     wallsVisible() {
       const out = [];
-      for (let i = 0; i < segments.length; i++) {
-        walls.getMatrixAt(i, tmpMatrix);
-        // 不用 decompose：r187 对行列式为 0 的矩阵直接返回缩放 1
-        const e = tmpMatrix.elements;
-        const scale = Math.hypot(e[0], e[1], e[2]) * Math.hypot(e[4], e[5], e[6]);
-        out.push(scale * Math.hypot(e[8], e[9], e[10]) !== 0);
-      }
+      for (let i = 0; i < segments.length; i++) out.push(!instanceHidden(walls, i));
       return out;
     },
+    floorKindAt(row, col) {
+      return kindAt(row, col);
+    },
+    floorSamplePoints,
+    wallContrast,
     floorColorHex(row, col) {
       floor.getColorAt(row * size + col, tmpColor);
       return '#' + tmpColor.getHexString();
+    },
+    wallColorHex(i) {
+      walls.getColorAt(i, tmpColor);
+      return '#' + tmpColor.getHexString();
+    },
+    get theme() {
+      return themeId;
+    },
+    get textureCount() {
+      return liveTextures;
+    },
+    get textureStats() {
+      return { builds: textureStats.builds, lastMs: textureStats.lastMs };
+    },
+    // 当前墙面、墙顶、地板纹理的各向异性过滤级别
+    get textureAnisotropy() {
+      if (!currentTextures) return [];
+      return [currentTextures.wall, currentTextures.top, currentTextures.floor].map((t) => t.anisotropy);
     },
     sampleDistinctColors,
     get fog() {
