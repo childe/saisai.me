@@ -300,6 +300,65 @@ test('smoothCameraDistance: always <= dSafe, snaps in, eases out', () => {
   for (let i = 6; i < seq.length; i++) assert.ok(seq[i] >= seq[i - 1]);
 });
 
+// ---------- 相机求解：可见墙包围盒与抬高俯角 ----------
+import { segmentBoxes, CAMERA_MIN_DIST, liftPitch } from '../maze-3d/movement.js';
+
+test('segmentBoxes covers only rendered segments, not the border gap closures', () => {
+  const segs = wallSegments(mazeOf(7, 10));
+  const vis = segmentBoxes(segs);
+  const all = wallBoxes(segs, 10);
+  assert.equal(vis.length, segs.length);
+  assert.deepEqual(vis, all.slice(0, segs.length));
+});
+
+test('default start view is not pulled in by the invisible entrance closure', () => {
+  for (const seed of [1, 7, 42, 12345]) {
+    const segs = wallSegments(mazeOf(seed, 10));
+    const target = { x: 0.5, y: TARGET_HEIGHT, z: 0.5 };
+    const dist = 8.602;
+    const cam = followCameraPos(target, Math.PI, FOLLOW_PITCH.def, dist);
+    const d = cameraPullIn(target, cam, wallBoxes3d(segmentBoxes(segs)));
+    assert.ok(near(d, dist), `seed=${seed} d=${d}`);
+  }
+});
+
+test('liftPitch keeps the requested pitch when nothing blocks', () => {
+  assert.equal(liftPitch(T, 0, FOLLOW_PITCH.min, 5, []), FOLLOW_PITCH.min);
+  assert.equal(liftPitch(T, Math.PI, FOLLOW_PITCH.min, 5, wall3), FOLLOW_PITCH.min); // 墙在前方
+});
+
+// 小人在格心 / 贴墙，相机转到身后墙方向：抬高俯角后距离可用、线段安全、不超过上限
+for (const [name, gap] of [
+  ['cell center', 0.5],
+  ['hugging the wall', PLAYER_RADIUS + 0.05],
+]) {
+  test(`liftPitch raises a low pitch over a wall behind (${name})`, () => {
+    const walls = wallBoxes3d([{ minX: -5, maxX: 5, minZ: gap - 0.05, maxZ: gap + 0.05 }]);
+    const dist = 6;
+    assert.ok(cameraPullIn(T, followCameraPos(T, 0, FOLLOW_PITCH.min, dist), walls) < CAMERA_MIN_DIST);
+    const p = liftPitch(T, 0, FOLLOW_PITCH.min, dist, walls);
+    assert.ok(p > FOLLOW_PITCH.min && p <= FOLLOW_PITCH.max + 1e-12, `p=${p}`);
+    const d = cameraPullIn(T, followCameraPos(T, 0, p, dist), walls);
+    assert.ok(d >= CAMERA_MIN_DIST, `d=${d}`);
+  });
+}
+
+test('liftPitch never lifts past what a short ideal distance needs', () => {
+  // 理想距离本身比 CAMERA_MIN_DIST 短：只要求不被拉近
+  const p = liftPitch(T, 0, FOLLOW_PITCH.min, 0.5, wall3);
+  assert.equal(p, FOLLOW_PITCH.min);
+});
+
+test('liftPitch falls back to the least-blocked pitch when nothing clears', () => {
+  const tower = wallBoxes3d([{ minX: -5, maxX: 5, minZ: 0.45, maxZ: 0.55 }], 100);
+  const p = liftPitch(T, 0, FOLLOW_PITCH.min, 6, tower);
+  assert.ok(Number.isFinite(p) && p >= FOLLOW_PITCH.min && p <= FOLLOW_PITCH.max + 1e-12);
+  const dp = cameraPullIn(T, followCameraPos(T, 0, p, 6), tower);
+  for (let q = FOLLOW_PITCH.min; q <= FOLLOW_PITCH.max; q += deg(1)) {
+    assert.ok(cameraPullIn(T, followCameraPos(T, 0, q, 6), tower) <= dp + 0.05);
+  }
+});
+
 // ---------- Task 3: 输入换算与手势状态机 ----------
 import {
   TURN_SPEED,

@@ -33,6 +33,7 @@ import {
   PLAYER_PARTS,
   playerModelScale,
   wallBoxes,
+  segmentBoxes,
   createBoxGrid,
   cellOf,
   stepPlayer,
@@ -44,6 +45,7 @@ import {
   wallBoxes3d,
   followCameraPos,
   cameraPullIn,
+  liftPitch,
   smoothCameraDistance,
   TURN_SPEED,
   LOOK_SPEED,
@@ -281,7 +283,7 @@ function start() {
     segments = wallSegments(connections);
     boxes = wallBoxes(segments, size);
     grid = createBoxGrid(boxes, size);
-    boxes3d = wallBoxes3d(boxes);
+    boxes3d = wallBoxes3d(segmentBoxes(segments)); // 相机只避让看得见的墙，不含开口封口
 
     walls = new THREE.InstancedMesh(wallGeometry, wallMaterials, segments.length);
     walls.frustumCulled = false;
@@ -426,11 +428,13 @@ function start() {
   }
 
   // ---------- 相机 ----------
-  // 跟随视角：理想位置由 yaw / pitch / 距离算出并平滑插值；再沿平滑后的方向做三维避障，
+  // 跟随视角：先用 liftPitch 求实际俯角（身后有墙、收近后小人会占满画面时抬高俯角），
+  // 理想位置由 yaw / 实际俯角 / 距离算出并平滑插值；再沿平滑后的方向做三维避障，
   // 实际距离 dCur 比安全距离远就立即收近，比它近就慢慢恢复（smoothCameraDistance）
   const smoothCam = new THREE.Vector3();
   const camTarget = new THREE.Vector3();
   let dCur = 0;
+  let camPitch = 0;
 
   function idealDistance() {
     const o = followOffset(fogOn ? fogRadius : 10);
@@ -448,7 +452,9 @@ function start() {
 
   function placeFollow(k, snap) {
     camTarget.set(playerState.x, TARGET_HEIGHT, playerState.z);
-    const ideal = followCameraPos(camTarget, yaw, pitch, idealDistance());
+    const dist = idealDistance();
+    camPitch = liftPitch(camTarget, yaw, pitch, dist, boxes3d);
+    const ideal = followCameraPos(camTarget, yaw, camPitch, dist);
     tmpPos.set(ideal.x, ideal.y, ideal.z);
     if (snap) smoothCam.copy(tmpPos);
     else smoothCam.lerp(tmpPos, k);
@@ -1110,6 +1116,10 @@ function start() {
     // 跟随视角实际使用的相机距离；第一人称为 0
     get cameraDistance() {
       return view === 'first' ? 0 : dCur;
+    },
+    // 跟随视角实际使用的俯角（可能被 liftPitch 抬高）；第一人称等于 pitch
+    get cameraPitch() {
+      return view === 'first' ? pitch : camPitch;
     },
     get cameraIdealDistance() {
       return idealDistance();

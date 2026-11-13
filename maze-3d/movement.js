@@ -43,9 +43,15 @@ function segBox(seg) {
   return { minX: seg.x - hx, maxX: seg.x + hx, minZ: seg.z - hz, maxZ: seg.z + hz };
 }
 
-// wallSegments 的墙段转矩形，再补上入口、出口两处外边界开口（碰撞上外边界全封闭）
+// 实际渲染的墙段 → 矩形（不含开口封口）；相机避障只用这些
+export function segmentBoxes(segments) {
+  return segments.map(segBox);
+}
+
+// wallSegments 的墙段转矩形，再补上入口、出口两处外边界开口（碰撞上外边界全封闭）。
+// 封口不渲染，只用于小人碰撞；前 segments.length 个与 segmentBoxes 一一对应
 export function wallBoxes(segments, size) {
-  const boxes = segments.map(segBox);
+  const boxes = segmentBoxes(segments);
   const gaps = [
     { x: 0.5, z: 0, along: 'x' },
     { x: 0, z: 0.5, along: 'z' },
@@ -232,6 +238,28 @@ export function cameraPullIn(target, cameraPos, boxes3d) {
 export function smoothCameraDistance(dCur, dWant, dSafe, k) {
   if (dCur > dSafe) return dSafe;
   return Math.min(dCur + (dWant - dCur) * k, dSafe);
+}
+
+// 相机被墙收得比这还近时，小人会占满画面：改为抬高俯角从墙顶上方看
+export const CAMERA_MIN_DIST = 1.5;
+const LIFT_STEP = 2.5 * DEG;
+
+// 跟随视角实际使用的俯角：从玩家设定的 pitch 起每次抬高 LIFT_STEP（最多到 FOLLOW_PITCH.max），
+// 取第一个安全距离 ≥ min(dist, CAMERA_MIN_DIST) 的俯角；都达不到时取安全距离最大的那个。
+// 只决定方向，最终距离仍由 cameraPullIn 在这个方向上求出，所以不会穿墙
+export function liftPitch(target, yaw, pitch, dist, boxes3d) {
+  const want = Math.min(dist, CAMERA_MIN_DIST) - 1e-9;
+  let best = pitch;
+  let bestD = -1;
+  for (let p = pitch; ; p = Math.min(p + LIFT_STEP, FOLLOW_PITCH.max)) {
+    const d = cameraPullIn(target, followCameraPos(target, yaw, p, dist), boxes3d);
+    if (d >= want) return p;
+    if (d > bestD) {
+      bestD = d;
+      best = p;
+    }
+    if (p >= FOLLOW_PITCH.max) return best;
+  }
 }
 
 // ---------- 输入换算 ----------

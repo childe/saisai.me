@@ -2350,8 +2350,36 @@ def point_in_box(p, box, eps=1e-4):
     )
 
 
+CAMERA_MIN_DIST = 1.5  # 与 movement.js 一致：收近到这以下时改为抬高俯角
+
+
+def low_pitch_wall_view(page, yaw, shot):
+    """俯角 15°、相机转到身后墙方向，等稳定后检查相机：线段不穿墙、不在盒内、俯角被抬高、距离可用。"""
+    set_test_input(page, yaw=yaw, pitch=math.radians(15))
+    page.wait_for_timeout(1500)
+    target = m3(page, "cameraTarget")
+    cam = m3(page, "cameraPos")
+    boxes = m3(page, "wallBoxes3d")
+    dist = m3(page, "cameraDistance")
+    ideal = m3(page, "cameraIdealDistance")
+    cam_pitch = m3(page, "cameraPitch")
+    hits = [b for b in boxes if segment_hits_box(target, cam, b)]
+    inside_box = [b for b in boxes if point_in_box(cam, b)]
+    colors = m3(page, "sampleDistinctColors()")
+    canvas_image(page).save(SHOTS / shot)
+    usable = dist >= 0.98 * min(ideal, CAMERA_MIN_DIST)
+    lifted = cam_pitch > math.radians(15) + 1e-6
+    ok = not hits and not inside_box and usable and lifted
+    detail = (
+        f"distance={dist:.3f} ideal={ideal:.3f} camPitch={math.degrees(cam_pitch):.1f}"
+        f" hits={len(hits)} camInside={len(inside_box)} colors={colors}"
+    )
+    return ok, detail
+
+
 def check_f6(browser, base):
-    """跟随视角背对墙、低俯角：相机拉到墙前，线段不穿墙；60° 俯角从墙顶看过去不拉近。"""
+    """跟随视角背对墙、低俯角：格心与贴墙两处，相机都抬高俯角从墙顶看过去，线段不穿墙、
+    距离不小于 CAMERA_MIN_DIST（小人不占满画面）；格心 60° 俯角本来就看得过去，不拉近。"""
     SHOTS.mkdir(parents=True, exist_ok=True)
     page, errors = open_page(
         browser,
@@ -2364,31 +2392,45 @@ def check_f6(browser, base):
         d = find_wall_cell(page)
         if d is None:
             return False, "no wall cell"
-        set_test_input(page, yaw=DIR_YAW[d] + math.pi, pitch=math.radians(15))
-        page.wait_for_timeout(1500)
-        target = m3(page, "cameraTarget")
-        cam = m3(page, "cameraPos")
-        boxes = m3(page, "wallBoxes3d")
-        dist = m3(page, "cameraDistance")
-        ideal = m3(page, "cameraIdealDistance")
-        hits = [b for b in boxes if segment_hits_box(target, cam, b)]
-        inside_box = [b for b in boxes if point_in_box(cam, b)]
-        colors = m3(page, "sampleDistinctColors()")
-        canvas_image(page).save(SHOTS / "follow-lowpitch-wall.png")
-        ok_low = not hits and not inside_box and dist < ideal
-        details.append(
-            f"pitch15 wall={d}: distance={dist:.3f} ideal={ideal:.3f} hits={len(hits)}"
-            f" camInside={len(inside_box)} colors={colors}"
-        )
+        back = DIR_YAW[d] + math.pi
+        ok_center, msg = low_pitch_wall_view(page, back, "follow-lowpitch-wall.png")
+        details.append(f"center pitch15 wall={d}: {msg}")
         set_test_input(page, pitch=math.radians(60))
         page.wait_for_timeout(1500)
         dist60 = m3(page, "cameraDistance")
         ideal60 = m3(page, "cameraIdealDistance")
-        set_test_input(page)
         ok_high = dist60 >= 0.98 * ideal60
-        details.append(f"pitch60: distance={dist60:.3f} ideal={ideal60:.3f}")
+        details.append(f"center pitch60: distance={dist60:.3f} ideal={ideal60:.3f}")
+        # 背对墙后退 1 秒，贴到墙上
+        p0 = m3(page, "playerPos")
+        set_test_input(page, forward=-1, yaw=back, pitch=math.radians(15))
+        page.wait_for_timeout(1000)
+        p1 = m3(page, "playerPos")
+        ok_hug, msg = low_pitch_wall_view(page, back, "follow-lowpitch-hug.png")
+        set_test_input(page)
+        moved_back = math.hypot(p1["x"] - p0["x"], p1["z"] - p0["z"])
+        details.append(f"hug moved={moved_back:.3f} pitch15: {msg}")
         ok_err, msg = no_errors(errors)
-        return ok_low and ok_high and ok_err, (" ".join(details) + " " + msg).strip()
+        ok = ok_center and ok_high and ok_hug and moved_back > 0.1
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_f10(browser, base):
+    """打开页面的默认跟随视角（起点朝南，相机在北侧入口外）：不被不渲染的入口封口拉近。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    try:
+        wait_idle(page)
+        page.wait_for_timeout(500)
+        dist = m3(page, "cameraDistance")
+        ideal = m3(page, "cameraIdealDistance")
+        ok_err, msg = no_errors(errors)
+        ok = dist >= 0.98 * ideal
+        return (
+            ok and ok_err,
+            f"start distance={dist:.3f} ideal={ideal:.3f} {msg}".strip(),
+        )
     finally:
         close(page)
 
@@ -2525,6 +2567,7 @@ CHECKS = {
     "f7": check_f7,
     "f8": check_f8,
     "f9": check_f9,
+    "f10": check_f10,
 }
 
 
@@ -2593,7 +2636,7 @@ def main():
             + (f" --baseline-root {BASELINE_ROOT}" if BASELINE_ROOT else ""),
             f"自动检查：{'PASS' if all_ok else 'FAIL'}",
             f"基线代码：{BASELINE_ROOT}（merge-base）",
-            f"人工检查：待用户查看 {SHOTS} 下截图（四种主题的跟随 / 第一人称 / 面墙，及 follow-lowpitch-wall.png），确认斜视角与贴墙视角能看到小人",
+            f"人工检查：待用户查看 {SHOTS} 下截图（四种主题的跟随 / 第一人称 / 面墙，及 follow-lowpitch-wall.png / follow-lowpitch-hug.png），确认斜视角与贴墙视角能看到小人",
             "",
         ]
         RESULTS.write_text("\n".join(header + lines) + "\n", encoding="utf-8")
