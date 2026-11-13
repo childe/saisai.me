@@ -1,6 +1,6 @@
 // 3D 迷宫的画面效果：开局朝向、遮挡判断、终点方向提示、阴影 / 暗边 / 光柱 / 彩带的数据步进。
 // 纯逻辑，不依赖 three.js 和 DOM，可以直接用 node --test 测试。角度与坐标约定见 movement.js。
-import { slabInterval, PLAYER_RADIUS } from './movement.js';
+import { slabInterval, PLAYER_RADIUS, WALL_THICKNESS } from './movement.js';
 
 // ---------- 开局朝向 ----------
 // 从起点格中心 (0.5, 0.5) 指向迷宫中心 (size/2, size/2) 的 yaw
@@ -71,4 +71,25 @@ export const SHADOW_RADIUS = 1.2 * PLAYER_RADIUS;
 export function shadowLook(lift) {
   const l = Math.min(0.1, Math.max(0, lift));
   return { scale: 1 - 3 * l, opacity: 1 - 5 * l };
+}
+
+// ---------- 墙脚暗边 ----------
+export const FOOT_STRIP_WIDTH = 0.18;
+
+// 每段墙两侧地板上各一条暗边（外边界墙只朝内一条）。(nx, nz) 是从墙指向该侧地板的单位法向，
+// 条带中心 = 墙中心 + n × (墙厚/2 + 条宽/2)，rotY = atan2(nx, nz)；seg 是墙段下标
+export function wallFootStrips(segments) {
+  const off = WALL_THICKNESS / 2 + FOOT_STRIP_WIDTH / 2;
+  const out = [];
+  segments.forEach((s, i) => {
+    const normals = s.along === 'x' ? [[0, 1], [0, -1]] : [[1, 0], [-1, 0]];
+    for (const [nx, nz] of normals) {
+      if (s.cells.length === 1) {
+        const [row, col] = s.cells[0];
+        if ((col + 0.5 - s.x) * nx + (row + 0.5 - s.z) * nz <= 0) continue;
+      }
+      out.push({ seg: i, x: s.x + nx * off, z: s.z + nz * off, nx, nz, rotY: Math.atan2(nx, nz) });
+    }
+  });
+  return out;
 }

@@ -11,7 +11,11 @@ import {
   BEAM_SAMPLE_HEIGHTS,
   SHADOW_RADIUS,
   shadowLook,
+  FOOT_STRIP_WIDTH,
+  wallFootStrips,
 } from '../maze-3d/effects.js';
+import { MazeGenerator } from '../maze-3d/maze-core.js';
+import { wallSegments } from '../maze-3d/game-logic.js';
 import { slabInterval, wallBoxes3d, segmentBoxes, WALL_HEIGHT, PLAYER_RADIUS } from '../maze-3d/movement.js';
 
 // ---------- Task 1: 开局朝向 ----------
@@ -107,4 +111,43 @@ test('shadowLook shrinks and fades with lift', () => {
   assert.deepEqual(shadowLook(1), shadowLook(0.1));
   assert.deepEqual(shadowLook(-1), shadowLook(0));
   assert.ok(Math.abs(SHADOW_RADIUS - 1.2 * PLAYER_RADIUS) < 1e-12);
+});
+
+// ---------- Task 5: 墙脚暗边 ----------
+test('wallFootStrips: two per inner wall, one inward per outer wall', () => {
+  const segs = wallSegments(new MazeGenerator(10, 10, 12345).generate().connections);
+  const strips = wallFootStrips(segs);
+  const inner = segs.filter((s) => s.cells.length === 2).length;
+  const outer = segs.length - inner;
+  assert.equal(strips.length, inner * 2 + outer);
+  assert.equal(FOOT_STRIP_WIDTH, 0.18);
+  const bySeg = new Map();
+  for (const st of strips) {
+    const seg = segs[st.seg];
+    if (seg.along === 'x') {
+      assert.ok(st.nx === 0 && Math.abs(st.nz) === 1);
+      assert.equal(st.x, seg.x);
+      assert.ok(Math.abs(Math.abs(st.z - seg.z) - 0.14) < 1e-12);
+    } else {
+      assert.ok(st.nz === 0 && Math.abs(st.nx) === 1);
+      assert.equal(st.z, seg.z);
+      assert.ok(Math.abs(Math.abs(st.x - seg.x) - 0.14) < 1e-12);
+    }
+    assert.ok(Math.abs(st.rotY - Math.atan2(st.nx, st.nz)) < 1e-12);
+    if (!bySeg.has(st.seg)) bySeg.set(st.seg, []);
+    bySeg.get(st.seg).push(st);
+  }
+  for (const [i, list] of bySeg) {
+    const seg = segs[i];
+    if (seg.cells.length === 1) {
+      assert.equal(list.length, 1);
+      const [row, col] = seg.cells[0];
+      const st = list[0];
+      assert.ok((col + 0.5 - seg.x) * st.nx + (row + 0.5 - seg.z) * st.nz > 0);
+    } else {
+      assert.equal(list.length, 2);
+      assert.ok(list[0].nx === -list[1].nx && list[0].nz === -list[1].nz);
+    }
+  }
+  assert.equal(bySeg.size, segs.length);
 });

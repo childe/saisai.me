@@ -60,7 +60,15 @@ import {
   applyKeyEvent,
   createPointerRouter,
 } from './movement.js';
-import { startYaw, LOOK_AHEAD, lookAheadTarget, SHADOW_RADIUS, shadowLook } from './effects.js';
+import {
+  startYaw,
+  LOOK_AHEAD,
+  lookAheadTarget,
+  SHADOW_RADIUS,
+  shadowLook,
+  FOOT_STRIP_WIDTH,
+  wallFootStrips,
+} from './effects.js';
 
 const EYE_HEIGHT = 0.45;
 const STICK_RADIUS = 50; // 虚拟摇杆底座半径，CSS 像素
@@ -224,6 +232,38 @@ function start() {
   shadow.renderOrder = 1;
   scene.add(shadow);
 
+  // 墙脚暗边：每条是贴地的窄条，墙根一侧 0.3 不透明度的黑色渐变到外侧透明。
+  // 几何本地 +y（纹理顶端、深色边）rotateX 后落到 −z，实例旋转 rotY 后深色边朝向墙根
+  const stripGeometry = new THREE.PlaneGeometry(WALL_LENGTH, FOOT_STRIP_WIDTH);
+  stripGeometry.rotateX(-Math.PI / 2);
+  const stripMaterial = new THREE.MeshBasicMaterial({
+    map: makeStripTexture(),
+    transparent: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  });
+  let footStrips = [];
+  let feet = null;
+
+  // 1×64 竖向渐变：顶端（v = 1，墙根）rgba(0,0,0,0.3) → 底端透明；按 (1 − u)² 衰减，
+  // 暗色集中在墙根附近，条带外侧几乎不压暗地板（地板语义色仍可分辨）
+  function makeStripTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, 64);
+    for (let i = 0; i <= 16; i++) {
+      const u = i / 16;
+      grad.addColorStop(u, `rgba(0,0,0,${(0.3 * (1 - u) * (1 - u)).toFixed(4)})`);
+    }
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 1, 64);
+    return new THREE.CanvasTexture(canvas);
+  }
+
   // 64×64 白色径向渐变：中心 alpha 0.35、边缘 0；阴影与终点粒子共用
   function makeRadialTexture() {
     const n = 64;
@@ -322,7 +362,7 @@ function start() {
   }
 
   function disposeMaze() {
-    for (const m of [walls, floor]) {
+    for (const m of [walls, floor, feet]) {
       if (m) {
         scene.remove(m);
         m.dispose();
@@ -330,6 +370,7 @@ function start() {
     }
     walls = null;
     floor = null;
+    feet = null;
   }
 
   function buildMaze(newSeed, newSize) {
@@ -347,6 +388,11 @@ function start() {
     walls.frustumCulled = false;
     colorWalls();
     scene.add(walls);
+
+    footStrips = wallFootStrips(segments);
+    feet = new THREE.InstancedMesh(stripGeometry, stripMaterial, footStrips.length);
+    feet.frustumCulled = false;
+    scene.add(feet);
 
     floor = new THREE.InstancedMesh(floorGeometry, floorMaterial, size * size);
     floor.frustumCulled = false;
@@ -443,9 +489,11 @@ function start() {
   updateFogUi();
 
   function applyWallVisibility() {
+    const segVisible = new Array(segments.length);
     for (let i = 0; i < segments.length; i++) {
       const s = segments[i];
       const visible = !fogOn || wallInView(s, display, fogRadius);
+      segVisible[i] = visible;
       tmpPos.set(s.x, WALL_HEIGHT / 2, s.z);
       tmpQuat.setFromAxisAngle(yAxis, s.along === 'z' ? Math.PI / 2 : 0);
       tmpScale.setScalar(visible ? 1 : 0);
@@ -453,6 +501,16 @@ function start() {
       walls.setMatrixAt(i, tmpMatrix);
     }
     walls.instanceMatrix.needsUpdate = true;
+    // 暗边跟随所属墙段的可见性
+    for (let i = 0; i < footStrips.length; i++) {
+      const st = footStrips[i];
+      tmpPos.set(st.x, 0.003, st.z);
+      tmpQuat.setFromAxisAngle(yAxis, st.rotY);
+      tmpScale.setScalar(segVisible[st.seg] ? 1 : 0);
+      tmpMatrix.compose(tmpPos, tmpQuat, tmpScale);
+      feet.setMatrixAt(i, tmpMatrix);
+    }
+    feet.instanceMatrix.needsUpdate = true;
   }
 
   function kindAt(row, col) {
@@ -1286,6 +1344,12 @@ function start() {
     },
     get segments() {
       return segments;
+    },
+    get footStripCount() {
+      return footStrips.length;
+    },
+    footStripsVisible() {
+      return footStrips.map((st, i) => ({ seg: st.seg, visible: !instanceHidden(feet, i) }));
     },
     wallsVisible() {
       const out = [];

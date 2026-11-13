@@ -3351,6 +3351,52 @@ def check_p2(browser, base):
         close(page)
 
 
+def check_p3(browser, base):
+    """墙脚暗边：实例数等于 wallFootStrips 的条数；每条暗边与所属墙段同显同隐（迷雾开时有隐有显，
+    关雾后全部显示）；暗边纹理不计入主题纹理数。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 1280, "height": 800},
+        init_script=preset_storage("1", "1"),
+    )
+    details = []
+    try:
+        wait_idle(page)
+        count = m3(page, "footStripCount")
+        want = page.evaluate(
+            "async () => { const E = await import('/maze-3d/effects.js');"
+            " return E.wallFootStrips(window.__maze3d.segments).length; }"
+        )
+        st = page.evaluate("() => window.__maze3d.footStripsVisible()")
+        wv = page.evaluate("() => window.__maze3d.wallsVisible()")
+        match = all(x["visible"] == wv[x["seg"]] for x in st)
+        n_vis = sum(1 for x in st if x["visible"])
+        n_hid = len(st) - n_vis
+        details.append(
+            f"count={count} want={want} fogOn: match={match} visible={n_vis} hidden={n_hid}"
+        )
+        page.click("#fog-btn")
+        page.wait_for_function("() => !window.__maze3d.fog.on")
+        st2 = page.evaluate("() => window.__maze3d.footStripsVisible()")
+        all_vis = all(x["visible"] for x in st2)
+        tex = m3(page, "textureCount")
+        details.append(f"fogOff: allVisible={all_vis} textureCount={tex}")
+        ok_err, msg = no_errors(errors)
+        ok = (
+            count == want
+            and len(st) == count
+            and match
+            and n_vis > 0
+            and n_hid > 0
+            and all_vis
+            and tex == 5
+        )
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
 CHECKS = {
     "1": check_1,
     "10": check_10,
@@ -3395,6 +3441,7 @@ CHECKS = {
     "g8": check_g8,
     "p1": check_p1,
     "p2": check_p2,
+    "p3": check_p3,
 }
 
 
