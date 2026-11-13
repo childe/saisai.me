@@ -12,6 +12,8 @@ import {
   findPath,
   wallInView,
   fogRing,
+  groundFogFarMax,
+  groundHalfExtent,
   summarizeFrames,
   createFrameMeter,
   shouldDowngrade,
@@ -24,6 +26,7 @@ import {
   paintWall,
   paintWallTop,
   paintFloor,
+  paintGround,
   mixHex,
 } from './themes.js';
 import { wallGroupLayout, applyWallUvs } from './wall-geometry.js';
@@ -158,6 +161,30 @@ function start() {
   const sun = new THREE.DirectionalLight(0xffffff, 1.0);
   sun.position.set(5, 10, 7);
   scene.add(sun);
+
+  // 外围地面：一整块平面，中心跟随相机按整格移动；半边长保证视锥内的地面边缘都在雾终点之外。
+  // 这几个变量必须在首次 resize() 之前声明（resize 会调用 updateGroundExtent）
+  let currentTextures = null;
+  let groundE = 0;
+  const groundMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshLambertMaterial({ color: 0xffffff }),
+  );
+  groundMesh.rotation.x = -Math.PI / 2;
+  groundMesh.position.y = -0.045;
+  groundMesh.frustumCulled = false;
+  scene.add(groundMesh);
+
+  function updateGroundExtent() {
+    groundE = groundHalfExtent(groundFogFarMax(size, ZOOM_MAX), camera.fov, camera.aspect);
+    groundMesh.scale.set(2 * groundE, 2 * groundE, 1);
+    if (currentTextures) currentTextures.ground.repeat.set(2 * groundE, 2 * groundE);
+  }
+
+  function syncGround() {
+    groundMesh.position.x = Math.round(camera.position.x);
+    groundMesh.position.z = Math.round(camera.position.z);
+  }
 
   // 墙：墙面（侧面与两端）用材质 0，墙顶用材质 1；UV 按世界尺寸缩放，纹理不被拉伸
   const wallGeometry = buildWallGeometry();
@@ -316,6 +343,7 @@ function start() {
 
     updateSceneFog();
     recomputeFog();
+    updateGroundExtent();
     snapCamera();
   }
 
@@ -481,11 +509,9 @@ function start() {
   }
 
   function snapCamera() {
-    if (view === 'first') {
-      placeFirstPerson();
-      return;
-    }
-    placeFollow(1, true);
+    if (view === 'first') placeFirstPerson();
+    else placeFollow(1, true);
+    syncGround();
   }
 
   // dt 单位秒
@@ -785,6 +811,7 @@ function start() {
     renderer.setSize(w, h, true);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    updateGroundExtent();
   }
   new ResizeObserver(resize).observe(stage);
   resize();
@@ -814,7 +841,7 @@ function start() {
     downgradeCount += 1;
     // 新 renderer 会重新上传纹理；低画质下不再开各向异性过滤
     if (currentTextures) {
-      for (const t of [currentTextures.wall, currentTextures.top, currentTextures.floor]) {
+      for (const t of [currentTextures.wall, currentTextures.top, currentTextures.floor, currentTextures.ground]) {
         t.anisotropy = 1;
         t.needsUpdate = true;
       }
@@ -824,7 +851,6 @@ function start() {
 
   // ---------- 主题 ----------
   const TEX_SIZE = 256;
-  let currentTextures = null;
   let liveTextures = 0;
   const textureStats = { builds: 0, lastMs: 0 };
 
@@ -876,12 +902,13 @@ function start() {
       wall: makeCanvasTexture((ctx, n) => paintWall(id, ctx, n)),
       top: makeCanvasTexture((ctx, n) => paintWallTop(id, ctx, n)),
       floor: makeCanvasTexture((ctx, n) => paintFloor(id, ctx, n)),
+      ground: makeCanvasTexture((ctx, n) => paintGround(id, ctx, n)),
       sky: makeSkyTexture(THEMES[id]),
     };
     textureStats.builds += 1;
     textureStats.lastMs = performance.now() - t0;
     if (currentTextures) {
-      for (const key of ['wall', 'top', 'floor', 'sky']) {
+      for (const key of ['wall', 'top', 'floor', 'ground', 'sky']) {
         currentTextures[key].dispose();
         liveTextures -= 1;
       }
@@ -896,13 +923,19 @@ function start() {
     ensureTextures(id);
     const theme = THEMES[id];
     const tex = currentTextures;
+    const groundMaterial = groundMesh.material;
     const changed =
-      wallMaterials[0].map !== tex.wall || wallMaterials[1].map !== tex.top || floorMaterial.map !== tex.floor;
+      wallMaterials[0].map !== tex.wall ||
+      wallMaterials[1].map !== tex.top ||
+      floorMaterial.map !== tex.floor ||
+      groundMaterial.map !== tex.ground;
     wallMaterials[0].map = tex.wall;
     wallMaterials[1].map = tex.top;
     floorMaterial.map = tex.floor;
+    groundMaterial.map = tex.ground;
+    tex.ground.repeat.set(2 * groundE, 2 * groundE);
     if (changed) {
-      for (const m of [wallMaterials[0], wallMaterials[1], floorMaterial]) m.needsUpdate = true;
+      for (const m of [wallMaterials[0], wallMaterials[1], floorMaterial, groundMaterial]) m.needsUpdate = true;
     }
     scene.background = tex.sky;
     renderer.setClearColor(theme.fogColor);
@@ -941,6 +974,7 @@ function start() {
     updateStick();
     star.rotation.y += dt;
     updateCamera(dt);
+    syncGround();
     if (view === 'first') drawMinimap();
     renderer.render(scene, camera);
     rafId = requestAnimationFrame(frame);
@@ -1173,10 +1207,35 @@ function start() {
     get textureStats() {
       return { builds: textureStats.builds, lastMs: textureStats.lastMs };
     },
-    // 当前墙面、墙顶、地板纹理的各向异性过滤级别
+    // 当前墙面、墙顶、地板、外围地面纹理的各向异性过滤级别
     get textureAnisotropy() {
       if (!currentTextures) return [];
-      return [currentTextures.wall, currentTextures.top, currentTextures.floor].map((t) => t.anisotropy);
+      const t = currentTextures;
+      return [t.wall, t.top, t.floor, t.ground].map((x) => x.anisotropy);
+    },
+    get ground() {
+      const map = groundMesh.material.map;
+      return {
+        cx: groundMesh.position.x,
+        cz: groundMesh.position.z,
+        y: groundMesh.position.y,
+        halfExtent: groundE,
+        repeat: map ? [map.repeat.x, map.repeat.y] : null,
+        mapUuid: map ? map.uuid : null,
+      };
+    },
+    get cameraState() {
+      camera.updateMatrixWorld();
+      camera.getWorldDirection(tmpDir);
+      return {
+        pos: [camera.position.x, camera.position.y, camera.position.z],
+        forward: [tmpDir.x, tmpDir.y, tmpDir.z],
+        fov: camera.fov,
+        aspect: camera.aspect,
+        near: camera.near,
+        far: camera.far,
+        view: Array.from(camera.matrixWorldInverse.elements),
+      };
     },
     sampleDistinctColors,
     get fog() {
@@ -1223,6 +1282,18 @@ function start() {
       testInput = { forward: v.forward || 0, strafe: v.strafe || 0, turn: v.turn || 0 };
       if (typeof v.yaw === 'number') yaw = v.yaw;
       if (typeof v.pitch === 'number') pitch = clampPitch(v.pitch);
+    };
+    // 把小人放到指定格中心，速度清零，迷雾按新格重算，相机立即就位
+    window.__maze3d.teleportForTest = (row, col) => {
+      playerState = { x: col + 0.5, z: row + 0.5, vx: 0, vz: 0 };
+      display.row = row;
+      display.col = col;
+      player.position.set(playerState.x, 0, playerState.z);
+      recomputeFog();
+      snapCamera();
+    };
+    window.__maze3d.setZoomForTest = (z) => {
+      cameraZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
     };
   }
 }

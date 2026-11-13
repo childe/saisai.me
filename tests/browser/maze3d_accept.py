@@ -1073,41 +1073,8 @@ def check_8(browser, base):
         close(page)
 
 
-def play_rounds_legacy(page):
-    """基线（离散移动）代码用：跟随视角走 10 步（赢了就再来一局），再切第一人称做 10 次前进 / 转身。"""
-
-    def next_stop(d):
-        return logic(page, "L.findNextIntersection(M.connections, M.player, arg)", d)
-
-    for _ in range(10):
-        if m3(page, "state") == "won":
-            page.click("#again-btn")
-            wait_idle(page)
-        d = path_dir(page)
-        if d is None:
-            page.click("#again-btn")
-            wait_idle(page)
-            d = path_dir(page)
-        page.keyboard.press(KEYS[d])
-        wait_settled(page, timeout=15000)
-    if m3(page, "state") == "won":
-        page.click("#again-btn")
-        wait_idle(page)
-    page.click("#view-btn")
-    for i in range(10):
-        if m3(page, "state") == "won":
-            page.click("#again-btn")
-            wait_idle(page)
-        facing = m3(page, "player")["facing"]
-        if i % 3 != 2 and next_stop(facing) is not None:
-            page.keyboard.press("ArrowUp")
-        else:
-            page.keyboard.press("ArrowLeft")
-        wait_settled(page, timeout=15000)
-
-
 def perf_round(browser, base, mobile, init_script=None, driver=play_continuous):
-    """base 可以指向基线服务器；init_script 用来预设主题；基线代码用 driver=play_rounds_legacy。"""
+    """base 可以指向基线服务器；init_script 用来预设主题。"""
     if mobile:
         dev = dict(PW.devices["iPhone SE"])
         dev.pop("default_browser_type", None)
@@ -1365,6 +1332,7 @@ def check_t1(browser, base):
         details.append(f"default={th} active={act}")
         if th != "garden" or act != ["garden"]:
             return False, " ".join(details)
+        ground_maps = {}
         for tid in THEME_IDS:
             click_theme(page, tid)
             th = m3(page, "theme")
@@ -1372,15 +1340,24 @@ def check_t1(browser, base):
             got = m3(page, "floorColorHex(1, 1)")
             want = floor_base_hex(page, tid)
             tc = m3(page, "textureCount")
+            ground_maps[tid] = (m3(page, "ground") or {}).get("mapUuid")
             details.append(f"{tid}: floor={got}/{want} textures={tc}")
-            if th != tid or act != [tid] or got != want or tc != 4:
+            if th != tid or act != [tid] or got != want or tc != 5:
                 return False, " ".join(details) + f" theme={th} active={act}"
+        uuids = list(ground_maps.values())
+        details.append(f"groundMaps distinct={len(set(uuids))}")
+        if None in uuids or len(set(uuids)) != 4:
+            return False, " ".join(details) + f" {ground_maps}"
         builds = m3(page, "textureStats")["builds"]
         click_theme(page, THEME_IDS[-1])
         b2 = m3(page, "textureStats")["builds"]
         tc = m3(page, "textureCount")
-        details.append(f"reclick builds {builds}->{b2} textures={tc}")
-        if b2 != builds or tc != 4:
+        gm = m3(page, "ground")["mapUuid"]
+        details.append(
+            f"reclick builds {builds}->{b2} textures={tc}"
+            f" groundMapSame={gm == ground_maps[THEME_IDS[-1]]}"
+        )
+        if b2 != builds or tc != 5 or gm != ground_maps[THEME_IDS[-1]]:
             return False, " ".join(details)
         page.click("#show-path-btn")
         red0 = logic(page, COUNT_HEX_JS, "#ff6b6b")
@@ -1410,7 +1387,7 @@ def check_t1(browser, base):
             f"blocks after regen+15: size={size} walls={got == want} builds {builds}->{b2}"
             f" textures={tc}"
         )
-        if got != want or b2 != builds or tc != 4 or size != 15:
+        if got != want or b2 != builds or tc != 5 or size != 15:
             return False, " ".join(details) + f" got={got} want={want}"
         ok, msg = no_errors(errors)
         return ok, (" ".join(details) + " " + msg).strip()
@@ -1516,12 +1493,12 @@ def check_t4(browser, base):
 
 
 def check_t6(browser, base):
-    """反复切换主题：旧纹理被释放，存活纹理数恒为 4。"""
+    """反复切换主题：旧纹理被释放，存活纹理数恒为 5。"""
     page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10")
     try:
         wait_idle(page)
         stats = m3(page, "textureStats")
-        if stats["builds"] != 1 or m3(page, "textureCount") != 4:
+        if stats["builds"] != 1 or m3(page, "textureCount") != 5:
             return False, f"start: stats={stats} textures={m3(page, 'textureCount')}"
         prev = 1
         for i in range(20):
@@ -1529,12 +1506,12 @@ def check_t6(browser, base):
             click_theme(page, tid)
             tc = m3(page, "textureCount")
             builds = m3(page, "textureStats")["builds"]
-            if tc != 4 or builds != prev + 1:
+            if tc != 5 or builds != prev + 1:
                 return False, f"i={i} tid={tid} textures={tc} builds {prev}->{builds}"
             prev = builds
         tc = m3(page, "textureCount")
         builds = m3(page, "textureStats")["builds"]
-        if tc != 4 or builds != 21:
+        if tc != 5 or builds != 21:
             return False, f"after 20 switches: textures={tc} builds={builds}"
         click_theme(page, m3(page, "theme"))
         tc2 = m3(page, "textureCount")
@@ -1542,7 +1519,7 @@ def check_t6(browser, base):
         ms = m3(page, "textureStats")["lastMs"]
         detail = f"20 switches: textures={tc} builds={builds}; reclick textures={tc2} builds={b2} lastMs={ms:.1f}"
         ok_err, msg = no_errors(errors)
-        ok = ok_err and tc2 == 4 and b2 == 21
+        ok = ok_err and tc2 == 5 and b2 == 21
         return ok, (detail + " " + msg).strip()
     finally:
         close(page)
@@ -1608,46 +1585,6 @@ def screen_metrics(img):
     return {"colors": len(seen), "std": std, "spread": spread}
 
 
-def face_wall_legacy(page, max_moves=10):
-    """基线（离散移动）代码用：第一人称下转身到正前方是一段内部墙；返回朝向，找不到返回 None。
-
-    迷宫外边界不画墙，所以要求前方的相邻格在迷宫内。当前格没有这样的墙时，
-    朝可走的方向前进一站再找，最多前进 max_moves 次。
-    """
-
-    def next_stop(d):
-        return logic(page, "L.findNextIntersection(M.connections, M.player, arg)", d)
-
-    def face_walkable():
-        for _ in range(4):
-            facing = m3(page, "player")["facing"]
-            if next_stop(facing) is not None:
-                return facing
-            page.keyboard.press("ArrowLeft")
-            wait_idle(page)
-        return None
-
-    for _ in range(max_moves + 1):
-        n = m3(page, "size")
-        for i in range(4):
-            p = m3(page, "player")
-            dr, dc = DIRS[p["facing"]]
-            r, c = p["row"] + dr, p["col"] + dc
-            inside_maze = 0 <= r < n and 0 <= c < n
-            if inside_maze and next_stop(p["facing"]) is None:
-                return p["facing"]
-            if i < 3:
-                page.keyboard.press("ArrowLeft")
-                wait_idle(page)
-        if face_walkable() is None:
-            return None
-        page.keyboard.press("ArrowUp")
-        wait_settled(page)
-        if m3(page, "state") != "idle":
-            return None
-    return None
-
-
 def fmt_metrics(m):
     return f"colors={m['colors']} spread={m['spread']:.1f} std={m['std']:.1f}"
 
@@ -1663,11 +1600,15 @@ def check_t2(browser, base):
     details = []
     proc, bbase = start_server(BASELINE_ROOT)
     try:
-        page, errors = open_page(browser, f"{bbase}{PAGE}?seed={S}&size=10")
+        # 基线是自由移动版本：与当前代码用同一套方式面墙
+        page, errors = open_page(browser, f"{bbase}{PAGE}?seed={S}&size=10&debug=1")
         try:
             wait_idle(page)
+            facing = find_wall_cell(page)
             page.click("#view-btn")
-            facing = face_wall_legacy(page)
+            if facing is not None:
+                set_test_input(page, yaw=DIR_YAW[facing], pitch=0)
+                set_test_input(page)
             page.wait_for_timeout(300)
             base_m = screen_metrics(canvas_image(page))
             details.append(f"baseline(facing={facing}): {fmt_metrics(base_m)}")
@@ -1924,7 +1865,7 @@ def check_t7(browser, base):
                 runs = [
                     (
                         "baseline",
-                        perf_round(gb, bbase, mobile=True, driver=play_rounds_legacy),
+                        perf_round(gb, bbase, mobile=True),
                     )
                 ]
                 if "swiftshader" in runs[0][1]["renderer"].lower():
@@ -1989,7 +1930,7 @@ def check_t7b(browser, base):
         wait_idle(page, timeout=10000)
         an0 = m3(page, "textureAnisotropy")
         details.append(f"after downgrade anisotropy={an0}")
-        if an0 != [1, 1, 1]:
+        if an0 != [1, 1, 1, 1]:
             return False, " ".join(details)
         facing = find_wall_cell(page)
         if facing is None:
@@ -2004,7 +1945,7 @@ def check_t7b(browser, base):
             act = active_themes(page)
             wc = m3(page, "wallContrast()")
             an = m3(page, "textureAnisotropy")
-            ok = th == tid and act == [tid] and contrast_ok(wc) and an == [1, 1, 1]
+            ok = th == tid and act == [tid] and contrast_ok(wc) and an == [1, 1, 1, 1]
             details.append(f"{tid}: {fmt_metrics(wc)} anisotropy={an} ok={ok}")
             if not ok:
                 return False, " ".join(details) + f" theme={th} active={act}"
@@ -2021,7 +1962,7 @@ def check_t7b(browser, base):
             ok_err
             and b2 == builds + 1
             and contrast_ok(wc)
-            and an == [1, 1, 1]
+            and an == [1, 1, 1, 1]
             and m3(page, "quality") == "low"
         )
         return ok, (" ".join(details) + " " + msg).strip()
