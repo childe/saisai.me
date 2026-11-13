@@ -150,3 +150,53 @@ export function snap([x, y]) {
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   return [clamp(Math.round(x), 3, BOARD.w - 3), clamp(Math.round(y), 3, BOARD.h - 3)];
 }
+
+// 手指轨迹 → 直角路线。pts[0] 是起点，其余是已落下的拐点；dir 是当前段的走向。
+export const TRACE_TURN = 1;
+export const TRACE_BACK = 0.5;
+
+const segDir = (a, b) => (a[1] === b[1] ? 'h' : 'v');
+
+export function startTrace(start) {
+  return { pts: [start], dir: null };
+}
+
+export function stepTrace(trace, pt) {
+  const pts = trace.pts.slice();
+  let dir = trace.dir;
+  // 回退：手指回到上一段上，吃掉最后一个拐点。
+  while (pts.length >= 2 && distToSegment(pt, pts.at(-2), pts.at(-1)) < TRACE_BACK) {
+    pts.pop();
+    dir = segDir(pts.at(-1), trace.pts[pts.length]);
+  }
+  const last = pts.at(-1);
+  if (pts.length === 1 && Math.hypot(pt[0] - last[0], pt[1] - last[1]) < TRACE_TURN) return { pts, dir: null };
+  if (dir === null) {
+    const dx = Math.abs(pt[0] - last[0]), dy = Math.abs(pt[1] - last[1]);
+    if (Math.max(dx, dy) >= TRACE_TURN) dir = dx >= dy ? 'h' : 'v';
+    return { pts, dir };
+  }
+  let c = null;
+  if (dir === 'h' && Math.abs(pt[1] - last[1]) >= TRACE_TURN) {
+    c = [clampV(Math.round(pt[0]), 0, BOARD.w), last[1]];
+    dir = 'v';
+  } else if (dir === 'v' && Math.abs(pt[0] - last[0]) >= TRACE_TURN) {
+    c = [last[0], clampV(Math.round(pt[1]), 0, BOARD.h)];
+    dir = 'h';
+  }
+  if (c) {
+    if (samePt(c, last)) { if (pts.length >= 2) pts.pop(); }
+    else pts.push(c);
+  }
+  return { pts, dir };
+}
+
+export function tracePath(trace, end) {
+  const pts = trace.pts;
+  const last = pts.at(-1);
+  let tail;
+  if (trace.dir === 'h') tail = [last, [end[0], last[1]], end];
+  else if (trace.dir === 'v') tail = [last, [last[0], end[1]], end];
+  else tail = wireRoute(last, end);
+  return simplifyRoute([...pts.slice(0, -1), ...tail]);
+}
