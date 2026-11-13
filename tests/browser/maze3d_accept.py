@@ -2024,6 +2024,469 @@ def check_t9(browser, base):
     return ok, f"dir={SHOTS} files={len(good)}/12 {msg}".strip()
 
 
+# ---------------------------------------------------------------- free move
+
+
+def check_f1(browser, base):
+    """按住 w 0.5 秒：位置逐帧连续变化，没有一格一格的跳变。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 640, "height": 480},
+    )
+    try:
+        wait_idle(page)
+        page.wait_for_timeout(300)
+        face_open(page)
+
+        def hold():
+            page.keyboard.down("w")
+            page.wait_for_timeout(500)
+            page.keyboard.up("w")
+
+        frames = record_frames(page, "playerPos", 600, during=hold)
+        steps = [
+            math.hypot(b["x"] - a["x"], b["z"] - a["z"])
+            for a, b in zip(frames, frames[1:])
+        ]
+        total = math.hypot(
+            frames[-1]["x"] - frames[0]["x"], frames[-1]["z"] - frames[0]["z"]
+        )
+        distinct = len({(round(p["x"], 9), round(p["z"], 9)) for p in frames})
+        worst = max(steps) if steps else None
+        ok_err, msg = no_errors(errors)
+        ok = (
+            ok_err
+            and worst is not None
+            and worst < 0.1
+            and total > 0.5
+            and distinct >= 10
+        )
+        return (
+            ok,
+            (
+                f"frames={len(frames)} maxStep={worst:.4f} total={total:.3f} distinct={distinct} {msg}"
+            ).strip(),
+        )
+    finally:
+        close(page)
+
+
+def check_f2(browser, base):
+    """按住 → 0.75 秒：yaw 连续增加约 90°，逐帧平滑。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 640, "height": 480},
+    )
+    try:
+        wait_idle(page)
+        page.wait_for_timeout(300)
+
+        def hold():
+            page.keyboard.down("ArrowRight")
+            page.wait_for_timeout(750)
+            page.keyboard.up("ArrowRight")
+
+        yaws = record_frames(page, "yaw", 1000, during=hold)
+        deltas = [math.degrees(b - a) for a, b in zip(yaws, yaws[1:])]
+        total = math.degrees(yaws[-1] - yaws[0])
+        ok_err, msg = no_errors(errors)
+        ok = ok_err and abs(total - 90) <= 15 and all(0 <= d < 10 for d in deltas)
+        return (
+            ok,
+            (
+                f"frames={len(yaws)} total={total:.1f}deg maxStep={max(deltas):.2f}deg"
+                f" minStep={min(deltas):.2f}deg {msg}"
+            ).strip(),
+        )
+    finally:
+        close(page)
+
+
+def wall_face_distance(p, cell, d):
+    """圆心到 cell 的 d 方向墙面的水平距离（墙厚 0.1，墙面 = 格边界内缩 0.05）。"""
+    r, c = cell["row"], cell["col"]
+    if d == "up":
+        return p["z"] - (r + 0.05)
+    if d == "down":
+        return (r + 1 - 0.05) - p["z"]
+    if d == "left":
+        return p["x"] - (c + 0.05)
+    return (c + 1 - 0.05) - p["x"]
+
+
+def check_f3(browser, base):
+    """朝墙按住前进 2 秒：小人停在墙前，不穿墙。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    try:
+        wait_idle(page)
+        d = find_wall_cell(page)
+        if d is None:
+            return False, "no wall cell"
+        cell = m3(page, "playerCell")
+        face_yaw(page, DIR_YAW[d])
+        page.keyboard.down("w")
+        page.wait_for_timeout(2000)
+        page.keyboard.up("w")
+        page.wait_for_timeout(200)
+        cell2 = m3(page, "playerCell")
+        p = pos_of(page)
+        dist = wall_face_distance(p, cell, d)
+        ok_err, msg = no_errors(errors)
+        ok = ok_err and cell2 == cell and dist >= 0.28 - 0.01 and dist < 0.35
+        return (
+            ok,
+            f"cell={cell}->{cell2} dir={d} pos={p} faceDist={dist:.4f} {msg}".strip(),
+        )
+    finally:
+        close(page)
+
+
+def check_f4(browser, base):
+    """触屏：左半边摇杆走路、右半边拖动转视角、两指同时操作、拖出画布松手 / 取消、窄屏 40% 处按下。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 900, "height": 600},
+        has_touch=True,
+    )
+    details = []
+    try:
+        wait_idle(page)
+        page.wait_for_timeout(300)
+        cdp = page.context.new_cdp_session(page)
+        st = stage_box(page)
+        lx = st["x"] + st["width"] * 0.25
+        rx = st["x"] + st["width"] * 0.75
+        cy = st["y"] + st["height"] * 0.5
+        scroll0 = page.evaluate("() => window.scrollY")
+
+        def regen():
+            # 用脚本点击：page.click 会把按钮滚进视口，干扰 scrollY 断言
+            page.evaluate("() => document.getElementById('regen-btn').click()")
+
+        def stick_hidden():
+            return page.evaluate("() => document.getElementById('stick').hidden")
+
+        # (a) 左半边摇杆
+        face_open(page)
+        p0 = pos_of(page)
+        cdp_touch(cdp, "touchStart", {1: (lx, cy)})
+        for i in range(1, 11):
+            cdp_touch(cdp, "touchMove", {1: (lx, cy - 6 * i)})
+            page.wait_for_timeout(50)
+        visible = not stick_hidden()
+        cdp_touch(cdp, "touchEnd", {})
+        page.wait_for_timeout(300)
+        p1 = pos_of(page)
+        ok_a = moved(p0, p1) and visible
+        details.append(f"a:moved={moved(p0, p1)} stickVisible={visible}")
+
+        # (b) 右半边单指拖动
+        y0, pi0 = m3(page, "yaw"), m3(page, "pitch")
+        cdp_touch(cdp, "touchStart", {2: (rx, cy)})
+        for i in range(1, 5):
+            cdp_touch(cdp, "touchMove", {2: (rx + 20 * i, cy + 10 * i)})
+            page.wait_for_timeout(30)
+        cdp_touch(cdp, "touchEnd", {})
+        page.wait_for_timeout(200)
+        y1, pi1 = m3(page, "yaw"), m3(page, "pitch")
+        ok_b = abs(y1 - y0) > 0.1 and abs(pi1 - pi0) > 0.05
+        details.append(f"b:yaw {y0:.3f}->{y1:.3f} pitch {pi0:.3f}->{pi1:.3f}")
+
+        # (c) 两指同时：左摇杆 + 右拖动
+        regen()
+        wait_idle(page)
+        face_open(page)
+        p0 = pos_of(page)
+        y0 = m3(page, "yaw")
+        z0 = m3(page, "cameraZoom")
+        d0 = m3(page, "cameraIdealDistance")
+        cdp_touch(cdp, "touchStart", {1: (lx, cy)})
+        cdp_touch(cdp, "touchStart", {1: (lx, cy), 2: (rx, cy)})
+        for i in range(1, 11):
+            cdp_touch(cdp, "touchMove", {1: (lx, cy - 6 * i), 2: (rx + 8 * i, cy)})
+            page.wait_for_timeout(50)
+        z_mid = m3(page, "cameraZoom")
+        cdp_touch(cdp, "touchEnd", {1: (lx, cy - 60)})
+        cdp_touch(cdp, "touchEnd", {})
+        page.wait_for_timeout(300)
+        p1 = pos_of(page)
+        y1 = m3(page, "yaw")
+        z1 = m3(page, "cameraZoom")
+        d1 = m3(page, "cameraIdealDistance")
+        ok_c = moved(p0, p1) and abs(y1 - y0) > 0.1 and z0 == z_mid == z1 and d0 == d1
+        details.append(
+            f"c:moved={moved(p0, p1)} yaw {y0:.3f}->{y1:.3f} zoom {z0}->{z_mid}->{z1}"
+        )
+
+        # (e) 摇杆手指拖出画布后松开；(f) 同样用 touchCancel
+        res = {}
+        for kind in ["touchEnd", "touchCancel"]:
+            face_open(page)
+            cdp_touch(cdp, "touchStart", {1: (lx, cy)})
+            for i in range(1, 6):
+                cdp_touch(cdp, "touchMove", {1: (lx, cy - 8 * i)})
+                page.wait_for_timeout(40)
+            out_y = st["y"] + st["height"] + 50
+            cdp_touch(cdp, "touchMove", {1: (lx, out_y)})
+            page.wait_for_timeout(100)
+            if kind == "touchEnd":
+                cdp_touch(cdp, "touchEnd", {})
+            else:
+                cdp_touch(cdp, "touchCancel", {})
+            page.wait_for_timeout(300)
+            q1 = pos_of(page)
+            page.wait_for_timeout(300)
+            q2 = pos_of(page)
+            res[kind] = (not moved(q1, q2)) and stick_hidden()
+            regen()
+            wait_idle(page)
+        details.append(f"e/f:{res}")
+
+        # (d) 页面不滚动
+        scroll1 = page.evaluate("() => window.scrollY")
+        details.append(f"d:scrollY {scroll0}->{scroll1}")
+
+        # (g) 窄屏：stage 宽度 40% 处按下成为摇杆
+        page.set_viewport_size({"width": 600, "height": 600})
+        page.wait_for_timeout(300)
+        st2 = stage_box(page)
+        cdp_touch(
+            cdp,
+            "touchStart",
+            {3: (st2["x"] + st2["width"] * 0.4, st2["y"] + st2["height"] / 2)},
+        )
+        page.wait_for_timeout(150)
+        ok_g = not stick_hidden()
+        cdp_touch(cdp, "touchEnd", {})
+        details.append(f"g:stickAt40%={ok_g}")
+
+        ok_err, msg = no_errors(errors)
+        ok = (
+            ok_a and ok_b and ok_c and all(res.values()) and scroll0 == scroll1 and ok_g
+        )
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_f5(browser, base):
+    """鼠标拖动改 yaw / pitch；滚轮缩放跟随距离，钳在 0.7×–1.5×。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    details = []
+    try:
+        wait_idle(page)
+        page.wait_for_timeout(300)
+        st = stage_box(page)
+        cx = st["x"] + st["width"] / 2
+        cy = st["y"] + st["height"] / 2
+        y0, p0 = m3(page, "yaw"), m3(page, "pitch")
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.mouse.move(cx + 100, cy + 50, steps=5)
+        page.mouse.up()
+        page.wait_for_timeout(200)
+        y1, p1 = m3(page, "yaw"), m3(page, "pitch")
+        pdeg = math.degrees(p1)
+        ok_drag = (
+            abs(y1 - y0) > 0.1
+            and abs(p1 - p0) > 0.05
+            and 15 - 1e-6 <= pdeg <= 75 + 1e-6
+        )
+        details.append(
+            f"drag: yaw {y0:.3f}->{y1:.3f} pitch {math.degrees(p0):.1f}->{pdeg:.1f}deg"
+        )
+        for _ in range(10):
+            page.mouse.wheel(0, 2000)
+            page.wait_for_timeout(30)
+        page.wait_for_timeout(1500)
+        z_max = m3(page, "cameraZoom")
+        d_max = m3(page, "cameraDistance")
+        for _ in range(10):
+            page.mouse.wheel(0, -2000)
+            page.wait_for_timeout(30)
+        page.wait_for_timeout(1500)
+        z_min = m3(page, "cameraZoom")
+        d_min = m3(page, "cameraDistance")
+        scroll = page.evaluate("() => window.scrollY")
+        details.append(
+            f"wheel: zoom max={z_max} min={z_min} distance {d_max:.3f}/{d_min:.3f} scrollY={scroll}"
+        )
+        ok_err, msg = no_errors(errors)
+        ok = ok_drag and z_max == 1.5 and z_min == 0.7 and d_max > d_min + 0.5
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def segment_hits_box(a, b, box, eps=1e-4):
+    """线段 a→b 是否穿进（各面内缩 eps 的）盒子。"""
+    t0, t1 = 0.0, 1.0
+    for k in ["x", "y", "z"]:
+        lo = box["min" + k.upper()] + eps
+        hi = box["max" + k.upper()] - eps
+        d = b[k] - a[k]
+        if abs(d) < 1e-12:
+            if a[k] <= lo or a[k] >= hi:
+                return False
+            continue
+        u0 = (lo - a[k]) / d
+        u1 = (hi - a[k]) / d
+        if u0 > u1:
+            u0, u1 = u1, u0
+        t0 = max(t0, u0)
+        t1 = min(t1, u1)
+        if t0 >= t1:
+            return False
+    return True
+
+
+def point_in_box(p, box, eps=1e-4):
+    return all(
+        box["min" + k.upper()] + eps < p[k] < box["max" + k.upper()] - eps
+        for k in "xyz"
+    )
+
+
+def check_f6(browser, base):
+    """跟随视角背对墙、低俯角：相机拉到墙前，线段不穿墙；60° 俯角从墙顶看过去不拉近。"""
+    SHOTS.mkdir(parents=True, exist_ok=True)
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 1280, "height": 800},
+    )
+    details = []
+    try:
+        wait_idle(page)
+        d = find_wall_cell(page)
+        if d is None:
+            return False, "no wall cell"
+        set_test_input(page, yaw=DIR_YAW[d] + math.pi, pitch=math.radians(15))
+        page.wait_for_timeout(1500)
+        target = m3(page, "cameraTarget")
+        cam = m3(page, "cameraPos")
+        boxes = m3(page, "wallBoxes3d")
+        dist = m3(page, "cameraDistance")
+        ideal = m3(page, "cameraIdealDistance")
+        hits = [b for b in boxes if segment_hits_box(target, cam, b)]
+        inside_box = [b for b in boxes if point_in_box(cam, b)]
+        colors = m3(page, "sampleDistinctColors()")
+        canvas_image(page).save(SHOTS / "follow-lowpitch-wall.png")
+        ok_low = not hits and not inside_box and dist < ideal
+        details.append(
+            f"pitch15 wall={d}: distance={dist:.3f} ideal={ideal:.3f} hits={len(hits)}"
+            f" camInside={len(inside_box)} colors={colors}"
+        )
+        set_test_input(page, pitch=math.radians(60))
+        page.wait_for_timeout(1500)
+        dist60 = m3(page, "cameraDistance")
+        ideal60 = m3(page, "cameraIdealDistance")
+        set_test_input(page)
+        ok_high = dist60 >= 0.98 * ideal60
+        details.append(f"pitch60: distance={dist60:.3f} ideal={ideal60:.3f}")
+        ok_err, msg = no_errors(errors)
+        return ok_low and ok_high and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_f7(browser, base):
+    """胜利后仍按住 w 点「再来一局」：小人留在起点不动（自动重复也不行），重新按键才走。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    try:
+        wait_idle(page)
+        if not walk_to_exit(page):
+            return False, "did not win"
+        page.keyboard.down("w")
+        page.click("#again-btn")
+        seen = hold_still_with_repeats(page)
+        still = all(abs(p["x"] - 0.5) < 1e-9 and abs(p["z"] - 0.5) < 1e-9 for p in seen)
+        page.keyboard.up("w")
+        face_open(page)
+        start = pos_of(page)
+        page.keyboard.down("w")
+        page.wait_for_timeout(300)
+        page.keyboard.up("w")
+        resumed = moved(start, pos_of(page))
+        ok_err, msg = no_errors(errors)
+        ok = still and resumed and m3(page, "state") == "idle"
+        return (
+            ok and ok_err,
+            f"still={still} samples={len(seen)} resumed={resumed} {msg}".strip(),
+        )
+    finally:
+        close(page)
+
+
+def check_f8(browser, base):
+    """走进距起点 ≥ 3 格的格子：显示格与所在格一致，迷雾按新格计算。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    try:
+        wait_idle(page)
+        cell = logic(
+            page,
+            """(() => {
+              const dist = new Map([['0,0', 0]]);
+              const q = [{ row: 0, col: 0 }];
+              for (let i = 0; i < q.length; i++) {
+                const p = q[i];
+                const dp = dist.get(p.row + ',' + p.col);
+                if (dp >= 3) return p;
+                for (const [dr, dc] of Object.values(L.DIRS)) {
+                  const n = { row: p.row + dr, col: p.col + dc };
+                  if (!L.canMove(M.connections, p, n) || dist.has(n.row + ',' + n.col)) continue;
+                  dist.set(n.row + ',' + n.col, dp + 1);
+                  q.push(n);
+                }
+              }
+              return null;
+            })()""",
+        )
+        arrived = walk_to(page, cell["row"], cell["col"])
+        disp = m3(page, "display")
+        pc = m3(page, "playerCell")
+        r = logic(page, FOG_STATE_JS, m3(page, "fog")["radius"])
+        ok_err, msg = no_errors(errors)
+        ok = (
+            arrived
+            and disp == pc == cell
+            and r["wallMismatch"] == 0
+            and r["floorMismatch"] == 0
+        )
+        return (
+            ok and ok_err,
+            f"target={cell} display={disp} cell={pc} {r} {msg}".strip(),
+        )
+    finally:
+        close(page)
+
+
+def check_f9(browser, base):
+    """依次切视角、切主题、切尺寸、重新生成：无控制台错误，状态正常。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    try:
+        wait_idle(page)
+        steps = (
+            ["#view-btn"]
+            + [f"#theme-{t}" for t in THEME_IDS]
+            + ["#size-20", "#regen-btn"]
+        )
+        for sel in steps:
+            page.click(sel)
+            page.wait_for_timeout(300)
+        state = m3(page, "state")
+        size = m3(page, "size")
+        view = m3(page, "view")
+        ok_err, msg = no_errors(errors)
+        ok = ok_err and state == "idle" and size == 20 and view == "first"
+        return ok, f"state={state} size={size} view={view} {msg}".strip()
+    finally:
+        close(page)
+
+
 # ---------------------------------------------------------------- runner
 
 CHECKS = {
@@ -2053,6 +2516,15 @@ CHECKS = {
     "t7": check_t7,
     "t7b": check_t7b,
     "t9": check_t9,
+    "f1": check_f1,
+    "f2": check_f2,
+    "f3": check_f3,
+    "f4": check_f4,
+    "f5": check_f5,
+    "f6": check_f6,
+    "f7": check_f7,
+    "f8": check_f8,
+    "f9": check_f9,
 }
 
 
@@ -2121,7 +2593,7 @@ def main():
             + (f" --baseline-root {BASELINE_ROOT}" if BASELINE_ROOT else ""),
             f"自动检查：{'PASS' if all_ok else 'FAIL'}",
             f"基线代码：{BASELINE_ROOT}（merge-base）",
-            f"人工检查：待用户查看 {SHOTS} 下 12 张截图，确认四种风格纹理明显",
+            f"人工检查：待用户查看 {SHOTS} 下截图（四种主题的跟随 / 第一人称 / 面墙，及 follow-lowpitch-wall.png），确认斜视角与贴墙视角能看到小人",
             "",
         ]
         RESULTS.write_text("\n".join(header + lines) + "\n", encoding="utf-8")
