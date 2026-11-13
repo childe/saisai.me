@@ -29,7 +29,7 @@
 2. 沿最短路在 T 字路口、拐角、墙端头处行走：小人不能卡住。测试在 Task 1（`path-follow reaches the exit`）。
 3. 摇杆手指滑进右半边，再按下右侧新手指：摇杆手指不参与捏合、角色不变，新手指成为视角指针。测试在 Task 3（`stick finger crossing to right half keeps its role`）。
 4. 观察点落在外扩包围盒内、或相机被拉到极近：`cameraPullIn` 返回有限非负数，不出现 NaN。测试在 Task 2（`cameraPullIn ignores a box containing the target`、`never NaN`）。
-5. 胜利后仍按住 `W` 点「再来一局」：小人留在起点不动，直到重新按键。测试在 Task 8（`f7`）。
+5. 胜利后仍按住 `W` 点「再来一局」：小人留在起点不动，直到重新按键；按住期间浏览器自动重复发送的 `keydown`（`repeat=true`）不能把键重新加入集合。测试在 Task 3（`applyKeyEvent ignores auto-repeat`）、Task 6（检查 `11`）、Task 7（`f7`）。
 
 ---
 
@@ -201,6 +201,7 @@ Expected: 全部 PASS。
   - 常量 `TURN_SPEED = 2π/3`（弧度/秒，即 120°/秒）、`STICK_DEAD_ZONE = 0.1`、`LOOK_SPEED = 0.005`（弧度/像素）。
   - `inputFromKeys(keys: Set<string>) -> {forward, strafe, turn}`：用 `KeyboardEvent.code`。`KeyW`/`ArrowUp` → forward +1；`KeyS`/`ArrowDown` → −1；`KeyD` → strafe +1；`KeyA` → −1；`ArrowRight`/`KeyE` → turn +1；`ArrowLeft`/`KeyQ` → −1。相反键抵消；`(forward, strafe)` 模长 > 1 时归一化。
   - `inputFromStick(dx, dy, radius, deadZone = STICK_DEAD_ZONE) -> {forward, strafe}`：`m = min(hypot/radius, 1)`；`m < deadZone` → 0；否则幅度 `(m − deadZone)/(1 − deadZone)`，`strafe = dx/hypot·幅度`，`forward = −dy/hypot·幅度`（屏幕向上 = 前进）。
+  - `applyKeyEvent(keys: Set<string>, e: {type: 'keydown'|'keyup', code, repeat, ctrlKey, metaKey, altKey}) -> boolean`：原地改 `keys`，返回 `e.code` 是否为 `inputFromKeys` 识别的码（调用方据此对方向键 `preventDefault`）。`keydown`：有 Ctrl/Meta/Alt 时不改集合；`repeat` 为真时不改集合（按下状态只由首次非重复 `keydown` 建立，清空集合后持续按住的键不会被自动重复事件重新激活）；否则识别的码加入集合。`keyup`：从集合移除（不看 `repeat` 与修饰键）。
   - `createPointerRouter()` 返回：
     - `down(e: {id, kind: 'mouse'|'touch'|'pen', x, y, side: 'left'|'right'}) -> boolean`（分到角色返回 true，调用方据此 `setPointerCapture`）
     - `move(e: {id, x, y})`、`up(id)`、`cancel(id)`（与 `up` 相同，重复调用无副作用）、`reset()`
@@ -218,6 +219,10 @@ test('inputFromKeys combos', ...)
 test('inputFromStick dead zone and scaling', ...)
   // (4, 0, 50) → 0,0；(0, -50, 50) → forward 1；(0, -100, 50) → forward 1（钳到 1）；(50·0.55, 0, 50) → strafe ≈ 0.5；
   // (30, -40, 50) 模长 = 1 且方向保持
+test('applyKeyEvent ignores auto-repeat', ...)
+  // keydown KeyW repeat:false → keys 含 KeyW；keys.clear()（模拟 resetInput）；keydown KeyW repeat:true 连发 3 次 → keys 仍为空；
+  // keyup KeyW；keydown KeyW repeat:false → keys 含 KeyW。keydown KeyW + metaKey → 不加入；keydown KeyX → 返回 false、不加入；
+  // keydown ArrowUp → 返回 true
 test('left stick and right look together do not zoom', ...)
   // down {1, touch, 100,300, left}；down {2, touch, 600,300, right}；move 1 → (130,280)；move 2 → (650,310)
   // stick = {active:true, originX:100, originY:300, dx:30, dy:-20}；consume() → look {dx:50, dy:10}, zoom 1
@@ -297,7 +302,7 @@ Expected: `discrete-move helpers are gone`、`stage disables touch gestures`、`
 - 小人：按 `PLAYER_PARTS` 建球体，放进一个子 `Group`（`bodyGroup`），外层 `player` 组 `scale.setScalar(playerModelScale())`。走路起伏：速度 > 0.05 时 `bodyGroup.position.y = 0.03·|sin(phase)|`，`phase += speed·dt·2π`（每格两次起伏）；静止时归 0。朝向：速度 > 0.05 时目标朝向 = `atan2(vx, −vz)`，`player.rotation.y` 以 `k = 1 − 0.001^(dt)`（dt 秒）沿最短角度逼近 `−目标朝向`。
 - `buildMaze`：算 `boxes = wallBoxes(segments, size)`、`grid = createBoxGrid(boxes, size)`、`boxes3d = wallBoxes3d(boxes)`；调用 `resetPlayer()`（位置 (0.5, 0.5)，速度 0，`yaw = π`，模型朝南，`display` = (0,0)）和 `resetInput()`；`state = 'idle'`；其余照旧（`generation += 1` 保留）。
 - `resetInput()`：清空按键集合、`router.reset()`、隐藏摇杆（Task 5 加 DOM 后生效）、`testInput` 不清（测试钩子独立）。在窗口 `blur`、`visibilitychange` 变隐藏、`buildMaze` 时调用。
-- 键盘：`keydown` 有 Ctrl/Meta/Alt 时忽略；`e.code` 属于 `inputFromKeys` 识别的码时加入集合，方向键 `preventDefault`；`keyup` 移除。
+- 键盘：`keydown` / `keyup` 都交给 `applyKeyEvent(keys, e)`（Task 3）；返回 true 且 `e.code` 以 `Arrow` 开头时 `preventDefault`。不要在 `main.js` 里另写加入 / 移除逻辑——自动重复的 `keydown`（`e.repeat`）必须不加入集合，否则 `resetInput()` 清空后持续按住的键会立刻被重新激活。
 - 每帧（`dt` 秒，沿用 100ms 上限）：
   1. `state !== 'won'` 时：输入 = `testInput ?? 合并(inputFromKeys(keys), inputFromStick(router.stick…))`（forward、strafe 相加后交给 `stepPlayer` 归一化）；`yaw += turn·TURN_SPEED·dt`；`router.consume()` 的 `look` 累加到 `yaw += dx·LOOK_SPEED`、`pitch += dy·LOOK_SPEED`（钳到当前视角范围），`zoom` 乘到 `cameraZoom`（钳到 [0.7, 1.5]）；`playerState = stepPlayer(...)`。
   2. 所在格变化：更新 `display`、`recomputeFog()`；进入 `(size−1, size−1)` 时 `state = 'won'`、速度清零、显示 `#win`。
@@ -387,7 +392,8 @@ Expected: 全部 PASS。
 **Interfaces:**
 - Consumes: Task 4 的调试字段与 `setInputForTest`；Task 5 的 `#stick`、`#fullscreen-btn`。
 - Produces（Python 助手，Task 7 也用）：
-  - `walk_to(page, row, col, center=True, timeout_ms=60000) -> bool`：页面须带 `&debug=1`。在页面里装一个 rAF 驱动：每帧取 `L.findPath(M.connections, M.playerCell, {row, col})`，下一格（已到目标格且 `center` 时取目标格）格心为目标点，`yaw = atan2(tx − x, −(tz − z))`，`M.setInputForTest({forward: 1, strafe: 0, turn: 0, yaw})`；到达目标格（`center` 时还要距格心 < 0.1）或超时后 `setInputForTest(null)` 并 resolve。返回后再等 200ms 让速度归零。
+  - `walk_to(page, row, col, center=True, timeout_ms=60000) -> bool`：页面须带 `&debug=1`。在页面里装一个 rAF 驱动：每帧取 `L.findPath(M.connections, M.playerCell, {row, col})`，下一格（已到目标格且 `center` 时取目标格）格心为目标点，`yaw = atan2(tx − x, −(tz − z))`，`M.setInputForTest({forward: 1, strafe: 0, turn: 0, yaw})`；到达目标格（`center` 时还要距格心 < 0.1）、`M.state === 'won'` 或超时后 `setInputForTest(null)` 并 resolve；返回值为「到达目标格或 `state === 'won'`」。返回后再等 200ms 让速度归零。**走向终点 `(size−1, size−1)` 的调用一律显式传 `center=False`**：一进入终点格就 `won`、速度清零、不再推进（Task 4 Step 5 每帧第 2 步），小人停在终点格边缘，`center=True` 只会等到超时；`won` 判定是双保险。中间格定位（`find_wall_cell`、检查 `4`、`5`、`f8` 等）保留 `center=True`。
+  - `walk_to_exit(page) -> bool`：`walk_to(page, size−1, size−1, center=False)`，并断言返回后 `state == 'won'`。检查 `6`、`6b`、`f7` 等所有通关调用都用它。
   - `set_test_input(page, **kw)`：包装 `M.setInputForTest(kw or None)`。
   - `wall_dir(page)`：当前格四个方向中有内部墙段（相邻格在迷宫内且 `!canMove`）的第一个方向名，没有返回 None。`DIR_YAW = {"up": 0, "right": π/2, "down": π, "left": 3π/2}`。
   - `find_wall_cell(page)`：从 (0,0) 按 BFS 找到最近的有内部墙的格子并 `walk_to` 过去，返回方向名。
@@ -411,12 +417,12 @@ Expected: 全部 PASS。
 | `3` | 切第一人称：按钮文字、小地图显示、`playerVisible` 为 false；`yaw` 与切换前相同，`pitch` = 0；切回跟随：`pitch` ≈ 40°（误差 0.5°） |
 | `4` | (e) 静止 1 秒 `fogRecomputeCount` 不变；`walk_to` 相邻可达格后恰好 +1（跨一个格）；`FOG_STATE_JS` 不变（用 `M.display`） |
 | `5` | 用 `walk_to` 走到路径上第二格，道路长度减 1，其余断言不变 |
-| `6` | 改为 spec 验收 7：`walk_to(size−1, size−1)` → `#win` 可见、`state == 'won'`；点「再来一局」→ `playerCell == (0,0)`、`playerPos` 距 (0.5, 0.5) < 1e-6、`yaw` ≈ π、`generation` +1、seed 变化 |
-| `6b` | 胜利后按住 `w` 1 秒：`playerPos` 不变、`state` 仍 `won` |
+| `6` | 改为 spec 验收 7：`walk_to_exit(page)` → `#win` 可见、`state == 'won'`；点「再来一局」→ `playerCell == (0,0)`、`playerPos` 距 (0.5, 0.5) < 1e-6、`yaw` ≈ π、`generation` +1、seed 变化 |
+| `6b` | `walk_to_exit` 胜利后按住 `w` 1 秒：`playerPos` 不变、`state` 仍 `won` |
 | `8` | 375×667 竖屏：`scrollWidth == 375`；`#stage` 与所有按钮矩形不相交；用 CDP 在 stage 左半边按下触点后 `#stick` 矩形在 `#stage` 内、与按钮不相交；小地图在 stage 内；横屏部分不变 |
 | `9`、`t7` | `perf_round` 新代码用 `play_continuous`，基线（`t7` 的 baseline 轮）用 `play_rounds_legacy`；阈值不变（`t7` 已是「≤ 基线 1.3 倍且不降画质」，即 spec 验收 10） |
 | `9c` | 降画质后（`quality == 'low'`、`downgradeCount == 1`）：按住 `w` 0.5 秒位置变化；鼠标在 stage 拖动 100px `yaw` 变化；CDP 触摸左半边拖动后位置变化 |
-| `11` | (a) 按住 `w` 时点 `#size-15`：`playerPos` 回到 (0.5, 0.5) 且之后 300ms 不动（按键集合已清空，键仍按着）；再点 `#regen-btn` 同样。(b) 按住 `w` 时 `window.dispatchEvent(new Event('blur'))`：300ms 后位置不再变化。(c) 按住 `w` 时模拟 `visibilitychange` 变隐藏再变可见（沿用 `9b` 的 `defineProperty` 写法）：之后位置不再变化 |
+| `11` | (a) 按住 `w` 时点 `#size-15`：`playerPos` 回到 (0.5, 0.5) 且之后 300ms 不动（按键集合已清空，键仍按着）；在这 300ms 内模拟实体键盘自动重复：每 50ms 再调一次 `page.keyboard.down('w')`（Playwright 对已按下的键发送 `repeat=true`），并补一次 `window.dispatchEvent(new KeyboardEvent('keydown', {code: 'KeyW', key: 'w', repeat: true}))`，位置仍不变；`keyboard.up('w')` 后再按下，位置改变。再点 `#regen-btn` 同样。(b) 按住 `w` 时 `window.dispatchEvent(new Event('blur'))`：300ms 后位置不再变化。(c) 按住 `w` 时模拟 `visibilitychange` 变隐藏再变可见（沿用 `9b` 的 `defineProperty` 写法）：之后位置不再变化 |
 | `t2` | 新代码：`find_wall_cell` 后第一人称，`setInputForTest({yaw: DIR_YAW[d], pitch: 0})`；基线：`face_wall_legacy`；阈值不变 |
 | `t3` | 按住 `w` 中途点主题按钮：`generation` 不变，点击后 300ms 内 `playerPos` 继续变化 |
 | `t5` | 原「走到某格」改用 `walk_to`；其余取色断言不变 |
@@ -448,7 +454,7 @@ CDP 触摸统一用 `cdp = page.context.new_cdp_session(page)` 和 `cdp.send("In
 - `f4`（验收 4）：视口 900×600、`has_touch`。(a) 左半边 touchStart → touchMove 向上 60px 持续 500ms：`playerPos` 改变，`#stick` 可见。(b) 右半边单指拖动 (+80, +40)：`yaw`、`pitch` 都变。(c) 两指同时（左摇杆 + 右拖动）：位置与 `yaw` 都变，`cameraZoom` 不变。(d) 全程 `window.scrollY` 不变。(e) 摇杆手指移到 stage 外（y = stage 底 + 50）后 touchEnd：300ms 后 `playerPos` 不再变化、`#stick` 有 `hidden`。(f) 同 (e) 但用 touchCancel，结果相同。(g) 视口改为 600×600 后在 stage 宽度 40% 处按下：成为摇杆（`#stick` 可见）。
 - `f5`（验收 5）：鼠标在 stage 内按下拖动 (+100, +50)：`yaw`、`pitch` 变化；`pitch` 在 [15°, 75°]。滚轮 `deltaY = +2000` 十次：`cameraZoom == 1.5`；`deltaY = −2000` 十次：`cameraZoom == 0.7`；`cameraDistance` 随之变化。
 - `f6`（验收 6）：`find_wall_cell` 得到方向 `d`（小人站在**格心**；贴墙站时 60° 线段会在墙的近侧进入外扩盒，验收要求的「60° 不拉近」只在格心成立）。`setInputForTest({yaw: DIR_YAW[d] + π, pitch: 15°})`（小人背对墙，相机转到墙后），等 1.5 秒。用 Python 实现独立的 slab 求交 `segment_hits_box(a, b, box)`，断言：`cameraTarget → cameraPos` 不与 `wallBoxes3d` 任何盒子相交（允许端点贴面，容差 1e-4）；`cameraPos` 不在任何盒子内；`cameraDistance < cameraIdealDistance`。再 `pitch = 60°` 等 1.5 秒：`cameraDistance ≥ 0.98 × cameraIdealDistance`。`sampleDistinctColors()` 只记入 detail 不判失败。低俯角时存截图 `SHOTS / "follow-lowpitch-wall.png"`。
-- `f7`（Review Focus 5）：`walk_to` 终点获胜后 `keyboard.down('w')`，点「再来一局」，300ms 内 `playerPos` 不变（仍在 (0.5, 0.5)）；`keyboard.up('w')` 后再按住 `w` 300ms，位置改变。
+- `f7`（Review Focus 5）：`walk_to_exit` 获胜后 `keyboard.down('w')`，点「再来一局」，300ms 内 `playerPos` 不变（仍在 (0.5, 0.5)），期间按检查 `11` (a) 的方式发送 `repeat=true` 的 `keydown`；`keyboard.up('w')` 后再按住 `w` 300ms，位置改变。
 - `f8`（验收 8）：`walk_to` 一个距起点 ≥ 3 格的格子；`M.display == M.playerCell`，`FOG_STATE_JS` 无不一致。
 - `f9`（验收 9）：依次切视角、切 4 个主题、点 `#size-20`、`#regen-btn`，每步后等 300ms；`no_errors(errors)`；`state == 'idle'`。
 
