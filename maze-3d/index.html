@@ -125,6 +125,9 @@
             border-radius: 8px;
             overflow: hidden;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
         }
 
         #stage > canvas {
@@ -146,46 +149,6 @@
 
         #minimap[hidden] {
             display: none;
-        }
-
-        .dpad {
-            display: grid;
-            grid-template-columns: repeat(3, 60px);
-            grid-template-rows: repeat(2, 60px);
-            gap: 6px;
-            justify-content: center;
-        }
-
-        .dpad button {
-            min-width: 56px;
-            min-height: 56px;
-            width: 60px;
-            height: 60px;
-            padding: 0;
-            font-size: 22px;
-            touch-action: manipulation;
-            user-select: none;
-            -webkit-user-select: none;
-        }
-
-        #btn-up {
-            grid-column: 2;
-            grid-row: 1;
-        }
-
-        #btn-left {
-            grid-column: 1;
-            grid-row: 2;
-        }
-
-        #btn-down {
-            grid-column: 2;
-            grid-row: 2;
-        }
-
-        #btn-right {
-            grid-column: 3;
-            grid-row: 2;
         }
 
         .hint {
@@ -320,20 +283,13 @@
             <canvas id="minimap" hidden></canvas>
         </div>
 
-        <div class="dpad">
-            <button id="btn-up" data-dir="up" aria-label="上">▲</button>
-            <button id="btn-left" data-dir="left" aria-label="左">◀</button>
-            <button id="btn-down" data-dir="down" aria-label="下">▼</button>
-            <button id="btn-right" data-dir="right" aria-label="右">▶</button>
-        </div>
-
         <div class="row" id="action-row">
             <button id="regen-btn">重新生成</button>
             <button id="show-path-btn">显示道路</button>
             <button id="hide-path-btn">隐藏道路</button>
         </div>
 
-        <p class="hint">方向键 / WASD 或点下面的按钮走路</p>
+        <p class="hint">WASD / 方向键移动，拖动鼠标转视角</p>
         <div id="perf" hidden></div>
     </div>
 

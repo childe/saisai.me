@@ -2,14 +2,10 @@
 import * as THREE from './vendor/three.module.js';
 import { MazeGenerator } from './maze-core.js';
 import {
-  DIRS,
   parseSeed,
   parseSize,
-  facingYaw,
   wallSegments,
   floorKind,
-  findNextIntersection,
-  resolveInput,
   followOffset,
   isInFogView,
   clampRadius,
@@ -29,10 +25,36 @@ import {
   paintFloor,
 } from './themes.js';
 import { wallGroupLayout, applyWallUvs } from './wall-geometry.js';
+import {
+  PLAYER_RADIUS,
+  WALL_LENGTH,
+  WALL_HEIGHT,
+  WALL_THICKNESS,
+  PLAYER_PARTS,
+  playerModelScale,
+  wallBoxes,
+  createBoxGrid,
+  cellOf,
+  stepPlayer,
+  TARGET_HEIGHT,
+  FOLLOW_PITCH,
+  FIRST_PITCH,
+  ZOOM_MIN,
+  ZOOM_MAX,
+  wallBoxes3d,
+  followCameraPos,
+  cameraPullIn,
+  smoothCameraDistance,
+  TURN_SPEED,
+  LOOK_SPEED,
+  inputFromKeys,
+  inputFromStick,
+  applyKeyEvent,
+  createPointerRouter,
+} from './movement.js';
 
-const STEP_MS = 120;
-const TURN_MS = 200;
 const EYE_HEIGHT = 0.45;
+const STICK_RADIUS = 50; // 虚拟摇杆底座半径，CSS 像素
 
 // 墙、普通地板格、背景色由主题决定（themes.js）
 const COLORS = {
@@ -77,7 +99,6 @@ function hasWebGL() {
 function showNoWebGL() {
   $('no-webgl').hidden = false;
   stage.style.display = 'none';
-  document.querySelector('.dpad').style.display = 'none';
 }
 
 // 主题在建 renderer 之前读出，renderer 清屏色要用主题的雾色
@@ -145,8 +166,8 @@ function start() {
   const floorMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
 
   function buildWallGeometry() {
-    const geo = new THREE.BoxGeometry(1.1, 0.8, 0.1);
-    applyWallUvs(geo.attributes.uv.array);
+    const geo = new THREE.BoxGeometry(WALL_LENGTH, WALL_HEIGHT, WALL_THICKNESS);
+    applyWallUvs(geo.attributes.uv.array, { w: WALL_LENGTH, h: WALL_HEIGHT, d: WALL_THICKNESS });
     geo.attributes.uv.needsUpdate = true;
     const { index, groups } = wallGroupLayout(geo.index.array);
     geo.setIndex(index);
@@ -155,20 +176,28 @@ function start() {
     return geo;
   }
 
-  const player = buildPlayer();
+  const { player, bodyGroup } = buildPlayer();
   scene.add(player);
   const star = buildStar();
   scene.add(star);
 
   let connections = null;
   let segments = [];
+  let boxes = [];
+  let grid = createBoxGrid([], 1);
+  let boxes3d = [];
   let walls = null;
   let floor = null;
   let generation = 0;
-  let state = 'idle';
+  let state = 'idle'; // 'idle'（游戏中）| 'won'
   let view = 'follow';
-  const pos = { row: 0, col: 0, facing: 'down' };
+  // 小人连续位置与速度（世界单位，1 格 = 1）；display 是小人所在格
+  let playerState = { x: 0.5, z: 0.5, vx: 0, vz: 0 };
   const display = { row: 0, col: 0 };
+  let yaw = Math.PI; // 视角水平朝向，约定见 movement.js
+  let pitch = FOLLOW_PITCH.def;
+  let cameraZoom = 1;
+  let walkPhase = 0;
 
   // ---------- 迷雾与道路 ----------
   let fogOn = storageGet('maze3d.fogOn') !== '0';
@@ -185,27 +214,33 @@ function start() {
   const tmpScale = new THREE.Vector3();
   const yAxis = new THREE.Vector3(0, 1, 0);
 
+  // 小人：按 PLAYER_PARTS 建球体（身体、眼睛、瞳孔），整体缩放到碰撞半径内；
+  // 起伏动画作用在内层 bodyGroup，外层 player 管位置与朝向
   function buildPlayer() {
     const g = new THREE.Group();
-    const body = new THREE.Mesh(
-      new THREE.SphereGeometry(0.3, 24, 16),
+    const body = new THREE.Group();
+    const materials = [
       new THREE.MeshLambertMaterial({ color: COLORS.player }),
-    );
-    body.position.y = 0.3;
+      new THREE.MeshLambertMaterial({ color: 0xffffff }),
+      new THREE.MeshBasicMaterial({ color: 0x111111 }),
+    ];
+    const geoCache = new Map();
+    PLAYER_PARTS.forEach((p, i) => {
+      const kind = i === 0 ? 0 : i <= 2 ? 1 : 2;
+      const detail = [
+        [24, 16],
+        [12, 8],
+        [8, 6],
+      ][kind];
+      const key = `${p.r}`;
+      if (!geoCache.has(key)) geoCache.set(key, new THREE.SphereGeometry(p.r, detail[0], detail[1]));
+      const mesh = new THREE.Mesh(geoCache.get(key), materials[kind]);
+      mesh.position.set(p.x, p.y, p.z);
+      body.add(mesh);
+    });
     g.add(body);
-    const white = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    const black = new THREE.MeshBasicMaterial({ color: 0x111111 });
-    const eyeGeo = new THREE.SphereGeometry(0.08, 12, 8);
-    const pupilGeo = new THREE.SphereGeometry(0.04, 8, 6);
-    for (const side of [-1, 1]) {
-      const eye = new THREE.Mesh(eyeGeo, white);
-      eye.position.set(side * 0.11, 0.4, -0.25);
-      g.add(eye);
-      const pupil = new THREE.Mesh(pupilGeo, black);
-      pupil.position.set(side * 0.11, 0.4, -0.32);
-      g.add(pupil);
-    }
-    return g;
+    g.scale.setScalar(playerModelScale());
+    return { player: g, bodyGroup: body };
   }
 
   function buildStar() {
@@ -226,10 +261,6 @@ function start() {
     return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: COLORS.star }));
   }
 
-  function cellCenter(row, col, out = new THREE.Vector3()) {
-    return out.set(col + 0.5, 0, row + 0.5);
-  }
-
   function disposeMaze() {
     for (const m of [walls, floor]) {
       if (m) {
@@ -242,13 +273,15 @@ function start() {
   }
 
   function buildMaze(newSeed, newSize) {
-    cancelAnimation();
     $('win').hidden = true;
     seed = newSeed;
     size = newSize;
     disposeMaze();
     connections = new MazeGenerator(size, size, seed).generate().connections;
     segments = wallSegments(connections);
+    boxes = wallBoxes(segments, size);
+    grid = createBoxGrid(boxes, size);
+    boxes3d = wallBoxes3d(boxes);
 
     walls = new THREE.InstancedMesh(wallGeometry, wallMaterials, segments.length);
     walls.frustumCulled = false;
@@ -268,29 +301,31 @@ function start() {
     scene.add(floor);
 
     generation += 1;
-    pos.row = 0;
-    pos.col = 0;
-    pos.facing = 'down';
-    display.row = 0;
-    display.col = 0;
+    resetPlayer();
+    resetInput();
     state = 'idle';
 
     star.position.set(size - 0.5, 0.6, size - 0.5);
-    placePlayer(cellCenter(0, 0, tmpPos));
-    player.rotation.y = facingYaw(pos.facing);
 
     document.querySelectorAll('.size-btn').forEach((b) => {
       b.classList.toggle('active', Number(b.dataset.size) === size);
     });
 
-    camYaw = facingYaw(pos.facing);
     updateSceneFog();
     recomputeFog();
     snapCamera();
   }
 
-  function placePlayer(v) {
-    player.position.set(v.x, 0, v.z);
+  // 回到起点格中心，速度清零，朝南（迷宫在南 / 东方向）
+  function resetPlayer() {
+    playerState = { x: 0.5, z: 0.5, vx: 0, vz: 0 };
+    display.row = 0;
+    display.col = 0;
+    yaw = Math.PI;
+    walkPhase = 0;
+    player.position.set(playerState.x, 0, playerState.z);
+    player.rotation.y = -yaw;
+    bodyGroup.position.y = 0;
   }
 
   function cellVisible(row, col) {
@@ -312,6 +347,7 @@ function start() {
     }
     applyWallVisibility();
     applyFloorColors();
+    miniBaseDirty = true;
     drawMinimap();
   }
 
@@ -349,7 +385,7 @@ function start() {
     for (let i = 0; i < segments.length; i++) {
       const s = segments[i];
       const visible = !fogOn || wallInView(s, display, fogRadius);
-      tmpPos.set(s.x, 0.4, s.z);
+      tmpPos.set(s.x, WALL_HEIGHT / 2, s.z);
       tmpQuat.setFromAxisAngle(yAxis, s.along === 'z' ? Math.PI / 2 : 0);
       tmpScale.setScalar(visible ? 1 : 0);
       tmpMatrix.compose(tmpPos, tmpQuat, tmpScale);
@@ -390,26 +426,45 @@ function start() {
   }
 
   // ---------- 相机 ----------
-  // 跟随中心平滑追赶小人，偏移（高度、向南距离）平滑追赶视野半径对应的值；
-  // 相机位置与观察点都由「中心 + 偏移」得出，偏移没有东西分量，所以水平朝向始终朝北
-  const followCenter = new THREE.Vector3();
-  const followOff = { h: 0, d: 0 };
+  // 跟随视角：理想位置由 yaw / pitch / 距离算出并平滑插值；再沿平滑后的方向做三维避障，
+  // 实际距离 dCur 比安全距离远就立即收近，比它近就慢慢恢复（smoothCameraDistance）
+  const smoothCam = new THREE.Vector3();
+  const camTarget = new THREE.Vector3();
+  let dCur = 0;
 
-  function currentFollowOffset() {
-    return followOffset(fogOn ? fogRadius : 10);
+  function idealDistance() {
+    const o = followOffset(fogOn ? fogRadius : 10);
+    return Math.hypot(o.h, o.d) * cameraZoom;
   }
 
-  function placeFollow() {
-    camera.position.set(followCenter.x, followCenter.y + followOff.h, followCenter.z + followOff.d);
-    camera.lookAt(followCenter);
+  function pitchRange() {
+    return view === 'first' ? FIRST_PITCH : FOLLOW_PITCH;
   }
 
-  // 第一人称当前显示的偏航角（转身动画期间在旧值与新值之间插值）
-  let camYaw = 0;
+  function clampPitch(p) {
+    const r = pitchRange();
+    return Math.min(r.max, Math.max(r.min, p));
+  }
+
+  function placeFollow(k, snap) {
+    camTarget.set(playerState.x, TARGET_HEIGHT, playerState.z);
+    const ideal = followCameraPos(camTarget, yaw, pitch, idealDistance());
+    tmpPos.set(ideal.x, ideal.y, ideal.z);
+    if (snap) smoothCam.copy(tmpPos);
+    else smoothCam.lerp(tmpPos, k);
+    tmpDir.subVectors(smoothCam, camTarget);
+    const dWant = tmpDir.length();
+    if (dWant > 1e-9) tmpDir.divideScalar(dWant);
+    else tmpDir.set(0, 1, 0);
+    const dSafe = cameraPullIn(camTarget, smoothCam, boxes3d);
+    dCur = snap ? dSafe : smoothCameraDistance(dCur, dWant, dSafe, k);
+    camera.position.copy(camTarget).addScaledVector(tmpDir, dCur);
+    camera.lookAt(camTarget);
+  }
 
   function placeFirstPerson() {
-    camera.position.set(player.position.x, EYE_HEIGHT, player.position.z);
-    camera.rotation.set(0, camYaw, 0);
+    camera.position.set(playerState.x, EYE_HEIGHT, playerState.z);
+    camera.rotation.set(-pitch, -yaw, 0, 'YXZ');
   }
 
   function snapCamera() {
@@ -417,22 +472,16 @@ function start() {
       placeFirstPerson();
       return;
     }
-    followCenter.copy(player.position);
-    Object.assign(followOff, currentFollowOffset());
-    placeFollow();
+    placeFollow(1, true);
   }
 
+  // dt 单位秒
   function updateCamera(dt) {
     if (view === 'first') {
       placeFirstPerson();
       return;
     }
-    const k = 1 - Math.pow(0.001, dt / 1000);
-    const want = currentFollowOffset();
-    followCenter.lerp(player.position, k);
-    followOff.h += (want.h - followOff.h) * k;
-    followOff.d += (want.d - followOff.d) * k;
-    placeFollow();
+    placeFollow(1 - Math.pow(0.001, dt), false);
   }
 
   function updateSceneFog() {
@@ -449,41 +498,44 @@ function start() {
     }
   }
 
+  // 切换视角保留 yaw，pitch 改为该视角的默认值
   function setView(next) {
     view = next;
     const first = view === 'first';
+    pitch = first ? FIRST_PITCH.def : FOLLOW_PITCH.def;
     $('view-btn').textContent = first ? '切换到跟随视角' : '切换到第一人称';
     $('minimap').hidden = !first;
     player.visible = !first;
-    camYaw = facingYaw(pos.facing);
     updateSceneFog();
     snapCamera();
     if (first) drawMinimap();
   }
 
   $('view-btn').addEventListener('click', () => {
-    cancelAnimation();
     setView(view === 'first' ? 'follow' : 'first');
   });
 
   // ---------- 小地图 ----------
+  // 底图（地块、墙）只在迷雾重算时画进离屏 canvas；第一人称每帧贴底图再画小人与朝向
   const minimap = $('minimap');
   const miniCtx = minimap.getContext('2d');
+  const miniBase = document.createElement('canvas');
+  let miniBaseDirty = true;
 
-  function drawMinimap() {
-    if (minimap.hidden || !connections) return;
+  function miniLayout() {
     const dpr = window.devicePixelRatio || 1;
     const css = minimap.clientWidth || 140;
     const px = Math.round(css * dpr);
-    if (minimap.width !== px || minimap.height !== px) {
-      minimap.width = px;
-      minimap.height = px;
-    }
-    const ctx = miniCtx;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, px, px);
     const pad = 6 * dpr;
-    const cell = (px - pad * 2) / size;
+    return { dpr, px, pad, cell: (px - pad * 2) / size };
+  }
+
+  function drawMinimapBase(lay) {
+    const { dpr, px, pad, cell } = lay;
+    miniBase.width = px;
+    miniBase.height = px;
+    const ctx = miniBase.getContext('2d');
+    ctx.clearRect(0, 0, px, px);
     ctx.fillStyle = '#f2efe6';
     ctx.fillRect(pad, pad, cell * size, cell * size);
     ctx.fillStyle = '#e53935';
@@ -503,170 +555,122 @@ function start() {
       }
     }
     ctx.stroke();
-    const cx = pad + (display.col + 0.5) * cell;
-    const cy = pad + (display.row + 0.5) * cell;
-    const r = Math.max(2.5 * dpr, cell * 0.3);
+    miniBaseDirty = false;
+  }
+
+  function drawMinimap() {
+    if (minimap.hidden || !connections) return;
+    const lay = miniLayout();
+    const { dpr, px, pad, cell } = lay;
+    if (minimap.width !== px || minimap.height !== px) {
+      minimap.width = px;
+      minimap.height = px;
+    }
+    if (miniBaseDirty || miniBase.width !== px) drawMinimapBase(lay);
+    const ctx = miniCtx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, px, px);
+    ctx.drawImage(miniBase, 0, 0);
+    const cx = pad + playerState.x * cell;
+    const cy = pad + playerState.z * cell;
+    const r = Math.max(2.5 * dpr, cell * PLAYER_RADIUS);
     ctx.fillStyle = '#ff9800';
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fill();
-    const [dr, dc] = DIRS[pos.facing];
+    const fx = Math.sin(yaw);
+    const fy = -Math.cos(yaw);
     const tip = r * 2.2;
     ctx.fillStyle = '#d84315';
     ctx.beginPath();
-    ctx.moveTo(cx + dc * tip, cy + dr * tip);
-    ctx.lineTo(cx + dr * r * 0.9 + dc * r * 0.6, cy - dc * r * 0.9 + dr * r * 0.6);
-    ctx.lineTo(cx - dr * r * 0.9 + dc * r * 0.6, cy + dc * r * 0.9 + dr * r * 0.6);
+    ctx.moveTo(cx + fx * tip, cy + fy * tip);
+    ctx.lineTo(cx + fy * r * 0.9 + fx * r * 0.6, cy - fx * r * 0.9 + fy * r * 0.6);
+    ctx.lineTo(cx - fy * r * 0.9 + fx * r * 0.6, cy + fx * r * 0.9 + fy * r * 0.6);
     ctx.closePath();
     ctx.fill();
   }
 
-  // ---------- 移动与状态机 ----------
-  let anim = null;
+  // ---------- 输入 ----------
+  const keys = new Set();
+  const router = createPointerRouter();
+  let testInput = null; // setInputForTest 注入的输入（仅 ?debug=1）
 
+  // 清空按键、指针角色、摇杆与捏合状态；失焦、切后台、重建迷宫时调用
+  function resetInput() {
+    keys.clear();
+    router.reset();
+  }
+
+  function onKey(e) {
+    const known = applyKeyEvent(keys, e);
+    if (known && e.type === 'keydown' && e.code.startsWith('Arrow') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+    }
+  }
+  window.addEventListener('keydown', onKey);
+  window.addEventListener('keyup', onKey);
+  window.addEventListener('blur', resetInput);
+
+  function currentInput() {
+    if (testInput) {
+      return { forward: testInput.forward || 0, strafe: testInput.strafe || 0, turn: testInput.turn || 0 };
+    }
+    const k = inputFromKeys(keys);
+    const st = router.stick;
+    const s = st.active ? inputFromStick(st.dx, st.dy, STICK_RADIUS) : { forward: 0, strafe: 0 };
+    return { forward: k.forward + s.forward, strafe: k.strafe + s.strafe, turn: k.turn };
+  }
+
+  // ---------- 移动 ----------
   function newSeed() {
     return Date.now() + Math.floor(Math.random() * 1000);
   }
 
-  function onDisplayCellChanged() {
-    recomputeFog();
-  }
-
-  function cancelAnimation() {
-    anim = null;
-    if (!connections) return;
-    pos.row = display.row;
-    pos.col = display.col;
-    placePlayer(cellCenter(display.row, display.col, tmpPos));
-    player.rotation.y = facingYaw(pos.facing);
-    camYaw = facingYaw(pos.facing);
-    if (state === 'moving' || state === 'turning') state = 'idle';
-  }
-
-  function shortestYaw(from, to) {
+  function shortestDelta(from, to) {
     let delta = (to - from) % (Math.PI * 2);
     if (delta > Math.PI) delta -= Math.PI * 2;
     if (delta < -Math.PI) delta += Math.PI * 2;
-    return from + delta;
+    return delta;
   }
 
-  function handleDirection(key) {
-    if (state !== 'idle' || !connections) return;
-    const action = resolveInput(view, pos.facing, key);
-    if (action.type === 'turn') {
-      const fromYaw = camYaw;
-      pos.facing = action.facing;
-      state = 'turning';
-      anim = {
-        generation,
-        kind: 'turn',
-        fromYaw,
-        toYaw: shortestYaw(fromYaw, facingYaw(action.facing)),
-        startTime: performance.now(),
-      };
-      drawMinimap();
-      return;
-    }
-    const dest = findNextIntersection(connections, pos, action.dir);
-    if (!dest) return;
-    const [dr, dc] = DIRS[action.dir];
-    const cells = [{ row: pos.row, col: pos.col }];
-    let r = pos.row;
-    let c = pos.col;
-    while (r !== dest.row || c !== dest.col) {
-      r += dr;
-      c += dc;
-      cells.push({ row: r, col: c });
-    }
-    pos.facing = action.dir;
-    player.rotation.y = facingYaw(pos.facing);
-    camYaw = facingYaw(pos.facing);
-    state = 'moving';
-    anim = { generation, kind: 'move', cells, startTime: performance.now(), reached: 0 };
-  }
-
-  function stepAnimation(now) {
-    if (!anim) return;
-    if (anim.generation !== generation) {
-      anim = null;
-      return;
-    }
-    if (anim.kind === 'turn') {
-      const t = Math.min((now - anim.startTime) / TURN_MS, 1);
-      camYaw = anim.fromYaw + (anim.toYaw - anim.fromYaw) * t;
-      player.rotation.y = camYaw;
-      if (t >= 1) {
-        anim = null;
-        camYaw = facingYaw(pos.facing);
-        player.rotation.y = camYaw;
-        state = 'idle';
+  // 每帧：读输入 → 转视角 → stepPlayer → 所在格变化时重算迷雾 / 判胜 → 更新模型
+  function updatePlayer(dt) {
+    const look = router.consume();
+    yaw += look.look.dx * LOOK_SPEED;
+    pitch = clampPitch(pitch + look.look.dy * LOOK_SPEED);
+    cameraZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, cameraZoom * look.zoom));
+    if (!connections) return;
+    if (state !== 'won') {
+      const input = currentInput();
+      yaw += input.turn * TURN_SPEED * dt;
+      playerState = stepPlayer(playerState, input, yaw, dt, grid);
+      const c = cellOf(playerState);
+      c.row = Math.min(size - 1, Math.max(0, c.row));
+      c.col = Math.min(size - 1, Math.max(0, c.col));
+      if (c.row !== display.row || c.col !== display.col) {
+        display.row = c.row;
+        display.col = c.col;
+        recomputeFog();
+        if (c.row === size - 1 && c.col === size - 1) {
+          state = 'won';
+          playerState = { ...playerState, vx: 0, vz: 0 };
+          $('win').hidden = false;
+        }
       }
-      return;
     }
-    const { cells } = anim;
-    const last = cells.length - 1;
-    const t = Math.min((now - anim.startTime) / STEP_MS, last);
-    const reached = Math.floor(t);
-    while (anim.reached < reached) {
-      anim.reached += 1;
-      display.row = cells[anim.reached].row;
-      display.col = cells[anim.reached].col;
-      onDisplayCellChanged();
+    player.position.set(playerState.x, 0, playerState.z);
+    const speed = Math.hypot(playerState.vx, playerState.vz);
+    if (speed > 0.05) {
+      walkPhase += speed * dt * 2 * Math.PI;
+      bodyGroup.position.y = 0.03 * Math.abs(Math.sin(walkPhase));
+      const target = -Math.atan2(playerState.vx, -playerState.vz);
+      const k = 1 - Math.pow(0.001, dt);
+      player.rotation.y += shortestDelta(player.rotation.y, target) * k;
+    } else {
+      walkPhase = 0;
+      bodyGroup.position.y = 0;
     }
-    if (t >= last) {
-      const end = cells[last];
-      anim = null;
-      pos.row = end.row;
-      pos.col = end.col;
-      placePlayer(cellCenter(end.row, end.col, tmpPos));
-      if (end.row === size - 1 && end.col === size - 1) {
-        state = 'won';
-        $('win').hidden = false;
-      } else {
-        state = 'idle';
-      }
-      return;
-    }
-    const a = cells[reached];
-    const b = cells[reached + 1];
-    const f = t - reached;
-    player.position.set(
-      a.col + 0.5 + (b.col - a.col) * f,
-      0,
-      a.row + 0.5 + (b.row - a.row) * f,
-    );
   }
-
-  // ---------- 输入 ----------
-  const KEY_DIRS = {
-    ArrowUp: 'up',
-    w: 'up',
-    W: 'up',
-    ArrowDown: 'down',
-    s: 'down',
-    S: 'down',
-    ArrowLeft: 'left',
-    a: 'left',
-    A: 'left',
-    ArrowRight: 'right',
-    d: 'right',
-    D: 'right',
-  };
-
-  window.addEventListener('keydown', (e) => {
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-    const dir = KEY_DIRS[e.key];
-    if (!dir) return;
-    if (e.key.startsWith('Arrow')) e.preventDefault();
-    handleDirection(dir);
-  });
-
-  document.querySelectorAll('.dpad button[data-dir]').forEach((btn) => {
-    btn.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      handleDirection(btn.dataset.dir);
-    });
-  });
 
   document.querySelectorAll('.size-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -842,11 +846,12 @@ function start() {
         // 忙等，模拟慢设备
       }
     }
-    const dt = Math.max(0, Math.min(now - lastTime, 100));
+    const dt = Math.max(0, Math.min(now - lastTime, 100)) / 1000;
     lastTime = now;
-    stepAnimation(performance.now());
-    star.rotation.y += (dt / 1000) * 1;
+    updatePlayer(dt);
+    star.rotation.y += dt;
     updateCamera(dt);
+    if (view === 'first') drawMinimap();
     renderer.render(scene, camera);
     rafId = requestAnimationFrame(frame);
   }
@@ -860,6 +865,7 @@ function start() {
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
+      resetInput();
       if (rafId !== null) cancelAnimationFrame(rafId);
       rafId = null;
     } else {
@@ -1004,10 +1010,41 @@ function start() {
       return view;
     },
     get player() {
-      return { row: pos.row, col: pos.col, facing: pos.facing };
+      return { row: display.row, col: display.col };
     },
     get display() {
       return { row: display.row, col: display.col };
+    },
+    get playerCell() {
+      return { row: display.row, col: display.col };
+    },
+    get playerPos() {
+      return { x: playerState.x, z: playerState.z };
+    },
+    get yaw() {
+      return yaw;
+    },
+    get pitch() {
+      return pitch;
+    },
+    get cameraZoom() {
+      return cameraZoom;
+    },
+    // 跟随视角实际使用的相机距离；第一人称为 0
+    get cameraDistance() {
+      return view === 'first' ? 0 : dCur;
+    },
+    get cameraIdealDistance() {
+      return idealDistance();
+    },
+    get cameraPos() {
+      return { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+    },
+    get cameraTarget() {
+      return { x: playerState.x, y: TARGET_HEIGHT, z: playerState.z };
+    },
+    get wallBoxes3d() {
+      return boxes3d.map((b) => ({ ...b }));
     },
     get playerVisible() {
       return player.visible;
@@ -1081,4 +1118,17 @@ function start() {
       return Math.atan2(-tmpDir.x, -tmpDir.z);
     },
   };
+
+  // 测试钩子：非 null 时用它的 forward / strafe / turn 替代键盘与摇杆；yaw、pitch 为数字时直接赋值
+  if (debug) {
+    window.__maze3d.setInputForTest = (v) => {
+      if (v === null || v === undefined) {
+        testInput = null;
+        return;
+      }
+      testInput = { forward: v.forward || 0, strafe: v.strafe || 0, turn: v.turn || 0 };
+      if (typeof v.yaw === 'number') yaw = v.yaw;
+      if (typeof v.pitch === 'number') pitch = clampPitch(v.pitch);
+    };
+  }
 }

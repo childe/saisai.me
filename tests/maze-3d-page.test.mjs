@@ -14,6 +14,7 @@ const OWN = [
   'game-logic.js',
   'themes.js',
   'wall-geometry.js',
+  'movement.js',
   'README.md',
 ];
 
@@ -57,10 +58,6 @@ test('page has all controls', () => {
     'id="show-path-btn"',
     'id="hide-path-btn"',
     'id="win"',
-    'id="btn-up"',
-    'id="btn-down"',
-    'id="btn-left"',
-    'id="btn-right"',
     '恭喜！你成功走出了迷宫！',
     '再来一局',
     '<title>3D 迷宫</title>',
@@ -70,6 +67,7 @@ test('page has all controls', () => {
   assert.match(html, /id="fog-minus"[^>]*>−</);
   assert.match(html, /id="fog-plus"[^>]*>\+</);
   for (const name of OWN) assert.ok(!read(name).includes('alert('), name);
+  assert.ok(!html.includes('class="dpad"'));
 });
 
 test('webgl fallback', () => {
@@ -79,20 +77,20 @@ test('webgl fallback', () => {
   assert.ok(read('main.js').includes('no-webgl'));
 });
 
-test('dpad buttons are at least 56px and manipulation', () => {
-  const html = read('index.html');
-  const m = html.match(/\.dpad button\s*\{([^}]*)\}/);
-  assert.ok(m, '.dpad button rule');
-  const body = m[1];
-  const px = (prop) => {
-    const r = body.match(new RegExp(`(?:^|[;\\s])${prop}\\s*:\\s*(\\d+)px`));
-    return r ? Number(r[1]) : null;
-  };
-  const w = px('min-width') ?? px('width');
-  const h = px('min-height') ?? px('height');
-  assert.ok(w !== null && w >= 56, `width ${w}`);
-  assert.ok(h !== null && h >= 56, `height ${h}`);
-  assert.match(body, /touch-action\s*:\s*manipulation/);
+test('stage disables touch gestures', () => {
+  const m = read('index.html').match(/#stage\s*\{([^}]*)\}/);
+  assert.ok(m, '#stage rule');
+  assert.match(m[1], /touch-action\s*:\s*none/);
+});
+
+test('main uses shared size constants', () => {
+  const src = read('main.js');
+  const m = src.match(/import\s*\{([^}]*)\}\s*from\s*['"]\.\/movement\.js['"]/);
+  assert.ok(m, 'imports ./movement.js');
+  for (const name of ['WALL_LENGTH', 'WALL_HEIGHT', 'WALL_THICKNESS', 'PLAYER_RADIUS']) {
+    assert.match(m[1], new RegExp(`\\b${name}\\b`), name);
+  }
+  assert.ok(!src.includes('BoxGeometry(1.1'));
 });
 
 test('viewport meta', () => {
