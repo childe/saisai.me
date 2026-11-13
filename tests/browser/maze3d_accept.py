@@ -132,6 +132,19 @@ def logic(page, expr, arg=None):
     )
 
 
+def logic_themes(page, expr, arg=None):
+    """在页面里 import game-logic.js 与 themes.js 后求值 expr（可用 L、T、M=__maze3d、arg）。"""
+    return page.evaluate(
+        "async ([expr, arg]) => {"
+        " const L = await import('/maze-3d/game-logic.js');"
+        " const T = await import('/maze-3d/themes.js');"
+        " const M = window.__maze3d;"
+        " return (new Function('L', 'T', 'M', 'arg', 'return (' + expr + ');'))(L, T, M, arg);"
+        "}",
+        [expr, arg],
+    )
+
+
 def pos(page):
     p = m3(page, "player")
     return {"row": p["row"], "col": p["col"]}
@@ -665,21 +678,40 @@ def check_11(browser, base):
         close(page)
 
 
-FOG_STATE_JS = """(() => {
+# 按格算期望地板色（arg = 视野半径）：path > fogEdge / fog > start / end / floor；
+# 求值时需要 L、T、M（用 logic_themes）
+FLOOR_WANT_JS = """
+  const t = T.THEMES[M.theme];
+  const hex = (c) => '#' + c.toString(16).padStart(6, '0');
+  const want = { floor: hex(t.floorBase), fog: hex(t.fogFloor),
+    fogEdge: hex(T.mixHex(t.floorBase, t.fogFloor, 0.5)),
+    start: '#4caf50', end: '#e53935', path: '#ff6b6b' };
+  const wantKind = (cell, onPath) => L.floorKind(cell, M.size, {
+    inView: !M.fog.on || L.isInFogView(M.display, cell, arg),
+    onPath,
+    edge: M.fog.on && L.fogRing(M.display, cell, arg),
+  });
+"""
+
+FOG_STATE_JS = (
+    """(() => {"""
+    + FLOOR_WANT_JS
+    + """
   const vis = M.wallsVisible();
-  const want = M.segments.map((s) => L.wallInView(s, M.display, arg));
+  const wantWall = M.segments.map((s) => L.wallInView(s, M.display, arg));
   let wallMismatch = 0;
-  for (let i = 0; i < want.length; i++) if (vis[i] !== want[i]) wallMismatch++;
+  for (let i = 0; i < wantWall.length; i++) if (vis[i] !== wantWall[i]) wallMismatch++;
   let floorMismatch = 0;
+  let edgeCells = 0;
   for (let row = 0; row < M.size; row++)
     for (let col = 0; col < M.size; col++) {
-      const inView = L.isInFogView(M.display, { row, col }, arg);
-      const hex = M.floorColorHex(row, col);
-      if (!inView && hex !== '#333333') floorMismatch++;
-      if (inView && hex === '#333333') floorMismatch++;
+      const kind = wantKind({ row, col }, false);
+      if (kind === 'fogEdge') edgeCells++;
+      if (M.floorColorHex(row, col) !== want[kind]) floorMismatch++;
     }
-  return { wallMismatch, floorMismatch, walls: want.length };
+  return { wallMismatch, floorMismatch, edgeCells, walls: wantWall.length };
 })()"""
+)
 
 
 def click_until_disabled(page, sel, limit=40):
@@ -697,9 +729,9 @@ def check_4(browser, base):
         wait_idle(page)
         # (a) 默认迷雾
         fog = m3(page, "fog")
-        r = logic(page, FOG_STATE_JS, 5)
+        r = logic_themes(page, FOG_STATE_JS, 5)
         ok = fog == {"on": True, "radius": 5} and r["wallMismatch"] == 0
-        ok = ok and r["floorMismatch"] == 0
+        ok = ok and r["floorMismatch"] == 0 and r["edgeCells"] > 0
         details.append(f"a:fog={fog} {r}")
         if not ok:
             return False, " ".join(details)
@@ -723,10 +755,13 @@ def check_4(browser, base):
         page.click("#fog-btn")
         btn = page.inner_text("#fog-btn")
         all_walls = page.evaluate("() => window.__maze3d.wallsVisible().every(Boolean)")
-        dark = page.evaluate(
-            "() => { const M = window.__maze3d; let n = 0;"
-            " for (let r = 0; r < M.size; r++) for (let c = 0; c < M.size; c++)"
-            " if (M.floorColorHex(r, c) === '#333333') n++; return n; }"
+        dark = logic_themes(
+            page,
+            "(() => {" + FLOOR_WANT_JS + " let n = 0;"
+            " for (let r = 0; r < M.size; r++) for (let c = 0; c < M.size; c++) {"
+            " const h = M.floorColorHex(r, c); if (h === want.fog || h === want.fogEdge) n++; }"
+            " return n; })()",
+            m3(page, "fog")["radius"],
         )
         ok = btn == "迷雾：关" and all_walls and dark == 0
         details.append(f"c:btn={btn} allWalls={all_walls} dark={dark}")
@@ -748,9 +783,10 @@ def check_4(browser, base):
         dr, dc = DIRS[d]
         arrived = walk_to(page, dr, dc)
         n2 = m3(page, "fogRecomputeCount")
-        r = logic(page, FOG_STATE_JS, 25)
+        r = logic_themes(page, FOG_STATE_JS, 25)
         ok = n0 == n1 and arrived and n2 == n1 + 1 and r["wallMismatch"] == 0
-        ok = ok and r["floorMismatch"] == 0
+        # 此时迷雾已关（见 (d)），不应有过渡圈
+        ok = ok and r["floorMismatch"] == 0 and r["edgeCells"] == 0
         details.append(f"e:count {n0}->{n1} idle, ->{n2} after walk {d} {r}")
         if not ok:
             return False, " ".join(details)
@@ -807,23 +843,25 @@ def check_5(browser, base):
         if not arrived or r2["bad"] != 0 or r2["len"] != r["len"] - 1:
             return False, " ".join(details)
         page.click("#hide-path-btn")
-        res = logic(
+        res = logic_themes(
             page,
-            """(() => {
+            """(() => {"""
+            + FLOOR_WANT_JS
+            + """
               let red = 0;
               for (let row = 0; row < M.size; row++)
                 for (let col = 0; col < M.size; col++)
                   if (M.floorColorHex(row, col) === '#ff6b6b') red++;
-              const startIn = L.isInFogView(M.display, { row: 0, col: 0 }, M.fog.radius) || !M.fog.on;
-              const endIn = L.isInFogView(M.display, { row: M.size - 1, col: M.size - 1 }, M.fog.radius) || !M.fog.on;
+              const endCell = { row: M.size - 1, col: M.size - 1 };
               return {
                 red,
                 start: M.floorColorHex(0, 0),
-                startWant: startIn ? '#4caf50' : '#333333',
+                startWant: want[wantKind({ row: 0, col: 0 }, false)],
                 end: M.floorColorHex(M.size - 1, M.size - 1),
-                endWant: endIn ? '#e53935' : '#333333',
+                endWant: want[wantKind(endCell, false)],
               };
             })()""",
+            m3(page, "fog")["radius"],
         )
         details.append(f"hide:{res}")
         ok = (
@@ -1792,9 +1830,16 @@ def check_t5(browser, base):
             got["fog"], at = sample_kind(
                 page,
                 img,
-                cells_by_distance(page, lambda cell, dist: 2 <= dist <= 3),
+                cells_by_distance(page, lambda cell, dist: 3 <= dist <= 4),
                 "fog",
             )
+            got_edge, edge_at = sample_kind(
+                page,
+                img,
+                cells_by_distance(page, lambda cell, dist: dist == 2),
+                "fogEdge",
+            )
+            notes.append(f"fogEdge@{edge_at}={got_edge}")
             floor_c, _ = sample_kind(
                 page,
                 img,
@@ -1830,7 +1875,8 @@ def check_t5(browser, base):
                 not missing
                 and worst is not None
                 and worst[0] >= 60
-                and end_kind_c == "fog"
+                and end_kind_c in ("fog", "fogEdge")
+                and got_edge is not None
                 and end_kind_d == "end"
                 and here != end
                 and fog_state == {"on": True, "radius": 1}
@@ -2490,7 +2536,7 @@ def check_f8(browser, base):
         arrived = walk_to(page, cell["row"], cell["col"])
         disp = m3(page, "display")
         pc = m3(page, "playerCell")
-        r = logic(page, FOG_STATE_JS, m3(page, "fog")["radius"])
+        r = logic_themes(page, FOG_STATE_JS, m3(page, "fog")["radius"])
         ok_err, msg = no_errors(errors)
         ok = (
             arrived

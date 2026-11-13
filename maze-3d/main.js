@@ -11,6 +11,7 @@ import {
   clampRadius,
   findPath,
   wallInView,
+  fogRing,
   summarizeFrames,
   createFrameMeter,
   shouldDowngrade,
@@ -23,6 +24,7 @@ import {
   paintWall,
   paintWallTop,
   paintFloor,
+  mixHex,
 } from './themes.js';
 import { wallGroupLayout, applyWallUvs } from './wall-geometry.js';
 import {
@@ -58,12 +60,11 @@ import {
 const EYE_HEIGHT = 0.45;
 const STICK_RADIUS = 50; // 虚拟摇杆底座半径，CSS 像素
 
-// 墙、普通地板格、背景色由主题决定（themes.js）
+// 墙、普通地板格、视野外格子、背景色由主题决定（themes.js）
 const COLORS = {
   start: 0x4caf50,
   end: 0xe53935,
   path: 0xff6b6b,
-  fog: 0x333333,
   player: 0xff9800,
   star: 0xffd600,
 };
@@ -401,15 +402,21 @@ function start() {
     return floorKind({ row, col }, size, {
       inView: cellVisible(row, col),
       onPath: path ? path.has(row * size + col) : false,
+      edge: fogOn && fogRing(display, { row, col }, fogRadius),
     });
   }
 
   function applyFloorColors() {
-    const floorBase = THEMES[themeId].floorBase;
+    const theme = THEMES[themeId];
+    const byKind = {
+      floor: theme.floorBase,
+      fog: theme.fogFloor,
+      fogEdge: mixHex(theme.floorBase, theme.fogFloor, 0.5),
+    };
     for (let row = 0; row < size; row++) {
       for (let col = 0; col < size; col++) {
         const kind = kindAt(row, col);
-        floor.setColorAt(row * size + col, tmpColor.setHex(kind === 'floor' ? floorBase : COLORS[kind]));
+        floor.setColorAt(row * size + col, tmpColor.setHex(byKind[kind] ?? COLORS[kind]));
       }
     }
     floor.instanceColor.needsUpdate = true;
