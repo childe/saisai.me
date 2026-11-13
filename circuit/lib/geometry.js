@@ -110,7 +110,7 @@ export function joinRoute(pts1, pts2) {
   return simplifyRoute([...pts1, ...pts2.slice(1)]).slice(1, -1);
 }
 
-export function hitTest(circuit, pt, k = 1) {
+export function hitTest(circuit, pt, k = 1, selWire = null) {
   const { termR, lever, body } = touchAreas(k);
   const parts = [...circuit.parts].reverse();
   let best = null, bestD = Infinity;
@@ -122,12 +122,24 @@ export function hitTest(circuit, pt, k = 1) {
     }
   }
   if (best) return best;
+  // 选中导线的线段把手：每段中点一个。
+  const sw = selWire && circuit.wires.find(w => w.id === selWire);
+  const spts = sw && wirePoints(circuit, sw);
+  if (spts) {
+    for (let i = 0; i + 1 < spts.length; i++) {
+      const mx = (spts[i][0] + spts[i + 1][0]) / 2, my = (spts[i][1] + spts[i + 1][1]) / 2;
+      const d = Math.hypot(pt[0] - mx, pt[1] - my);
+      if (d <= termR && d < bestD) { best = { kind: 'handle', wire: selWire, seg: i }; bestD = d; }
+    }
+    if (best) return best;
+  }
   for (const p of parts) {
     if (!PARTS[p.type].lever) continue;
     const [x, y] = toLocal(p, pt);
     if (x >= lever.x0 && x <= lever.x1 && y >= lever.y0 && y < lever.y1) return { kind: 'lever', id: p.id };
   }
   for (const p of parts) {
+    if (p.type === 'node') continue; // 连接点没有本体，只有端点
     const [x, y] = toLocal(p, pt);
     if (x >= body.x0 && x <= body.x1 && y >= body.y0 && y <= body.y1) return { kind: 'part', id: p.id };
   }
@@ -199,4 +211,29 @@ export function tracePath(trace, end) {
   else if (trace.dir === 'v') tail = [last, [last[0], end[1]], end];
   else tail = wireRoute(last, end);
   return simplifyRoute([...pts.slice(0, -1), ...tail]);
+}
+
+// 拖动折线的第 seg 段：垂直于该段平移 delta（相对按下位置），取整到格点；返回新的拐点。
+export function dragSegment(points, seg, delta) {
+  const a = points[seg], b = points[seg + 1];
+  const last = points.length - 2;
+  const pts = points.map(p => [...p]);
+  let ins0 = null, ins1 = null;
+  if (a[1] === b[1]) {
+    const ny = clampV(Math.round(a[1] + delta[1]), 0, BOARD.h);
+    pts[seg][1] = ny; pts[seg + 1][1] = ny;
+    if (seg === 0) ins0 = [a[0], ny];
+    if (seg === last) ins1 = [b[0], ny];
+  } else {
+    const nx = clampV(Math.round(a[0] + delta[0]), 0, BOARD.w);
+    pts[seg][0] = nx; pts[seg + 1][0] = nx;
+    if (seg === 0) ins0 = [nx, a[1]];
+    if (seg === last) ins1 = [nx, b[1]];
+  }
+  // 首末点（元件端点）不动：先还原，再在内侧插入新拐点。
+  pts[0] = [...points[0]];
+  pts[pts.length - 1] = [...points.at(-1)];
+  if (ins1) pts.splice(pts.length - 1, 0, ins1);
+  if (ins0) pts.splice(1, 0, ins0);
+  return simplifyRoute(pts).slice(1, -1);
 }
