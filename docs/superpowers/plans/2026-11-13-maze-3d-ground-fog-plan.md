@@ -153,7 +153,7 @@ git commit -m "feat(maze-3d): 主题外围地面纹理与雾地板色"
   - `groundHalfExtent(fogFarMax: number, fovDeg: number, aspect: number): number` —— 公式见 Global Constraints，返回整数。
   - `followFogRange(idealDistance: number, size: number): { near: number, far: number }` —— `near = idealDistance + size × Math.SQRT2`，`far = near + 25`。
 
-- [ ] **Step 1: 写失败测试**（追加到 `tests/maze-3d-core.test.mjs`，沿用文件里的 `L` 与 `near` 助手）
+- [ ] **Step 1: 写失败测试**（追加到 `tests/maze-3d-core.test.mjs`，沿用文件顶层的 `L`；文件里现有的 `near` 定义在 `followOffset` 测试回调内部、比较的是 `{h,d}`，外部不可用，新测试直接比较 `near` / `far` 字段）
 
 ```js
 test('fogRing and floorKind fogEdge', () => {
@@ -175,7 +175,10 @@ test('fogRing and floorKind fogEdge', () => {
 });
 
 test('followFogRange', () => {
-  near(L.followFogRange(8.6, 10), { near: 8.6 + 10 * Math.SQRT2, far: 8.6 + 10 * Math.SQRT2 + 25 });
+  const r = L.followFogRange(8.6, 10);
+  const wantNear = 8.6 + 10 * Math.SQRT2;
+  assert.ok(Math.abs(r.near - wantNear) < 1e-9, `near ${r.near} vs ${wantNear}`);
+  assert.ok(Math.abs(r.far - (wantNear + 25)) < 1e-9, `far ${r.far} vs ${wantNear + 25}`);
 });
 
 test('groundFogFarMax', () => {
@@ -312,6 +315,7 @@ Expected: FAIL（`textureCount` 仍为 4，`ground` 未定义）。
 
 - [ ] **Step 3: 实现**
 
+- **初始化顺序（硬性）**：`start()` 里首次 `resize()` 当前在 `let currentTextures = null` 声明之前同步执行（约 `main.js:783` vs `:820`），`resize()` 里新加的 `updateGroundExtent()` 若读 `currentTextures` / `groundE` / `groundMesh` 会落在暂时性死区直接抛 `ReferenceError`（`if (currentTextures)` 挡不住）。实现时把 `let currentTextures = null`、`let groundE = 0`、`groundMesh` 的创建都移到 `function resize()` 定义与首次 `resize()` 调用**之前**（例如紧跟在相机 / 场景创建之后）；不要靠把 `updateGroundExtent()` 调用挪出 `resize()` 来规避。Step 4 的 `--only 1` 会在页面报错时失败，借此确认没有回归。
 - 新建 `groundMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshLambertMaterial({ color: 0xffffff }))`，`rotation.x = −π/2`，`position.y = −0.045`，`frustumCulled = false`，加入场景。
 - `let groundE = 0;` `function updateGroundExtent()`：`groundE = groundHalfExtent(groundFogFarMax(size, ZOOM_MAX), camera.fov, camera.aspect)`；`groundMesh.scale.set(2 * groundE, 2 * groundE, 1)`；若有当前地面纹理则 `repeat.set(2 * groundE, 2 * groundE)`。在 `buildMaze` 末尾和 `resize()` 里（`updateProjectionMatrix` 之后）调用；`applyTheme` 换纹理后也设一次 `repeat`。
 - `frame()` 中 `updateCamera(dt)` 之后：`groundMesh.position.x = Math.round(camera.position.x)`，`z` 同理。`snapCamera()` 之后同样同步一次（抽成 `syncGround()`），保证调试读数与相机一致。
@@ -402,18 +406,18 @@ git commit -m "feat(maze-3d): 天空按世界仰角着色，跟随视角远处�
 
 - [ ] **Step 1: 写检查 `check_g7`**
 
-1. 以 1280×800 打开 `?seed=12345&size=10&debug=1`，`preset_storage("0", "5")`（迷雾关）；点 20 号尺寸按钮，等 `size == 20`；`page.set_viewport_size({"width": 1500, "height": 500})`，等 300ms。
+1. 以 1280×800 打开 `?seed=12345&size=10&debug=1`，`preset_storage("0", "5")`（迷雾关）；点 20 号尺寸按钮，等 `size == 20`；`page.set_viewport_size({"width": 1500, "height": 500})`，等 300ms。浏览器视口比例不等于相机比例（`#stage` 高度为 `clamp(240px, 60vh, 640px)`、宽度受 `max-width: 900px` 容器约束），所以随后在页面里把 `#stage` 显式设为 `style.width = '900px'; style.height = '300px'`，等 300ms，读 `cameraState.aspect` 并断言 `abs(aspect − 3) < 1e-6`（不满足直接 FAIL 并记录实际值）。
 2. `setZoomForTest(1.5)`。对四个角 `(0,0)`、`(0,19)`、`(19,0)`、`(19,19)` 依次 `teleportForTest`，对 yaw ∈ {0°, 45°, …, 315°} 依次 `setInputForTest({yaw, pitch: 15°})` 后清输入，等 1200ms（相机平滑与避障收敛）。
    - 读 `ground`、`cameraState`、`sceneFog`。地面四条边（y = `ground.y`，`cx ± E`、`cz ± E`）各调 `edge_min_depth`，非 None 的都要 `≥ sceneFog.far − 1e-6`。
    - 截图；左右各 5% 宽的竖条，取中线列；对 `horizon_y + 2` 到「该列射线与地面平面交点深度 = `sceneFog.far`」所在行之间的每 4 行取一点（深度按 `cameraState` 逐行算：`v = (x_ndc·tan·aspect, y_ndc·tan, −1)`，世界方向 `d = R·v`，`t = (ground.y − pos.y) / d.y`，`t > 0` 时深度 = t），要求与主题 `fogColor` 的 `rgb_dist ≤ 8`；每个状态至少取到 1 个点。
    - 记录失败状态的角、yaw、最小深度。
-3. 32 个状态全部通过且无页面错误才 PASS；额外要求过程中 `ground.halfExtent == 134`（20×20、3:1 的期望值）。
+3. 32 个状态全部通过且无页面错误才 PASS；额外要求过程中 `ground.halfExtent` 等于脚本内按实际 `cameraState.fov`、`cameraState.aspect` 独立计算的 `ceil(F × sqrt(1 + tan²(fov/2) × (1 + aspect²))) + 2`（`F` 用 Global Constraints 中 `fogFarMax` 公式在 Python 里重算），在第 1 步已断言 aspect = 3 的前提下该值为 134。
 4. 登记到 `CHECKS`。
 
 - [ ] **Step 2: 运行**
 
 Run: `~/tmp/fuck/c/.venv/bin/python tests/browser/maze3d_accept.py --only g7`
-Expected: PASS，`states=32/32`，`halfExtent=134`。若失败，按 superpowers:systematic-debugging 排查（先确认 `resize()` 和 `buildMaze` 都调用了 `updateGroundExtent()`）。
+Expected: PASS，`aspect=3`，`states=32/32`，`halfExtent=134`。若失败，按 superpowers:systematic-debugging 排查（先确认 `resize()` 和 `buildMaze` 都调用了 `updateGroundExtent()`）。
 
 - [ ] **Step 3: 截图目录、文案与 README**
 
