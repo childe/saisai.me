@@ -4,17 +4,28 @@
 
 **Goal:** 开局镜头对准迷宫；小人脚下圆形软阴影；墙脚暗边；终点光柱、闪光粒子与通关彩带；画面边缘的终点方向提示。
 
-**Architecture:** 所有可测的数学与数据步进放进新模块 `maze-3d/effects.js`（纯函数，node 可测），墙盒 slab 求交从 `cameraPullIn` 抽成 `movement.js` 的 `slabInterval` 供两边共用；`main.js` 只负责建网格 / DOM、每帧更新、在 `window.__maze3d` 暴露验收所需字段；浏览器验收脚本新增 `p*` 检查并修正受开局朝向变化影响的旧检查。
+**Architecture:** 所有可测的数学与数据步进放进新模块 `maze-3d/effects.js`（纯函数，node 可测），墙盒 slab 求交从 `cameraPullIn` 抽成 `movement.js` 的 `slabInterval` 供两边共用；`main.js` 只负责建网格 / DOM、每帧更新、在 `window.__maze3d` 暴露验收所需字段；跟随视角的相机观察点改为小人前方 `LOOK_AHEAD` 格的前瞻点（偏移平滑，避障与 `liftPitch` 都以前瞻点为准）；浏览器验收脚本新增 `p*` 检查，并修正受开局朝向与前瞻观察点影响的旧检查（只改前提与观察点口径，不放宽阈值）。
 
-**Tech Stack:** 原生 ES modules、vendor three.js r187、Canvas 2D、`node --test`、Python Playwright + Pillow（`~/tmp/fuck/c/.venv`）。
+**Tech Stack:** 原生 ES modules、vendor three.js r187、Canvas 2D、`node --test`、Python Playwright + Pillow（`~/tmp/fuck/c/.venv/bin/python`），格式化用 `/opt/homebrew/bin/black`。
 
 **Spec:** `/Users/jialiu/Projects/saisai.me/.worktrees/20261113-141153-maze-3d-polish/docs/superpowers/specs/2026-11-13-maze-3d-polish-design.md`
+
+## 修订记录
+
+- **r2（2026-11-13，实现阶段 Task 1 受阻后修订）**：原 Task 1 只把开局 `yaw` 改成 `3π/4`，实测 `check_p1`（画面中心 60% 区域迷宫占比 ≥ 50%）只有 34%（基线 35%）；扫遍俯角 15°–75° 与缩放 0.7 / 1.0 / 1.5，最高 44.5%，达不到验收线。用户选定「跟随视角镜头前瞻」方案，design.md 第 1 节、方案节、测试节已更新。本次修订：
+  - Task 1 改为在已有未提交的部分实现（`effects.js` 的 `startYaw` 与单测、`main.js` 的 `resetPlayer` / `__maze3d.startYaw`、`maze3d_accept.py` 的 `maze_fraction` / `p1_round` / `check_p1` / `check_6` 断言、`maze-3d-page.test.mjs` 的 `OWN`）之上继续，新增 `LOOK_AHEAD`、`lookAheadTarget` 纯函数与单测，跟随相机观察点改为平滑后的前瞻点，`cameraTarget` 调试字段返回实际观察点。
+  - 前瞻让观察点最多离开小人 1.5 格，「迷宫全部在场景雾 near 以内」与「外围地面边缘在雾终点之外」两条不变式的余量不够：`followFogRange` / `groundFogFarMax` 增加可选的 `lookAhead` 参数，`main.js` 传入 `LOOK_AHEAD`；对应浏览器检查（g3 / g3b 的雾公式、g7 的 Python 独立公式）同步加上前瞻量（只会更严，不放宽）。
+  - 依赖观察点的旧检查在 Task 1 内更新：`f6`（安全断言不变，先断言「15° 时连线确实被墙挡」这一前提，格心场景改为面朝墙）、`f10`（默认开局 + 原「朝南」前提各测一次）。
+  - Task 9 Step 3 增加第三类允许的旧检查修改：观察点从小人移到前瞻点。
+  - black 路径改为 `/opt/homebrew/bin/black`（`~/tmp/fuck/c/.venv/bin/black` 不存在）。
+  - Task 2–8 不受前瞻影响，内容不变。
 
 ## Global Constraints
 
 - 不开 `renderer.shadowMap`，不加后期效果；不改操作、碰撞、迷宫生成、迷雾判定；不做「指个方向」提示、脚印、声音、计时、星星收集、角色 / 外围装饰。
 - yaw 约定：前方 = `(sin yaw, −cos yaw)`；three.js `rotation.y = −yaw`。
 - 开局 / 重新生成 / 切尺寸 / 再来一局：`yaw = startYaw(size)`（正方形迷宫恒为 `3π/4`），小人模型同朝向。
+- 跟随视角镜头前瞻：`LOOK_AHEAD = 1.5`（格）；观察点 = 小人位置 + 平滑后的前瞻偏移，高度仍为 `TARGET_HEIGHT`；相机仍按 yaw / 实际俯角 / 距离摆在观察点后方；`liftPitch`、`cameraPullIn`、`camera.lookAt` 都用这个观察点；前瞻只影响构图，不影响碰撞；第一人称不受影响。
 - 阴影：64×64 径向渐变 Canvas 纹理，中心不透明度 0.35、边缘 0；半径 `1.2 × PLAYER_RADIUS`；`MeshBasicMaterial` 透明、`depthWrite: false`；y = 0.005；第一人称隐藏。
 - 暗边：宽 0.18，墙根 0.3 不透明度渐变到外侧 0，黑色；1×64 竖向渐变纹理；一个 `InstancedMesh`；内部墙段两侧各 1 个实例，外边界墙段只朝内 1 个；墙段被迷雾隐藏时对应实例缩放为 0。
 - 光柱：开口圆柱，半径 0.35、高 6、金黄，底部透明度 0.45 → 顶部 0（竖向渐变纹理），`AdditiveBlending`、`depthWrite: false`、`fog: false`；透明度倍率在 [0.7, 1.0] 随时间正弦变化；20 颗上升粒子（`Points`，`sizeAttenuation: true`，`fog: false`），到顶从底部重生；光柱与粒子不受迷雾隐藏；原有星星保留。
@@ -23,75 +34,140 @@
 - 新纹理（阴影/粒子共用的径向纹理、暗边纹理、光柱纹理）启动时各建一次，不随主题重建，不计入 `textureCount`（`liveTextures` 不变）。
 - 性能：同条件平均帧时间不超过改动前（`origin/main` = `3aa67ab`）的 1.3 倍。
 - 截图目录：`/Users/jialiu/Projects/saisai.me/.xdev/20261113-141153-maze-3d-polish/screenshots/`。
-- JS 测试：在 worktree 根目录 `node --test tests/`。Python：`~/tmp/fuck/c/.venv/bin/python`；改完 Python 用 `~/tmp/fuck/c/.venv/bin/black`（没有就 `/opt/homebrew/bin/black`）。不要往 `~` 下 `npm install`；不要用裸 `git stash`。
+- JS 测试：在 worktree 根目录 `node --test tests/`。Python：`~/tmp/fuck/c/.venv/bin/python`；改完 Python 用 `/opt/homebrew/bin/black`（venv 里没有 black）。不要往 `~` 下 `npm install`；不要用裸 `git stash`。
 - 基线代码副本：`B=/private/tmp/claude-501/-Users-jialiu-Projects-saisai-me/c68dac78-6140-48cf-ba1a-0608ab19b363/scratchpad/maze3d-polish-baseline`，`rm -rf "$B" && mkdir -p "$B" && git -C <worktree> archive 3aa67ab | tar -x -C "$B"`。Task 1 起需要。
 - 浏览器检查一律以 `?seed=12345&...&debug=1` 打开；新检查名以 `p` 开头登记进 `CHECKS`。
 
 ## Review Focus
 
 1. 开局朝向从 `π` 改成 `3π/4` 会让依赖「开局朝南」的旧检查失败（至少 `check_6` 断言 `yaw == π`）。Task 9 跑全量；凡因开局朝向失败的旧检查，在其开头显式 `set_test_input(page, yaw=math.pi)` 恢复原前提，`check_6` 改为断言 `startYaw`。
-2. 终点格上的光柱是加法混合，会改变终点格在截图里的颜色，使 `t5` 的「终点色可分辨」检查失真。Task 6 把光柱网格加入 `floorSamplePoints` 的遮挡物列表，只取光柱后面没覆盖到的采样点；t5 必须仍 PASS。
-3. 光柱脉动和粒子是随时间变化的像素：凡比较两张截图的旧检查（`g3` 在 yaw = 3π/4 对比关雾前后像素）会被动画干扰。Task 6 提供 `setBeamForTest({ paused: true })`；Task 9 在 `g3` 截图前调用它。
-4. 「再来一局」在彩带播放中途点击：彩带必须立即停、画布清空、按钮可点。Task 8 的 p6 在通关后 0.5 秒内点击并断言。
-6. 性能对比 `t7` 的基线开局朝南、当前版本开局 `3π/4`：Task 9 Step 1 用两边共用的 `perf_fixed_start` 统一朝向、俯仰、缩放后再计时，并比较 `endPos`/`wins` 确认轨迹一致。
-5. 第一人称原地转一整圈时终点穿过相机平面（`cz` 过 0）：箭头坐标必须始终有限、不跳到无穷。Task 3 单测覆盖 `cz` 从 +0.5 到 −0.5，Task 7 的 p5 每帧记录 `endHint`。
+2. 前瞻点与小人之间隔着墙（面朝墙站在格心，前瞻点越过墙）：相机→观察点连线穿过这面墙，`liftPitch` 必须抬高俯角从墙顶看过去，连线不穿墙、相机不在墙盒内、距离不小于 `min(ideal, CAMERA_MIN_DIST)`。Task 1 的 `f6` 格心场景改为面朝墙专门覆盖这一情况，并先断言 15° 时连线确实被挡（前提不成立就 FAIL，不允许静默通过）。
+3. 小人在边角格朝外走时前瞻点落到迷宫外，迷宫最远点到相机的距离可超过 `相机距离 + size·√2`，迷宫远角会被场景雾染色、外围地面边缘可能进入雾终点以内。Task 1 给 `followFogRange` / `groundFogFarMax` 加 `lookAhead` 余量并有单测；g3b / g7 用加了前瞻量的公式断言。
+4. 终点格上的光柱是加法混合，会改变终点格在截图里的颜色，使 `t5` 的「终点色可分辨」检查失真。Task 6 把光柱网格加入 `floorSamplePoints` 的遮挡物列表，只取光柱后面没覆盖到的采样点；t5 必须仍 PASS。
+5. 光柱脉动和粒子是随时间变化的像素：凡比较两张截图的旧检查（`g3` 在 yaw = 3π/4 对比关雾前后像素）会被动画干扰。Task 6 提供 `setBeamForTest({ paused: true })`；Task 9 在 `g3` 截图前调用它。
+6. 「再来一局」在彩带播放中途点击：彩带必须立即停、画布清空、按钮可点。Task 8 的 p6 在通关后 0.5 秒内点击并断言。
+7. 性能对比 `t7` 的基线开局朝南、当前版本开局 `3π/4`：Task 9 Step 1 用两边共用的 `perf_fixed_start` 统一朝向、俯仰、缩放后再计时，并比较 `endPos`/`wins` 确认轨迹一致。前瞻只改相机位置、不改移动，同样按键下轨迹仍一致；两边画面构图不同属于本功能的真实负载，计入比较。
+8. 第一人称原地转一整圈时终点穿过相机平面（`cz` 过 0）：箭头坐标必须始终有限、不跳到无穷。Task 3 单测覆盖 `cz` 从 +0.5 到 −0.5，Task 7 的 p5 每帧记录 `endHint`。
 
 ---
 
-### Task 1: 开局朝向 `startYaw` 与 `effects.js` 模块
+### Task 1: 开局朝向 `startYaw`、跟随视角镜头前瞻与 `effects.js` 模块
+
+**起点（r2）**：worktree 里已有本任务未提交的部分实现，**在其上继续，不要删除重做**：
+- `maze-3d/effects.js`：`startYaw(size)` 已实现；`tests/maze-3d-effects.test.mjs`：`startYaw` 单测已有且通过。
+- `maze-3d/main.js`：已 `import { startYaw } from './effects.js'`，`resetPlayer()` 用 `yaw = startYaw(size)`，`__maze3d` 已有 `get startYaw()`。
+- `tests/maze-3d-page.test.mjs`：`OWN` 已含 `'effects.js'`。
+- `tests/browser/maze3d_accept.py`：`MAZE_FRACTION_JS`、`maze_fraction`、`p1_round`、`check_p1`（已登记进 `CHECKS`）已写好，`check_6` 已断言 `3π/4`。这些不再改动，除非下文明确要求。
+- 已知事实：只改 yaw 时 `p1` 实测 frac = 34%（基线 35%），所以 `p1` 现在是 FAIL，由本任务的前瞻让它通过。
 
 **Files:**
-- Create: `maze-3d/effects.js`
-- Create: `tests/maze-3d-effects.test.mjs`
-- Modify: `maze-3d/main.js`（`resetPlayer()` 约 352-361 行；`window.__maze3d`）
-- Modify: `tests/maze-3d-page.test.mjs`（`OWN` 列表加 `'effects.js'`）
-- Modify: `tests/browser/maze3d_accept.py`（新增 `check_p1`；`check_6` 的 yaw 断言）
+- Modify: `maze-3d/effects.js`（加 `LOOK_AHEAD`、`lookAheadTarget`）
+- Modify: `tests/maze-3d-effects.test.mjs`
+- Modify: `maze-3d/game-logic.js`（`followFogRange`、`groundFogFarMax` 加可选参数 `lookAhead`）
+- Modify: `tests/maze-3d-core.test.mjs`（新增前瞻余量单测；现有断言不动）
+- Modify: `maze-3d/main.js`（`placeFollow` 约 490-506 行、`updateSceneFog` 约 543 行、`updateGroundExtent` 约 181 行、`__maze3d.cameraTarget` 约 1217 行，新增 `__maze3d.lookAhead`）
+- Modify: `tests/browser/maze3d_accept.py`（`FOG_MATCH_JS`、`FOG_TRANSITION_JS`、`ground_fog_far_max`、`low_pitch_wall_view`、`check_f6`、`check_f10`）
 
 **Interfaces:**
-- Produces: `effects.js` 导出 `startYaw(size: number) -> number`；`__maze3d.startYaw`（只读，等于 `startYaw(size)`）。`effects.js` 只允许 import `./movement.js`，不碰 DOM / three.js。
+- Produces:
+  - `effects.js`：`startYaw(size: number) -> number`（已有）；`LOOK_AHEAD = 1.5`；`lookAheadTarget(playerPos: {x, z}, yaw: number, dist: number) -> {x, z}`，返回 `{x: x + sin(yaw)·dist, z: z − cos(yaw)·dist}`，不改入参。`effects.js` 只允许 import `./movement.js`，不碰 DOM / three.js。
+  - `game-logic.js`：`followFogRange(idealDistance, size, lookAhead = 0)` → `near = idealDistance + size·√2 + lookAhead`，`far = near + 25`；`groundFogFarMax(size, zoomMax, lookAhead = 0)` → 跟随项加 `lookAhead`（第一人称项不变）。默认参数下返回值与现在完全相同（现有 core 单测不改）。
+  - `main.js`：跟随视角观察点 `camTarget = (playerState.x + lookOff.x, TARGET_HEIGHT, playerState.z + lookOff.z)`，`lookOff` 是平滑后的前瞻偏移；`__maze3d.cameraTarget` 跟随视角返回实际 `camTarget`，第一人称返回 `{x: playerState.x, y: TARGET_HEIGHT, z: playerState.z}`；`__maze3d.lookAhead` 只读，等于 `LOOK_AHEAD`。
+  - Python：`ground_fog_far_max(size, zoom_max=1.5, look_ahead=LOOK_AHEAD)`，模块常量 `LOOK_AHEAD = 1.5`（与 effects.js 一致）。
 
 - [ ] **Step 1: 写失败的单测**
 
+`tests/maze-3d-effects.test.mjs` 追加：
+
 ```js
-test('startYaw points from start cell to maze center', () => {
-  for (const n of [10, 15, 20]) {
-    const y = startYaw(n);
-    assert.ok(Math.abs(y - (3 * Math.PI) / 4) < 1e-9);
-    const fx = Math.sin(y), fz = -Math.cos(y);
-    const dx = n / 2 - 0.5, dz = n / 2 - 0.5, len = Math.hypot(dx, dz);
-    assert.ok(Math.abs(fx - dx / len) < 1e-9 && Math.abs(fz - dz / len) < 1e-9);
+test('lookAheadTarget offsets along yaw forward', () => {
+  const p = { x: 2.5, z: 3.5 };
+  const near = (a, b) => Math.abs(a - b) < 1e-12;
+  const cases = [
+    [0, 0, -1.5],                 // 北：−z
+    [Math.PI / 2, 1.5, 0],        // 东：+x
+    [Math.PI, 0, 1.5],            // 南：+z
+    [(3 * Math.PI) / 2, -1.5, 0], // 西：−x
+    [(3 * Math.PI) / 4, 1.5 * Math.SQRT1_2, 1.5 * Math.SQRT1_2], // 东南
+  ];
+  for (const [yaw, dx, dz] of cases) {
+    const t = lookAheadTarget(p, yaw, LOOK_AHEAD);
+    assert.ok(near(t.x, p.x + dx) && near(t.z, p.z + dz), `yaw ${yaw}`);
+  }
+  assert.deepEqual(lookAheadTarget(p, 1.234, 0), { x: 2.5, z: 3.5 });
+  assert.deepEqual(p, { x: 2.5, z: 3.5 });
+  assert.equal(LOOK_AHEAD, 1.5);
+});
+```
+
+`tests/maze-3d-core.test.mjs` 追加：
+
+```js
+test('fog ranges include look-ahead margin', () => {
+  const r = L.followFogRange(8.6, 10, 1.5);
+  assert.ok(Math.abs(r.near - (8.6 + 10 * Math.SQRT2 + 1.5)) < 1e-9);
+  assert.ok(Math.abs(r.far - (r.near + 25)) < 1e-9);
+  for (const s of [10, 15, 20]) {
+    assert.ok(Math.abs(L.groundFogFarMax(s, 1.5, 1.5) - (L.groundFogFarMax(s, 1.5) + 1.5)) < 1e-9);
+    for (const z of [0.7, 1, 1.5]) {
+      const o = L.followOffset(10);
+      assert.ok(L.followFogRange(Math.hypot(o.h, o.d) * z, s, 1.5).far <= L.groundFogFarMax(s, 1.5, 1.5) + 1e-9);
+    }
   }
 });
 ```
 
 - [ ] **Step 2: 运行确认失败**
 
-Run: `node --test tests/maze-3d-effects.test.mjs`
-Expected: FAIL，找不到 `../maze-3d/effects.js`。
+Run: `node --test tests/maze-3d-effects.test.mjs tests/maze-3d-core.test.mjs`
+Expected: FAIL，`lookAheadTarget` / `LOOK_AHEAD` 未导出；fog 新测 near 少了 1.5。
 
-- [ ] **Step 3: 实现**
+- [ ] **Step 3: 实现纯函数**
 
-- `startYaw(size)`：起点格中心 `(0.5, 0.5)` 指向 `(size/2, size/2)`，`atan2(dx, −dz)`。
-- `main.js`：`resetPlayer()` 里 `yaw = startYaw(size)`（注释改为「朝迷宫中心」）；`__maze3d` 加 `get startYaw()`。
-- `tests/maze-3d-page.test.mjs` 的 `OWN` 加 `'effects.js'`。
+- `effects.js`：`LOOK_AHEAD`、`lookAheadTarget` 按 Interfaces。
+- `game-logic.js`：`followFogRange`、`groundFogFarMax` 按 Interfaces 加第三个参数，注释写明「前瞻观察点最多离开小人 lookAhead 格」。
 
-- [ ] **Step 4: 写浏览器检查 `check_p1` 并改 `check_6`**
+Run: `node --test tests/`
+Expected: 全部 PASS（现有 `followFogRange` / `groundFogFarMax` / `groundHalfExtent` 断言不变且通过）。
 
-- 助手 `maze_fraction(page)`：在页面里对 canvas CSS 尺寸的中心 60% 区域（x、y ∈ [0.2, 0.8]）取 16×16 网格点中心，统计 `__maze3d.screenHitsScene(x, y)` 为真的比例。`screenHitsScene` 不改动（基线也有它，两边口径一致）。
-- `check_p1`：1280×800，`size=10`，`preset_storage("1", "5")`，`wait_idle` 后等 600ms；断言 `view == 'follow'`、`abs(yaw − 3π/4) < 1e-9`、`abs(startYaw − 3π/4) < 1e-9`、`maze_fraction ≥ 0.5`；有 `BASELINE_ROOT` 时对基线同条件测一次，把 `baseline frac=` 写进 details（只记录，不判定）。
-- `check_6`：`abs(yaw - math.pi) < 1e-9` 改为 `abs(yaw - 3 * math.pi / 4) < 1e-9`，docstring 的「朝南」改为「朝迷宫中心」。
+- [ ] **Step 4: `main.js` 跟随相机改用前瞻观察点**
 
-- [ ] **Step 5: 运行确认通过**
+- 新增 `const lookOff = new THREE.Vector3()`（y 恒为 0）。`placeFollow(k, snap)` 开头：
+  1. `want = lookAheadTarget({x: 0, z: 0}, yaw, LOOK_AHEAD)`；`snap` 时 `lookOff.set(want.x, 0, want.z)`，否则 `lookOff.lerp(tmpWant, k)`（与 `smoothCam` 同一个 `k`，即 `1 − 0.001^dt`）。平滑的是偏移向量而不是观察点本身：长度始终 ≤ `LOOK_AHEAD`，小人移动时观察点不拖尾。
+  2. `camTarget.set(playerState.x + lookOff.x, TARGET_HEIGHT, playerState.z + lookOff.z)`。
+  3. 其余不变：`liftPitch(camTarget, …)`、`followCameraPos(camTarget, …)`、`cameraPullIn(camTarget, smoothCam, boxes3d)`、`camera.lookAt(camTarget)` 全部以新观察点为准。
+- `placeFirstPerson` 不动。
+- `updateSceneFog`：`followFogRange(Math.max(idealDistance(), dCur), size, LOOK_AHEAD)`；`updateGroundExtent`：`groundFogFarMax(size, ZOOM_MAX, LOOK_AHEAD)`。
+- `__maze3d`：`cameraTarget` 按 Interfaces 改；加 `get lookAhead()`。
+- 相机区注释更新为「观察点 = 小人前方 LOOK_AHEAD 格（偏移平滑）」。
 
-Run: `node --test tests/` 然后 `~/tmp/fuck/c/.venv/bin/python tests/browser/maze3d_accept.py --only p1,6 --baseline-root "$B"`
-Expected: 全部 PASS；p1 details 里新 frac ≥ 50%，并含 baseline frac。
+- [ ] **Step 5: 更新依赖观察点 / 雾公式的旧浏览器检查（不放宽阈值）**
 
-- [ ] **Step 6: black 并 commit**
+- 模块常量 `LOOK_AHEAD = 1.5`。
+- `FOG_MATCH_JS`：`L.followFogRange(…, M.size, M.lookAhead)`。
+- `FOG_TRANSITION_JS`：`need = M.cameraDistance + M.size * Math.SQRT2 + M.lookAhead`。
+- `ground_fog_far_max`：跟随项加 `look_ahead`；docstring 同步。
+- `low_pitch_wall_view(page, yaw, shot)`：读到 `target = cameraTarget`（现在是前瞻观察点）后，用 Python 按 `followCameraPos` 公式求 15° 俯角、`cameraIdealDistance` 下的理想相机位置 `ideal15`，`blocked15 = any(segment_hits_box(target, ideal15, b) for b in boxes)`；`ok` 追加 `blocked15`（前提：15° 时连线确实被墙挡，所以「必须抬高」才有意义），detail 打印 `blocked15` 与 `target`。其余断言（不穿墙、不在盒内、`usable`、`lifted`）与阈值不变。
+- `check_f6`：
+  - 格心场景改为**面朝墙**：`yaw = DIR_YAW[d]`（前瞻点越过墙，相机→观察点连线穿过这面墙；原「背对墙」时观察点离墙 2.0 格，15° 连线在墙处高 0.936 > 墙盒顶 0.92，前提不成立）。截图名不变。
+  - 格心 60° 子项沿用面朝墙状态，断言不变（`dist60 ≥ 0.98 × ideal60`）。
+  - 贴墙子项保持原样（背对墙后退 1 秒；观察点离墙约 1.83 格，15° 时连线在墙处高约 0.89，仍被挡）。
+  - docstring 改为「格心面朝墙（前瞻点越过墙）与背对墙贴墙两处……」。
+- `check_f10`：两个子项都断言 `dist ≥ 0.98 × ideal`：a. 默认开局（`yaw = 3π/4`，相机在西北角外）；b. `set_test_input(page, yaw=math.pi)` + `set_test_input(page)` 后等 1500ms（原「朝南、相机在北侧入口外」前提）。docstring 同步。
+
+- [ ] **Step 6: 运行确认通过**
+
+Run: `node --test tests/` 然后 `~/tmp/fuck/c/.venv/bin/python tests/browser/maze3d_accept.py --only p1,6,f6,f10,g3,g3b,g7,g1,g8 --baseline-root "$B"`
+Expected: 全部 PASS；p1 details 里 frac ≥ 50%，并含 baseline frac；f6 两处 `blocked15=True`。
+
+升级条件：如果 `LOOK_AHEAD = 1.5` 下 p1 的 frac 仍 < 50%，停止，不要自行改 `LOOK_AHEAD`、默认俯角或缩放，也不要放宽 p1 阈值；把 frac 实测值写进报告交回编排器。其余检查 FAIL 时按 superpowers:systematic-debugging 定位：属于产品缺陷就改 `main.js`；属于检查前提变化，只允许 Task 9 Step 3 列出的三类修改。
+
+- [ ] **Step 7: black 并 commit**
 
 ```bash
-~/tmp/fuck/c/.venv/bin/black tests/browser/maze3d_accept.py
-git add maze-3d/effects.js maze-3d/main.js tests/maze-3d-effects.test.mjs tests/maze-3d-page.test.mjs tests/browser/maze3d_accept.py
-git commit -m "feat(maze-3d): 开局镜头朝向迷宫中心"
+/opt/homebrew/bin/black tests/browser/maze3d_accept.py
+git add maze-3d/effects.js maze-3d/game-logic.js maze-3d/main.js tests/maze-3d-effects.test.mjs tests/maze-3d-core.test.mjs tests/maze-3d-page.test.mjs tests/browser/maze3d_accept.py
+git commit -m "feat(maze-3d): 开局朝向迷宫中心，跟随视角镜头前瞻"
 ```
 
 ---
@@ -247,7 +323,7 @@ Expected: 全部 PASS。
 - [ ] **Step 6: black 并 commit**
 
 ```bash
-~/tmp/fuck/c/.venv/bin/black tests/browser/maze3d_accept.py
+/opt/homebrew/bin/black tests/browser/maze3d_accept.py
 git add maze-3d/effects.js maze-3d/main.js tests/maze-3d-effects.test.mjs tests/browser/maze3d_accept.py
 git commit -m "feat(maze-3d): 小人脚下圆形软阴影"
 ```
@@ -304,7 +380,7 @@ Expected: 全部 PASS；t5 各主题 `min ≥ 60`（语义颜色仍可分辨）�
 - [ ] **Step 6: black 并 commit**
 
 ```bash
-~/tmp/fuck/c/.venv/bin/black tests/browser/maze3d_accept.py
+/opt/homebrew/bin/black tests/browser/maze3d_accept.py
 git add maze-3d/effects.js maze-3d/main.js tests/maze-3d-effects.test.mjs tests/browser/maze3d_accept.py
 git commit -m "feat(maze-3d): 墙脚暗边"
 ```
@@ -363,7 +439,7 @@ Expected: 全部 PASS。
 - [ ] **Step 6: black 并 commit**
 
 ```bash
-~/tmp/fuck/c/.venv/bin/black tests/browser/maze3d_accept.py
+/opt/homebrew/bin/black tests/browser/maze3d_accept.py
 git add maze-3d/effects.js maze-3d/main.js tests/maze-3d-effects.test.mjs tests/browser/maze3d_accept.py
 git commit -m "feat(maze-3d): 终点光柱与闪光粒子"
 ```
@@ -416,7 +492,7 @@ Expected: 全部 PASS（8、11 是现有布局与指针检查，确认新元素�
 - [ ] **Step 5: black 并 commit**
 
 ```bash
-~/tmp/fuck/c/.venv/bin/black tests/browser/maze3d_accept.py
+/opt/homebrew/bin/black tests/browser/maze3d_accept.py
 git add maze-3d/index.html maze-3d/main.js tests/browser/maze3d_accept.py
 git commit -m "feat(maze-3d): 画面边缘的终点方向提示"
 ```
@@ -472,7 +548,7 @@ Expected: 全部 PASS。
 - [ ] **Step 6: black 并 commit**
 
 ```bash
-~/tmp/fuck/c/.venv/bin/black tests/browser/maze3d_accept.py
+/opt/homebrew/bin/black tests/browser/maze3d_accept.py
 git add maze-3d/effects.js maze-3d/main.js maze-3d/index.html tests/maze-3d-effects.test.mjs tests/browser/maze3d_accept.py
 git commit -m "feat(maze-3d): 通关彩带"
 ```
@@ -517,13 +593,14 @@ Expected: 记录所有 FAIL 项。
 
 - [ ] **Step 3: 修正受影响的旧检查**
 
-对每个 FAIL 项先按 superpowers:systematic-debugging 定位原因，只允许以下两类修改，其余原因要改产品代码：
+对每个 FAIL 项先按 superpowers:systematic-debugging 定位原因，只允许以下三类修改，其余原因要改产品代码：
 - 原因是开局朝向不再朝南：在该检查打开页面、`wait_idle` 之后加 `set_test_input(page, yaw=math.pi)` + `set_test_input(page)` 恢复原前提，并在注释写明。
 - 原因是光柱 / 粒子动画让前后两张截图像素不同（已知 `g3`）：在截图前调用 `setBeamForTest({ paused: true })`。
+- 原因是跟随视角观察点从小人移到前瞻点（Task 1 已处理 f6、f10、g3、g3b、g7；其余检查同理）：断言改用实际观察点 `cameraTarget` / 带 `lookAhead` 的公式，或在注释里写明后把场景调整到原前提仍成立的位置，并加一条断言证明前提成立。安全性断言（相机不穿墙、不在墙盒内）与所有数值阈值不许放宽。
 
 `t7` 不在本步处理范围：它的起始条件已在 Step 1 统一；若 Step 1 改完后 `t7` 仍 FAIL，属于真实性能退化，要改产品代码，不许改检查。
 
-修改后重跑失败项直到 PASS，然后 `black`。
+修改后重跑失败项直到 PASS，然后 `/opt/homebrew/bin/black tests/browser/maze3d_accept.py`。
 
 - [ ] **Step 4: 全量写结果**
 

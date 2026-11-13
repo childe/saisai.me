@@ -437,7 +437,7 @@ def check_12(browser, base):
 
 
 def check_6(browser, base):
-    """沿最短路走到终点出现恭喜提示；「再来一局」后回到起点格中心、朝南、换新 seed。"""
+    """沿最短路走到终点出现恭喜提示；「再来一局」后回到起点格中心、朝迷宫中心、换新 seed。"""
     page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
     try:
         wait_idle(page)
@@ -470,7 +470,7 @@ def check_6(browser, base):
             and gen2 == gen + 1
             and cell == {"row": 0, "col": 0}
             and off < 1e-6
-            and abs(yaw - math.pi) < 1e-9
+            and abs(yaw - 3 * math.pi / 4) < 1e-9
             and seed_after != seed_before
             and seed_after == seed_m
         )
@@ -3135,6 +3135,77 @@ def check_g8(browser, base):
     return all_ok, " | ".join(details)
 
 
+# ---------------------------------------------------------------- polish（画面打磨）
+
+MAZE_FRACTION_JS = """() => {
+  const c = document.querySelector('#stage > canvas:not(#minimap)');
+  const w = c.clientWidth;
+  const h = c.clientHeight;
+  let hit = 0;
+  for (let i = 0; i < 16; i++) {
+    for (let j = 0; j < 16; j++) {
+      const x = w * (0.2 + (0.6 * (i + 0.5)) / 16);
+      const y = h * (0.2 + (0.6 * (j + 0.5)) / 16);
+      if (window.__maze3d.screenHitsScene(x, y)) hit += 1;
+    }
+  }
+  return hit / 256;
+}"""
+
+
+def maze_fraction(page):
+    """canvas 中心 60% 区域 16×16 网格点里落在迷宫物体上的比例。"""
+    return page.evaluate(MAZE_FRACTION_JS)
+
+
+def p1_round(browser, base):
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 1280, "height": 800},
+        init_script=preset_storage("1", "5"),
+    )
+    try:
+        wait_idle(page)
+        page.wait_for_timeout(600)
+        return {
+            "view": m3(page, "view"),
+            "yaw": m3(page, "yaw"),
+            "startYaw": page.evaluate("() => window.__maze3d.startYaw"),
+            "frac": maze_fraction(page),
+            "errors": errors,
+        }
+    finally:
+        close(page)
+
+
+def check_p1(browser, base):
+    """开局跟随视角朝迷宫中心：yaw = startYaw = 3π/4，画面中心 60% 区域至少一半是迷宫。"""
+    r = p1_round(browser, base)
+    want = 3 * math.pi / 4
+    ok = (
+        r["view"] == "follow"
+        and abs(r["yaw"] - want) < 1e-9
+        and r["startYaw"] is not None
+        and abs(r["startYaw"] - want) < 1e-9
+        and r["frac"] >= 0.5
+    )
+    ok_err, msg = no_errors(r["errors"])
+    detail = (
+        f"view={r['view']} yaw={r['yaw']:.4f} startYaw={r['startYaw']}"
+        f" frac={r['frac']:.0%}"
+    )
+    if BASELINE_ROOT:
+        proc, bbase = start_server(BASELINE_ROOT)
+        try:
+            b = p1_round(browser, bbase)
+        finally:
+            proc.terminate()
+            proc.wait()
+        detail += f" baseline frac={b['frac']:.0%} (baseline yaw={b['yaw']:.4f})"
+    return ok and ok_err, (detail + " " + msg).strip()
+
+
 CHECKS = {
     "1": check_1,
     "10": check_10,
@@ -3177,6 +3248,7 @@ CHECKS = {
     "g3b": check_g3b,
     "g7": check_g7,
     "g8": check_g8,
+    "p1": check_p1,
 }
 
 

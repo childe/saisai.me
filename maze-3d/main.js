@@ -60,6 +60,7 @@ import {
   applyKeyEvent,
   createPointerRouter,
 } from './movement.js';
+import { startYaw } from './effects.js';
 
 const EYE_HEIGHT = 0.45;
 const STICK_RADIUS = 50; // 虚拟摇杆底座半径，CSS 像素
@@ -348,12 +349,12 @@ function start() {
     snapCamera();
   }
 
-  // 回到起点格中心，速度清零，朝南（迷宫在南 / 东方向）
+  // 回到起点格中心，速度清零，朝迷宫中心
   function resetPlayer() {
     playerState = { x: 0.5, z: 0.5, vx: 0, vz: 0 };
     display.row = 0;
     display.col = 0;
-    yaw = Math.PI;
+    yaw = startYaw(size);
     walkPhase = 0;
     player.position.set(playerState.x, 0, playerState.z);
     player.rotation.y = -yaw;
@@ -1189,6 +1190,9 @@ function start() {
     },
     get yaw() {
       return yaw;
+    },
+    get startYaw() {
+      return startYaw(size);
     },
     get pitch() {
       return pitch;
