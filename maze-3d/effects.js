@@ -8,3 +8,12 @@ export function startYaw(size) {
   const dz = size / 2 - 0.5;
   return Math.atan2(dx, -dz);
 }
+
+// ---------- 跟随视角镜头前瞻 ----------
+// 观察点 = 小人前方 LOOK_AHEAD 格（格），让画面中心落在小人要去的方向
+export const LOOK_AHEAD = 1.5;
+
+// 沿 yaw 前方 (sin yaw, −cos yaw) 偏移 dist，不改入参
+export function lookAheadTarget(playerPos, yaw, dist) {
+  return { x: playerPos.x + Math.sin(yaw) * dist, z: playerPos.z - Math.cos(yaw) * dist };
+}

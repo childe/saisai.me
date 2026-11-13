@@ -382,3 +382,16 @@ test('groundHalfExtent keeps every visible edge point beyond fog far', () => {
         }
     }
 });
+
+test('fog ranges include look-ahead margin', () => {
+  const r = L.followFogRange(8.6, 10, 1.5);
+  assert.ok(Math.abs(r.near - (8.6 + 10 * Math.SQRT2 + 1.5)) < 1e-9);
+  assert.ok(Math.abs(r.far - (r.near + 25)) < 1e-9);
+  for (const s of [10, 15, 20]) {
+    assert.ok(Math.abs(L.groundFogFarMax(s, 1.5, 1.5) - (L.groundFogFarMax(s, 1.5) + 1.5)) < 1e-9);
+    for (const z of [0.7, 1, 1.5]) {
+      const o = L.followOffset(10);
+      assert.ok(L.followFogRange(Math.hypot(o.h, o.d) * z, s, 1.5).far <= L.groundFogFarMax(s, 1.5, 1.5) + 1e-9);
+    }
+  }
+});

@@ -60,7 +60,7 @@ import {
   applyKeyEvent,
   createPointerRouter,
 } from './movement.js';
-import { startYaw } from './effects.js';
+import { startYaw, LOOK_AHEAD, lookAheadTarget } from './effects.js';
 
 const EYE_HEIGHT = 0.45;
 const STICK_RADIUS = 50; // 虚拟摇杆底座半径，CSS 像素
@@ -178,7 +178,7 @@ function start() {
   scene.add(groundMesh);
 
   function updateGroundExtent() {
-    groundE = groundHalfExtent(groundFogFarMax(size, ZOOM_MAX), camera.fov, camera.aspect);
+    groundE = groundHalfExtent(groundFogFarMax(size, ZOOM_MAX, LOOK_AHEAD), camera.fov, camera.aspect);
     groundMesh.scale.set(2 * groundE, 2 * groundE, 1);
     if (currentTextures) currentTextures.ground.repeat.set(2 * groundE, 2 * groundE);
   }
@@ -465,11 +465,15 @@ function start() {
   }
 
   // ---------- 相机 ----------
-  // 跟随视角：先用 liftPitch 求实际俯角（身后有墙、收近后小人会占满画面时抬高俯角），
+  // 跟随视角：观察点 = 小人前方 LOOK_AHEAD 格（偏移平滑），高度 TARGET_HEIGHT；
+  // 先用 liftPitch 求实际俯角（观察点与相机之间有墙、收近后小人会占满画面时抬高俯角），
   // 理想位置由 yaw / 实际俯角 / 距离算出并平滑插值；再沿平滑后的方向做三维避障，
-  // 实际距离 dCur 比安全距离远就立即收近，比它近就慢慢恢复（smoothCameraDistance）
+  // 实际距离 dCur 比安全距离远就立即收近，比它近就慢慢恢复（smoothCameraDistance）。
+  // 前瞻只影响构图，不影响碰撞；第一人称不用前瞻
   const smoothCam = new THREE.Vector3();
   const camTarget = new THREE.Vector3();
+  const lookOff = new THREE.Vector3(); // 平滑后的前瞻偏移，y 恒为 0
+  const tmpWant = new THREE.Vector3();
   let dCur = 0;
   let camPitch = 0;
 
@@ -488,7 +492,12 @@ function start() {
   }
 
   function placeFollow(k, snap) {
-    camTarget.set(playerState.x, TARGET_HEIGHT, playerState.z);
+    // 平滑的是偏移向量而不是观察点本身：长度始终 ≤ LOOK_AHEAD，小人移动时观察点不拖尾
+    const want = lookAheadTarget({ x: 0, z: 0 }, yaw, LOOK_AHEAD);
+    tmpWant.set(want.x, 0, want.z);
+    if (snap) lookOff.copy(tmpWant);
+    else lookOff.lerp(tmpWant, k);
+    camTarget.set(playerState.x + lookOff.x, TARGET_HEIGHT, playerState.z + lookOff.z);
     const dist = idealDistance();
     camPitch = liftPitch(camTarget, yaw, pitch, dist, boxes3d);
     const ideal = followCameraPos(camTarget, yaw, camPitch, dist);
@@ -540,7 +549,7 @@ function start() {
       far = fogOn ? fogRadius + 0.5 : size * 1.5;
     } else {
       // 相机平滑收近期间实际距离 dCur 会大于理想距离，取两者较大者，过渡中迷宫也不被染色
-      ({ near, far } = followFogRange(Math.max(idealDistance(), dCur), size));
+      ({ near, far } = followFogRange(Math.max(idealDistance(), dCur), size, LOOK_AHEAD));
     }
     if (scene.fog) {
       scene.fog.near = near;
@@ -1214,8 +1223,13 @@ function start() {
     get cameraPos() {
       return { x: camera.position.x, y: camera.position.y, z: camera.position.z };
     },
+    // 跟随视角返回实际观察点（小人前方的前瞻点）；第一人称返回小人位置
     get cameraTarget() {
-      return { x: playerState.x, y: TARGET_HEIGHT, z: playerState.z };
+      if (view === 'first') return { x: playerState.x, y: TARGET_HEIGHT, z: playerState.z };
+      return { x: camTarget.x, y: camTarget.y, z: camTarget.z };
+    },
+    get lookAhead() {
+      return LOOK_AHEAD;
     },
     get wallBoxes3d() {
       return boxes3d.map((b) => ({ ...b }));

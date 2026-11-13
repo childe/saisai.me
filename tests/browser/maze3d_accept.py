@@ -2354,10 +2354,63 @@ def point_in_box(p, box, eps=1e-4):
 
 
 CAMERA_MIN_DIST = 1.5  # 与 movement.js 一致：收近到这以下时改为抬高俯角
+LOOK_AHEAD = 1.5  # 与 effects.js 一致：跟随视角观察点在小人前方的格数
+
+
+def follow_camera_pos(target, yaw, pitch, dist):
+    """与 movement.js followCameraPos 相同的公式（Python 独立实现）。"""
+    h = math.cos(pitch) * dist
+    return {
+        "x": target["x"] - math.sin(yaw) * h,
+        "y": target["y"] + math.sin(pitch) * dist,
+        "z": target["z"] + math.cos(yaw) * h,
+    }
+
+
+def find_lookahead_wall_cell(page):
+    """从 (0,0) 按 BFS 找最近的、有内部墙且面朝墙时前瞻点不落进任何墙盒的格子，走到格心，
+    返回墙的方向名。前瞻点取格心沿墙方向 1.2–1.8 格（覆盖格心与贴墙两种站位）。"""
+    cands = logic(
+        page,
+        """(() => {
+          const out = [];
+          const seen = new Set(['0,0']);
+          const q = [{ row: 0, col: 0 }];
+          for (let i = 0; i < q.length; i++) {
+            const p = q[i];
+            for (const [name, [dr, dc]] of Object.entries(L.DIRS)) {
+              const n = { row: p.row + dr, col: p.col + dc };
+              const inside = n.row >= 0 && n.row < M.size && n.col >= 0 && n.col < M.size;
+              if (inside && !L.canMove(M.connections, p, n)) out.push({ row: p.row, col: p.col, d: name });
+              if (!L.canMove(M.connections, p, n) || seen.has(n.row + ',' + n.col)) continue;
+              seen.add(n.row + ',' + n.col);
+              q.push(n);
+            }
+          }
+          return out;
+        })()""",
+    )
+    boxes = m3(page, "wallBoxes3d")
+    for c in cands:
+        dr, dc = DIRS[c["d"]]
+        free = True
+        for i in range(13):
+            k = 1.2 + 0.05 * i
+            pt = {"x": c["col"] + 0.5 + dc * k, "y": 0.4, "z": c["row"] + 0.5 + dr * k}
+            if any(point_in_box(pt, b, eps=-0.05) for b in boxes):
+                free = False
+                break
+        if free:
+            if not walk_to(page, c["row"], c["col"]):
+                return None
+            return c["d"]
+    return None
 
 
 def low_pitch_wall_view(page, yaw, shot):
-    """俯角 15°、相机转到身后墙方向，等稳定后检查相机：线段不穿墙、不在盒内、俯角被抬高、距离可用。"""
+    """俯角 15°、转到 yaw，等稳定后检查相机：线段不穿墙、不在盒内、俯角被抬高、距离可用。
+    前提：15° 俯角、理想距离下观察点（前瞻点）到相机的连线确实被墙挡（blocked15），
+    否则「必须抬高」无从谈起，直接判 FAIL。"""
     set_test_input(page, yaw=yaw, pitch=math.radians(15))
     page.wait_for_timeout(1500)
     target = m3(page, "cameraTarget")
@@ -2366,23 +2419,32 @@ def low_pitch_wall_view(page, yaw, shot):
     dist = m3(page, "cameraDistance")
     ideal = m3(page, "cameraIdealDistance")
     cam_pitch = m3(page, "cameraPitch")
+    ideal15 = follow_camera_pos(target, yaw, math.radians(15), ideal)
+    blocked15 = any(segment_hits_box(target, ideal15, b) for b in boxes)
+    # 前瞻点落在墙盒外：否则连线从观察点出发就在盒内，「不穿墙」无从判断
+    target_free = not any(point_in_box(target, b) for b in boxes)
     hits = [b for b in boxes if segment_hits_box(target, cam, b)]
     inside_box = [b for b in boxes if point_in_box(cam, b)]
     colors = m3(page, "sampleDistinctColors()")
     canvas_image(page).save(SHOTS / shot)
     usable = dist >= 0.98 * min(ideal, CAMERA_MIN_DIST)
     lifted = cam_pitch > math.radians(15) + 1e-6
-    ok = not hits and not inside_box and usable and lifted
+    ok = blocked15 and target_free and not hits and not inside_box and usable and lifted
     detail = (
         f"distance={dist:.3f} ideal={ideal:.3f} camPitch={math.degrees(cam_pitch):.1f}"
         f" hits={len(hits)} camInside={len(inside_box)} colors={colors}"
+        f" blocked15={blocked15} targetFree={target_free}"
+        f" target=({target['x']:.3f},{target['y']:.3f},{target['z']:.3f})"
     )
     return ok, detail
 
 
 def check_f6(browser, base):
-    """跟随视角背对墙、低俯角：格心与贴墙两处，相机都抬高俯角从墙顶看过去，线段不穿墙、
-    距离不小于 CAMERA_MIN_DIST（小人不占满画面）；格心 60° 俯角本来就看得过去，不拉近。"""
+    """跟随视角低俯角：格心面朝墙（前瞻点越过墙）与面朝墙贴墙两处，相机都抬高俯角从墙顶
+    看过去，线段不穿墙、距离不小于 CAMERA_MIN_DIST（小人不占满画面）；两处都先断言 15° 时
+    观察点到相机的连线确实被墙挡、前瞻点不在墙盒内；格心 60° 俯角本来就看得过去，不拉近。
+    贴墙改为面朝墙前进：观察点移到前瞻点后，背对墙贴墙时观察点离墙约 1.83 格，15° 收近
+    距离仍 ≥ CAMERA_MIN_DIST，不需要抬高，原前提不成立。"""
     SHOTS.mkdir(parents=True, exist_ok=True)
     page, errors = open_page(
         browser,
@@ -2392,11 +2454,13 @@ def check_f6(browser, base):
     details = []
     try:
         wait_idle(page)
-        d = find_wall_cell(page)
+        d = find_lookahead_wall_cell(page)
         if d is None:
             return False, "no wall cell"
-        back = DIR_YAW[d] + math.pi
-        ok_center, msg = low_pitch_wall_view(page, back, "follow-lowpitch-wall.png")
+        face = DIR_YAW[d]
+        # 格心面朝墙：前瞻点越过墙，相机→观察点连线穿过这面墙
+        # （背对墙时观察点离墙 2.0 格，15° 连线在墙处高于墙盒顶，前提不成立）
+        ok_center, msg = low_pitch_wall_view(page, face, "follow-lowpitch-wall.png")
         details.append(f"center pitch15 wall={d}: {msg}")
         set_test_input(page, pitch=math.radians(60))
         page.wait_for_timeout(1500)
@@ -2404,12 +2468,12 @@ def check_f6(browser, base):
         ideal60 = m3(page, "cameraIdealDistance")
         ok_high = dist60 >= 0.98 * ideal60
         details.append(f"center pitch60: distance={dist60:.3f} ideal={ideal60:.3f}")
-        # 背对墙后退 1 秒，贴到墙上
+        # 面朝墙前进 1 秒，贴到墙上
         p0 = m3(page, "playerPos")
-        set_test_input(page, forward=-1, yaw=back, pitch=math.radians(15))
+        set_test_input(page, forward=1, yaw=face, pitch=math.radians(15))
         page.wait_for_timeout(1000)
         p1 = m3(page, "playerPos")
-        ok_hug, msg = low_pitch_wall_view(page, back, "follow-lowpitch-hug.png")
+        ok_hug, msg = low_pitch_wall_view(page, face, "follow-lowpitch-hug.png")
         set_test_input(page)
         moved_back = math.hypot(p1["x"] - p0["x"], p1["z"] - p0["z"])
         details.append(f"hug moved={moved_back:.3f} pitch15: {msg}")
@@ -2421,18 +2485,26 @@ def check_f6(browser, base):
 
 
 def check_f10(browser, base):
-    """打开页面的默认跟随视角（起点朝南，相机在北侧入口外）：不被不渲染的入口封口拉近。"""
+    """起点格的跟随视角不被不渲染的入口封口拉近：a. 默认开局（yaw = 3π/4，相机在西北角外）；
+    b. 原「朝南、相机在北侧入口外」前提（yaw = π）。"""
     page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
     try:
         wait_idle(page)
         page.wait_for_timeout(500)
         dist = m3(page, "cameraDistance")
         ideal = m3(page, "cameraIdealDistance")
+        ok_a = dist >= 0.98 * ideal
+        set_test_input(page, yaw=math.pi)
+        set_test_input(page)
+        page.wait_for_timeout(1500)
+        dist_s = m3(page, "cameraDistance")
+        ideal_s = m3(page, "cameraIdealDistance")
+        ok_b = dist_s >= 0.98 * ideal_s
         ok_err, msg = no_errors(errors)
-        ok = dist >= 0.98 * ideal
         return (
-            ok and ok_err,
-            f"start distance={dist:.3f} ideal={ideal:.3f} {msg}".strip(),
+            ok_a and ok_b and ok_err,
+            f"start distance={dist:.3f} ideal={ideal:.3f}"
+            f" south distance={dist_s:.3f} ideal={ideal_s:.3f} {msg}".strip(),
         )
     finally:
         close(page)
@@ -2677,7 +2749,7 @@ def sample_points(img, page, pts):
 FOG_MATCH_JS = """(() => {
   const f = M.sceneFog;
   if (!f) return { ok: false, fog: null };
-  const r = L.followFogRange(Math.max(M.cameraIdealDistance, M.cameraDistance), M.size);
+  const r = L.followFogRange(Math.max(M.cameraIdealDistance, M.cameraDistance), M.size, M.lookAhead);
   return {
     ok: Math.abs(f.near - r.near) < 1e-6 && Math.abs(f.far - r.far) < 1e-6,
     fog: f,
@@ -2807,13 +2879,13 @@ def check_g3(browser, base):
 
 
 # 在页面里执行 action（'fog' 点开迷雾 / 'zoom' 一次拉到最近），随后逐帧记录
-# 场景雾 near 与实际相机距离；返回违反「near ≥ 实际距离 + size×√2」的帧
+# 场景雾 near 与实际相机距离；返回违反「near ≥ 实际距离 + size×√2 + 前瞻量」的帧
 FOG_TRANSITION_JS = """async (action) => {
   const M = window.__maze3d;
   const out = [];
   const rec = (tag) => {
     const f = M.sceneFog;
-    const need = M.cameraDistance + M.size * Math.SQRT2;
+    const need = M.cameraDistance + M.size * Math.SQRT2 + M.lookAhead;
     out.push({ tag, near: f ? f.near : null, dist: M.cameraDistance, need });
   };
   if (action === 'fog') document.getElementById('fog-btn').click();
@@ -2862,11 +2934,12 @@ def check_g3b(browser, base):
     return True, " ".join(details)
 
 
-def ground_fog_far_max(size, zoom_max=1.5):
-    """与 game-logic.js groundFogFarMax 相同的公式（Python 独立实现）。"""
+def ground_fog_far_max(size, zoom_max=1.5, look_ahead=LOOK_AHEAD):
+    """与 game-logic.js groundFogFarMax 相同的公式（Python 独立实现）；跟随项含前瞻量
+    look_ahead（前瞻观察点最多离开小人这么多格）。"""
     h = 3 + 0.8 * 10
     d = 2 + 0.6 * 10
-    follow = math.hypot(h, d) * zoom_max + size * math.sqrt(2) + 25
+    follow = math.hypot(h, d) * zoom_max + size * math.sqrt(2) + look_ahead + 25
     return max(follow, max(25.5, size * 1.5))
 
 
