@@ -80,18 +80,18 @@ export function predictTask({ id, chapter, name, goal, variants, preset, target,
     },
     check(progress, ws) {
       if (progress.answer == null) {
-        // 没猜就合过开关，等于偷看了读数；锁住，只能重来。
-        if (!progress.peeked && !presetSwitches(ws.circuit).some(s => s.params.closed)) return result(false, progress);
+        // 没猜就看到了读数（合过开关，或电表有读数），等于偷看；锁住，只能重来。
+        if (!progress.peeked && !presetSwitches(ws.circuit).some(s => s.params.closed) && !metersRead(ws)) return result(false, progress);
         return result(false, progress.peeked ? progress : { ...progress, peeked: true }, PEEKED);
       }
+      const wrongHint = actual => `实际是 ${actual.toFixed(2)} ${unit}，差了一点。点「重来」再算一次`;
+      if (progress.wrong) return result(false, progress, wrongHint(progress.actual));
       const sw = presetSwitches(ws.circuit);
       if (!sw.length || !sw.every(s => s.params.closed)) return result(false, progress, NEED_SWITCH);
       if (!ws.result.ok) return result(false, progress);
       const actual = target(ws);
-      const wrongHint = `实际是 ${actual.toFixed(2)} ${unit}，差了一点。点「重来」再算一次`;
-      if (progress.wrong) return result(false, progress, wrongHint);
       if (withinTolerance(progress.answer, actual)) return result(true, progress);
-      return result(false, { ...progress, wrong: true }, wrongHint);
+      return result(false, { ...progress, wrong: true, actual }, wrongHint(actual));
     },
   };
 }

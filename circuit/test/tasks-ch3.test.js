@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { TASKS, evaluateTask } from '../lib/tasks.js';
 import { settle } from '../lib/engine.js';
 import { createDamage } from '../lib/damage.js';
-import { setParam } from '../lib/circuit.js';
+import { setParam, addWire } from '../lib/circuit.js';
 import { PHYS } from '../lib/parts.js';
 import { withinTolerance, withParams, ofType, presetCircuit } from '../lib/task-kit.js';
 import { build } from './helpers.js';
@@ -132,8 +132,53 @@ test('task 16: answer needs the experiment and a value in 0.025..0.035', () => {
   const bad = t.submit(good.progress, 0.05, burnWs);
   const rb = evaluateTask(t, bad.progress, burnWs);
   assert.equal(rb.passed, false);
-  assert.equal(rb.hint, '再看看 LED 烧坏前电流表读多少');
-  assert.equal(evaluateTask(t, t.submit(bad.progress, 0.03, burnWs).progress, burnWs).passed, true);
+  assert.equal(rb.hint, '答错了，点「重来」再做一次实验');
+  assert.equal(rb.progress.wrong, true);
+});
+
+test('task 16: a wrong answer after the experiment locks until restart', () => {
+  const t = T(16);
+  const rig = ledRig(1);
+  const burnWs = wsOf(setParam(rig, 'R', 'pos', 0));
+  const r2 = evaluateTask(t, evaluateTask(t, t.initProgress(), wsOf(rig)).progress, burnWs);
+  const rb = evaluateTask(t, t.submit(r2.progress, 0.05, burnWs).progress, burnWs);
+  assert.equal(rb.progress.wrong, true);
+  assert.equal(rb.hint, '答错了，点「重来」再做一次实验');
+  assert.equal(t.submit(rb.progress, 0.03, burnWs), null);
+  const forced = evaluateTask(t, { ...rb.progress, answer: 0.03 }, burnWs);
+  assert.equal(forced.passed, false);
+  assert.equal(forced.hint, '答错了，点「重来」再做一次实验');
+  // 实验没做完时答错不锁
+  const early = t.submit(t.initProgress(), 0.05, wsOf(rig));
+  assert.ok(!evaluateTask(t, early.progress, wsOf(rig)).progress.wrong);
+});
+
+test('predict: any meter reading before answering counts as peeking (level 12 bypass wire)', () => {
+  const t = T(12);
+  const base = t.preset(2);
+  const sw = ofType(base, 'switch')[0];
+  const bypass = addWire(base, { part: sw.id, term: 'a' }, { part: sw.id, term: 'b' }).circuit;
+  const r1 = evaluateTask(t, t.initProgress(), wsOf(bypass, 2));
+  assert.equal(r1.progress.peeked, true);
+  assert.equal(r1.hint, '你已经看过读数了，点「重来」再猜');
+  // 拆掉导线后仍然锁着
+  const r2 = evaluateTask(t, r1.progress, wsOf(base, 2));
+  assert.equal(r2.progress.peeked, true);
+  const actual = t.target(wsOf(withParams(base, { [sw.id]: { closed: true } }), 2));
+  assert.equal(t.submit(r2.progress, actual, wsOf(base, 2)), null);
+});
+
+test('predict: wrong hint wins over the open-switch hint', () => {
+  const t = T(12);
+  const base = t.preset(2);
+  const sw = ofType(base, 'switch')[0];
+  const open = wsOf(base, 2), closed = wsOf(withParams(base, { [sw.id]: { closed: true } }), 2);
+  const sub = t.submit(t.initProgress(), 1, open);
+  const rb = evaluateTask(t, sub.progress, closed);
+  assert.equal(rb.progress.wrong, true);
+  const reopened = evaluateTask(t, rb.progress, open);
+  assert.equal(reopened.passed, false);
+  assert.equal(reopened.hint, rb.hint);
 });
 
 test('task 16: burned without an ammeter in series does not count', () => {

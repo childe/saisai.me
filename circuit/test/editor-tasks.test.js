@@ -155,3 +155,27 @@ test('wrong accuse cannot be undone back to the old variant (level 22)', () => {
   const r = play(after, { type: 'accuse', target: { kind: 'wire', id: oldFault } });
   assert.equal(T(r).passed, false);
 });
+
+test('predict level refuses every connect (level 12)', () => {
+  const s = enter(12);
+  const sw = switchOf(s);
+  const a1 = T(s).circuit.parts.find(p => p.type === 'ammeter');
+  assert.equal(play(s, { type: 'connect', from: { part: sw.id, term: 'a' }, to: { part: sw.id, term: 'b' } }), s);
+  assert.equal(play(s, { type: 'connect', from: { part: sw.id, term: 'a' }, to: { part: a1.id, term: 'n' } }), s);
+});
+
+test('lockPreset refuses move/rotate of preset parts, own parts still move (level 21)', () => {
+  let s = enter(21);
+  const lamp = T(s).circuit.parts.find(p => p.type === 'lamp');
+  assert.equal(play(s, { type: 'move', id: lamp.id, x: lamp.x + 2, y: lamp.y }), s);
+  assert.equal(play(s, { type: 'rotate', id: lamp.id }), s);
+  s = play(s, { type: 'place', partType: 'voltmeter', x: 12, y: 18 });
+  const m = T(s).circuit.parts.find(p => p.type === 'voltmeter');
+  const moved = play(s, { type: 'move', id: m.id, x: 14, y: 18 });
+  assert.equal(T(moved).circuit.parts.find(p => p.id === m.id).x, 14);
+  const rotated = play(s, { type: 'rotate', id: m.id });
+  assert.equal(T(rotated).circuit.parts.find(p => p.id === m.id).rot, 1);
+  // 预测题的预置元件也一样
+  const p12 = enter(12);
+  assert.equal(play(p12, { type: 'rotate', id: switchOf(p12).id }), p12);
+});

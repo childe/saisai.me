@@ -105,8 +105,8 @@ export const CH3 = [
   {
     id: 16, chapter: 3, name: 'LED 能受多大电流', goal: '做实验，找出 LED 最多能通过多少电流', palette: { battery: 2, rheostat: 1, ammeter: 1, led: 2 },
     answer: { kind: 'measure', question: () => 'LED 最多能通过多少电流？', unit: 'A' },
-    preset: () => createCircuit(), initProgress: () => ({ answer: null, sawSeries: false, burned: false }),
-    submit: (progress, value) => ({ progress: { ...progress, answer: value }, hint: null }),
+    preset: () => createCircuit(), initProgress: () => ({ answer: null, sawSeries: false, burned: false, wrong: false }),
+    submit: (progress, value) => (progress.wrong ? null : { progress: { ...progress, answer: value }, hint: null }),
     check(progress, ws) {
       const leds = ofType(ws.circuit, 'led'), meters = ofType(ws.circuit, 'ammeter');
       const seen = [...ws.trail, ws.result].some(r => meters.some(a => {
@@ -118,8 +118,9 @@ export const CH3 = [
       const next = sawSeries === progress.sawSeries && burned === progress.burned ? progress : { ...progress, sawSeries, burned };
       if (next.answer == null) return result(false, next);
       if (!sawSeries || !burned) return result(false, next, '先用电流表和变阻器做实验，把 LED 调到烧坏为止');
-      if (next.answer >= 0.025 && next.answer <= 0.035) return result(true, next);
-      return result(false, next, '再看看 LED 烧坏前电流表读多少');
+      // 做完实验后答错一次就锁住，免得一个个数试过去。
+      if (!next.wrong && next.answer >= 0.025 && next.answer <= 0.035) return result(true, next);
+      return result(false, next.wrong ? next : { ...next, wrong: true }, '答错了，点「重来」再做一次实验');
     },
   },
 ];

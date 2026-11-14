@@ -119,12 +119,16 @@ export function reduce(state, action) {
       return commit(state, r.circuit, { extra: { selection: { kind: 'part', id: r.id } } });
     }
     case 'move':
+      // 挪动、旋转预置元件会让端点重合，等于偷偷接线。
+      if (lockedPart(task, c, action.id)) return state;
       return commit(state, movePart(c, action.id, action.x, action.y), { coalesce: !!action.coalesce });
     case 'rotate':
+      if (lockedPart(task, c, action.id)) return state;
       return commit(state, rotatePart(c, action.id));
     case 'connect': {
       // 两端可以是端点，也可以是导线上的一点（先分割）；任一步失败，整个动作作废。
       const { from, to } = action;
+      if (task?.answer?.kind === 'predict') return state; // 预测题不许接线，免得绕过开关偷看读数
       if (lockedWire(task, c, from?.wire) || lockedWire(task, c, to?.wire)) return state;
       if (from?.wire !== undefined && from.wire === to?.wire) return state;
       const r1 = resolveEnd(c, from);
