@@ -38,7 +38,9 @@ export function highlightDigit(g) {
 
 export function doneDigits(g) {
   const count = new Map();
-  for (const v of g.values) if (v) count.set(v, (count.get(v) || 0) + 1);
+  g.values.forEach((v, cell) => {
+    if (v && !g.wrong.has(cell)) count.set(v, (count.get(v) || 0) + 1);
+  });
   return new Set([...count].filter(([, n]) => n === g.size).map(([d]) => d));
 }
 

@@ -122,6 +122,21 @@ test('doneDigits and highlightDigit', () => {
   assert.equal(highlightDigit(g0()), null);
   assert.equal(isFull(g0()), false);
 });
+test('doneDigits ignores wrong entries', () => {
+  const sol = parse(SOL6);
+  const z = HOLES6[0];
+  const d = sol[z];
+  const y = HOLES6.find(c => sol[c] !== d);
+  let g = g0();
+  for (const c of HOLES6) if (c !== z && c !== y) g = run(g, { type: 'tapCell', cell: c }, { type: 'digit', digit: sol[c] });
+  assert.ok(!doneDigits(g).has(d));
+  g = run(g, { type: 'tapCell', cell: y }, { type: 'digit', digit: d });
+  assert.ok(g.wrong.has(y));
+  assert.equal(g.values.filter(v => v === d).length, g.size);
+  assert.ok(!doneDigits(g).has(d));
+  g = run(g, { type: 'tapCell', cell: z }, { type: 'digit', digit: d });
+  assert.ok(!doneDigits(g).has(d) || g.wrong.has(y));
+});
 test('autoCandidates fills notes', () => {
   const g = createGame({ size: 6, puzzle: PUZ6, solution: SOL6, instantCheck: true, autoCandidates: true });
   assert.deepEqual(bits(g.notes[0]), [1]);
