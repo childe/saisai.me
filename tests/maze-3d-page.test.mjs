@@ -17,6 +17,7 @@ const OWN = [
   'movement.js',
   'effects.js',
   'gameplay.js',
+  'sound.js',
   'README.md',
 ];
 
