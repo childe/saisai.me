@@ -135,3 +135,18 @@ test('wrongView', () => {
   assert.deepEqual(v.wrongCells, [3, 8]);
   assert.equal(v.digit, null);
 });
+
+test('hidden layer 3 shading leaves only the target open (box, row, column)', () => {
+  const fixtures = [
+    [HV.hidden, x => x.cell === 2 && x.unit.kind === 'box'],
+    [board([[1, 4, 5], [2, 7, 5], [3, 1, 5], [4, 2, 5]]), x => x.unit.kind === 'row' && x.unit.index === 0 && x.cell === 0],
+    [board([[4, 1, 5], [7, 2, 5], [1, 3, 5], [2, 4, 5]]), x => x.unit.kind === 'col' && x.unit.index === 0 && x.cell === 0],
+  ];
+  for (const [v, pick] of fixtures) {
+    const step = findSteps(v, s, none(), 'hidden').find(pick);
+    assert.ok(step);
+    const l3 = hintView(step, 3, v, s, none());
+    const open = step.unit.cells.filter(c => !v[c] && !l3.shadeCells.includes(c));
+    assert.deepEqual(open, [step.cell]);
+  }
+});

@@ -36,12 +36,10 @@ function hiddenView(step, layer, values, spec) {
   values.forEach((v, cell) => { if (v === step.digit) digitCells.push(cell); });
   const base = { text: `看看 ${step.digit}`, icon: '👀', digit: step.digit, digitCells };
   if (layer === 2) return view(base);
-  const rows = new Set(digitCells.map(c => Math.floor(c / spec.size)));
-  const cols = new Set(digitCells.map(c => c % spec.size));
+  const peers = new Set();
+  for (const c of digitCells) for (const p of spec.peers[c]) peers.add(p);
   const shadeCells = [];
-  values.forEach((v, cell) => {
-    if (!v && (rows.has(Math.floor(cell / spec.size)) || cols.has(cell % spec.size))) shadeCells.push(cell);
-  });
+  values.forEach((v, cell) => { if (!v && peers.has(cell)) shadeCells.push(cell); });
   return view({ ...base, text: `${step.digit} 不能填在灰格里`, shadeCells });
 }
 
