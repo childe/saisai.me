@@ -80,6 +80,36 @@ test('notes and peer cleanup', () => {
   g = run(g, { type: 'toggleNotes' }, { type: 'tapCell', cell: 0 }, { type: 'digit', digit: 1 });
   assert.deepEqual(bits(g.notes[7]), [5]);
 });
+const noteAt7 = (g, ...ds) => run(g, { type: 'toggleNotes' }, { type: 'tapCell', cell: 7 },
+  ...ds.map(d => ({ type: 'digit', digit: d })), { type: 'toggleNotes' });
+const g0off = () => createGame({ size: 6, puzzle: PUZ6, solution: SOL6, instantCheck: false, autoCandidates: false });
+test('wrong digit keeps peer notes when instant check is on', () => {
+  const g = run(noteAt7(g0(), 2, 5), { type: 'tapCell', cell: 0 }, { type: 'digit', digit: 2 }); // 0 的正解是 1
+  assert.ok(g.wrong.has(0));
+  assert.deepEqual(bits(g.notes[7]), [2, 5]);
+});
+test('erasing or changing a digit restores the peer notes it removed', () => {
+  // 关闭马上提示时填错也清笔记（不泄露对错），但擦掉或改填要还原
+  let g = run(noteAt7(g0off(), 2, 3, 5), { type: 'tapCell', cell: 0 }, { type: 'digit', digit: 2 });
+  assert.deepEqual(bits(g.notes[7]), [3, 5]);
+  g = act(g, { type: 'digit', digit: 3 });
+  assert.deepEqual(bits(g.notes[7]), [2, 5]);
+  g = act(g, { type: 'erase' });
+  assert.deepEqual(bits(g.notes[7]), [2, 3, 5]);
+  // 正确的数擦掉也还原
+  g = run(noteAt7(g0(), 1, 5), { type: 'tapCell', cell: 0 }, { type: 'digit', digit: 1 });
+  assert.deepEqual(bits(g.notes[7]), [5]);
+  g = act(g, { type: 'erase' });
+  assert.deepEqual(bits(g.notes[7]), [1, 5]);
+});
+test('restore skips digits still blocked by another peer', () => {
+  // 左上宫空出 0、1、6、7；7 的同伴 0 和 1 都填 3，擦掉 0 后 3 仍被 1 挡住
+  const puzzle = [...SOL6].map((ch, i) => ([0, 1, 6, 7].includes(i) ? '.' : ch)).join('');
+  let g = createGame({ size: 6, puzzle, solution: SOL6, instantCheck: false, autoCandidates: false });
+  g = run(noteAt7(g, 3, 5), { type: 'tapCell', cell: 0 }, { type: 'digit', digit: 3 },
+    { type: 'tapCell', cell: 1 }, { type: 'digit', digit: 3 }, { type: 'tapCell', cell: 0 }, { type: 'erase' });
+  assert.deepEqual(bits(g.notes[7]), [5]);
+});
 test('hint layers, cap and stars', () => {
   let g = act(g0(), { type: 'hint' });
   assert.deepEqual([g.hint.layer, hintsLeft(g)], [1, 4]);

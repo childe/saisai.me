@@ -17,6 +17,7 @@ export function createGame({ size, puzzle, solution, instantCheck, autoCandidate
     given: puz.map(v => v !== 0),
     notes: autoCandidates ? candidates(values, spec) : Array(spec.cells).fill(0),
     eliminated: new Set(),
+    stripped: Array(spec.cells).fill(null), // 填数时被清掉笔记的同伴格，擦掉或改填时还原
     selected: null, held: null, notesMode: false,
     instantCheck: !!instantCheck, autoCandidates: !!autoCandidates,
     mistakes: 0, wrong: new Set(),
@@ -44,16 +45,32 @@ export function doneDigits(g) {
   return new Set([...count].filter(([, n]) => n === g.size).map(([d]) => d));
 }
 
-const snapshot = g => ({ values: g.values, notes: g.notes, eliminated: g.eliminated, wrong: g.wrong });
+const snapshot = g => ({ values: g.values, notes: g.notes, eliminated: g.eliminated, wrong: g.wrong, stripped: g.stripped });
 const push = g => [...g.history, snapshot(g)];
+
+// 把 cell 上原来的数从同伴格笔记里清掉的部分还原（values 里 cell 已改掉）；
+// 若另一个玩家填的同伴格也是这个数，它仍挡着，不还原（题面数从不清笔记，不算）
+function restoreNotes(g, values, notes, stripped, cell) {
+  const d = g.values[cell];
+  for (const p of stripped[cell] || []) {
+    if (!values[p] && !g.spec.peers[p].some(q => !g.given[q] && values[q] === d)) notes[p] |= 1 << d;
+  }
+  stripped[cell] = null;
+}
 
 function fillValue(g, cell, digit) {
   if (g.given[cell] || g.values[cell] === digit) return g;
   const values = g.values.slice();
   values[cell] = digit;
   const notes = g.notes.slice();
+  const stripped = g.stripped.slice();
+  restoreNotes(g, values, notes, stripped, cell);
   notes[cell] = 0;
-  for (const p of g.spec.peers[cell]) notes[p] &= ~(1 << digit);
+  // 开着马上提示时错数已标红，不清笔记；关着时照常清，免得从笔记变化看出对错
+  if (!g.instantCheck || digit === g.solution[cell]) {
+    stripped[cell] = g.spec.peers[cell].filter(p => notes[p] & (1 << digit));
+    for (const p of stripped[cell]) notes[p] &= ~(1 << digit);
+  }
   const wrong = new Set(g.wrong);
   wrong.delete(cell);
   let mistakes = g.mistakes;
@@ -68,7 +85,7 @@ function fillValue(g, cell, digit) {
   let status = 'playing';
   if (values.every((v, c) => v === g.solution[c])) status = 'won';
   else if (mistakes >= MAX_MISTAKES) status = 'failed';
-  return { ...g, values, notes, wrong, mistakes, status, hint: null, history: push(g) };
+  return { ...g, values, notes, stripped, wrong, mistakes, status, hint: null, history: push(g) };
 }
 
 function toggleNote(g, cell, digit) {
@@ -99,9 +116,12 @@ function erase(g) {
   if (cell === null || g.given[cell] || !g.values[cell]) return g;
   const values = g.values.slice();
   values[cell] = 0;
+  const notes = g.notes.slice();
+  const stripped = g.stripped.slice();
+  restoreNotes(g, values, notes, stripped, cell);
   const wrong = new Set(g.wrong);
   wrong.delete(cell);
-  return { ...g, values, wrong, hint: null, history: push(g) };
+  return { ...g, values, notes, stripped, wrong, hint: null, history: push(g) };
 }
 
 function undo(g) {
