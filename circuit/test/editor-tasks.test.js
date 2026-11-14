@@ -148,7 +148,7 @@ test('wrong accuse cannot be undone back to the old variant (level 22)', () => {
   assert.equal(T(s).progress.measured, true);
   const good = T(s).circuit.wires.find(w => w.preset && !w.fault);
   s = play(s, { type: 'accuse', target: { kind: 'wire', id: good.id } });
-  assert.notEqual(T(s).circuit.wires.find(w => w.id === oldFault).fault, true);
+  assert.ok(!T(s).circuit.wires.find(w => w.id === oldFault).fault);
   assert.equal(T(s).history.length, 0);
   const after = play(s, { type: 'undo' });
   assert.equal(after, s);
