@@ -3,7 +3,7 @@ import { PHYS } from '../parts.js';
 import { solve } from '../solve.js';
 import { brokenSet } from '../damage.js';
 import { createCircuit } from '../circuit.js';
-import { lampLit, ledLit, motorOn, withParams, ofType, result, noProgress, anySwitchPair, truth, presetCircuit } from '../task-kit.js';
+import { lampLit, ledLit, motorOn, buzzerOn, withParams, ofType, result, noProgress, anySwitchPair, truth, presetCircuit } from '../task-kit.js';
 
 export const CH6 = [
   {
@@ -72,6 +72,45 @@ export const CH6 = [
         }
         const [x, y] = lit;
         if (x?.length === 1 && y?.length === 1 && x[0] !== y[0]) return result(true, progress);
+      }
+      return result(false, progress);
+    },
+  },
+  {
+    id: 27, chapter: 6, name: '两档风扇', goal: '总开关管通断，另一个开关拨一下换快慢档',
+    palette: { battery: 1, switch: 1, spdt: 1, resistor: 1, motor: 1 }, defaults: { battery: { cells: 2 } },
+    preset: () => createCircuit(), initProgress: noProgress,
+    check(progress, ws) {
+      const br = brokenSet(ws.damage);
+      const motors = ofType(ws.circuit, 'motor');
+      for (const s of ofType(ws.circuit, 'switch')) for (const d of ofType(ws.circuit, 'spdt')) {
+        const at = (closed, to) => solve(withParams(ws.circuit, { [s.id]: { closed }, [d.id]: { to } }), br);
+        const off = ['a', 'b'].map(to => at(false, to));
+        const on = ['a', 'b'].map(to => at(true, to));
+        if (![...off, ...on].every(r => r.ok)) continue;
+        for (const m of motors) {
+          if (off.some(r => motorOn(r, br, m.id)) || !on.every(r => motorOn(r, br, m.id))) continue;
+          const v = on.map(r => Math.abs(r.parts[m.id].v));
+          if (Math.max(...v) >= 2 * Math.min(...v)) return result(true, progress);
+        }
+      }
+      return result(false, progress);
+    },
+  },
+  {
+    id: 28, chapter: 6, name: '防盗报警', goal: '门关着时蜂鸣器不响，门一打开就响',
+    palette: { battery: 1, switch: 1, buzzer: 1, resistor: 1 }, defaults: { battery: { cells: 2 } },
+    preset: () => createCircuit(), initProgress: noProgress,
+    check(progress, ws) {
+      const br = brokenSet(ws.damage);
+      const batt = ofType(ws.circuit, 'battery')[0];
+      const buzzers = ofType(ws.circuit, 'buzzer');
+      if (!batt) return result(false, progress);
+      for (const s of ofType(ws.circuit, 'switch')) {
+        const closed = solve(withParams(ws.circuit, { [s.id]: { closed: true } }), br);
+        const open = solve(withParams(ws.circuit, { [s.id]: { closed: false } }), br);
+        if (!closed.ok || !open.ok || !(Math.abs(closed.parts[batt.id]?.i ?? Infinity) < PHYS.SHORT_A)) continue;
+        if (buzzers.some(z => !buzzerOn(closed, br, z.id) && buzzerOn(open, br, z.id))) return result(true, progress);
       }
       return result(false, progress);
     },

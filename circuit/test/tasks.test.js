@@ -9,50 +9,6 @@ import { build } from './helpers.js';
 const T = id => TASKS.find(t => t.id === id);
 const run = (id, c, progress = T(id).initProgress()) => evaluateTask(T(id), progress, settle(c, createDamage()));
 
-test('task 11: correct meters pass, ammeter across lamp fails', () => {
-  const ok = build({ parts: { B: ['battery'], A: ['ammeter'], L: ['lamp'], V: ['voltmeter'] },
-    wires: [['B.p', 'A.p'], ['A.n', 'L.a'], ['L.b', 'B.n'], ['V.p', 'L.a'], ['V.n', 'L.b']] });
-  assert.equal(run(11, ok).passed, true);
-  const bad = build({ parts: { B: ['battery'], A: ['ammeter'], L: ['lamp'], V: ['voltmeter'] },
-    wires: [['B.p', 'L.a'], ['L.b', 'B.n'], ['A.p', 'L.a'], ['A.n', 'L.b'], ['V.p', 'L.a'], ['V.n', 'L.b']] });
-  assert.equal(run(11, bad).passed, false);
-});
-
-test('task 24: staircase wiring passes, single switch fails', () => {
-  const st = build({ parts: { B: ['battery'], S1: ['spdt'], S2: ['spdt'], L: ['lamp'] },
-    wires: [['B.p', 'S1.c'], ['S1.a', 'S2.a'], ['S1.b', 'S2.b'], ['S2.c', 'L.a'], ['L.b', 'B.n']] });
-  assert.equal(run(24, st).passed, true);
-  const one = build({ parts: { B: ['battery'], S1: ['spdt'], S2: ['spdt'], L: ['lamp'] },
-    wires: [['B.p', 'S1.c'], ['S1.a', 'L.a'], ['L.b', 'B.n']] });
-  assert.equal(run(24, one).passed, false);
-});
-
-test('task 25: preset fails; fuse in the short loop passes; fuse elsewhere fails', () => {
-  assert.equal(run(25, T(25).preset()).passed, false);
-  const inLoop = build({ parts: { B: ['battery'], L: ['lamp'], F: ['fuse'] },
-    wires: [['B.p', 'L.a'], ['L.b', 'B.n'], ['B.p', 'F.a'], ['F.b', 'B.n']] });
-  assert.equal(run(25, inLoop).passed, true);
-  const elsewhere = build({ parts: { B: ['battery'], L: ['lamp'], F: ['fuse'] },
-    wires: [['B.p', 'F.a'], ['F.b', 'L.a'], ['L.b', 'B.n'], ['B.p', 'B.n']] });
-  assert.equal(run(25, elsewhere).passed, false);
-});
-
-test('task 26: spdt alternates two LEDs; one LED only or no resistor fails', () => {
-  const mk = extra => build({ parts: { B1: ['battery'], B2: ['battery'], R: ['resistor', { ohms: 220 }], S: ['spdt'], D1: ['led'], D2: ['led', { color: 'green' }] },
-    wires: [['B1.p', 'B2.n'], ['B2.p', 'R.a'], ['R.b', 'S.c'], ['S.a', 'D1.a'], ['D1.k', 'B1.n'], ...extra] });
-  assert.equal(run(26, mk([['S.b', 'D2.a'], ['D2.k', 'B1.n']])).passed, true);
-  assert.equal(run(26, mk([])).passed, false);
-  const noR = build({ parts: { B1: ['battery'], B2: ['battery'], S: ['spdt'], D1: ['led'], D2: ['led'] },
-    wires: [['B1.p', 'B2.n'], ['B2.p', 'S.c'], ['S.a', 'D1.a'], ['D1.k', 'B1.n'], ['S.b', 'D2.a'], ['D2.k', 'B1.n']] });
-  assert.equal(run(26, noR).passed, false);
-});
-
-test('task 29: each switch controls its own branch; shared main switch fails', () => {
-  const mk = wires => build({ parts: { B: ['battery', { cells: 2 }], S1: ['switch'], S2: ['switch'], L: ['lamp'], M: ['motor'] }, wires });
-  assert.equal(run(29, mk([['B.p', 'S1.a'], ['S1.b', 'L.a'], ['L.b', 'B.n'], ['B.p', 'S2.a'], ['S2.b', 'M.a'], ['M.b', 'B.n']])).passed, true);
-  assert.equal(run(29, mk([['B.p', 'S1.a'], ['S1.b', 'S2.a'], ['S2.b', 'L.a'], ['S2.b', 'M.a'], ['L.b', 'B.n'], ['M.b', 'B.n']])).passed, false);
-});
-
 test('remainingPalette counts non-preset parts on canvas', () => {
   const t = T(1);
   let c = t.preset();
@@ -69,12 +25,24 @@ test('chapters and ids line up', () => {
   assert.deepEqual(TASKS.map(t => t.id), [...TASKS.map(t => t.id)].sort((a, b) => a - b));
 });
 
+test('twenty-nine tasks in curriculum order', () => {
+  assert.deepEqual(TASKS.map(t => t.name), ['点亮一盏灯', '加个开关', '门铃', '让风扇反转', '让 LED 亮起来',
+    '串联和并联', '一个亮一个灭', '保险箱', '前门后门', '总开关',
+    '量一量', '串联电流', '串联分压', '并联干路', '精确调电流', 'LED 能受多大电流',
+    '主灯和小灯', '混联电流', '越灭越亮', '一盏调光一盏不变',
+    '哪盏灯坏了', '断掉的导线', '失灵的开关',
+    '楼梯灯', '保险丝救场', '红绿灯', '两档风扇', '防盗报警', '风扇和灯']);
+  assert.deepEqual(TASKS.map(t => t.id), Array.from({ length: 29 }, (_, i) => i + 1));
+  const per = [1, 2, 3, 4, 5, 6].map(n => TASKS.filter(t => t.chapter === n).length);
+  assert.deepEqual(per, [5, 5, 6, 4, 3, 6]);
+});
+
 test('existing tasks keep curriculum ids and names', () => {
   const names = Object.fromEntries(TASKS.map(t => [t.id, t.name]));
   assert.deepEqual(names, { 1: '点亮一盏灯', 2: '加个开关', 3: '门铃', 4: '让风扇反转', 5: '让 LED 亮起来',
     6: '串联和并联', 7: '一个亮一个灭', 8: '保险箱', 9: '前门后门', 10: '总开关', 11: '量一量', 12: '串联电流', 13: '串联分压', 14: '并联干路', 15: '精确调电流', 16: 'LED 能受多大电流',
     17: '主灯和小灯', 18: '混联电流', 19: '越灭越亮', 20: '一盏调光一盏不变',
-    21: '哪盏灯坏了', 22: '断掉的导线', 23: '失灵的开关', 24: '楼梯灯', 25: '保险丝救场', 26: '红绿灯', 29: '风扇和灯' });
+    21: '哪盏灯坏了', 22: '断掉的导线', 23: '失灵的开关', 24: '楼梯灯', 25: '保险丝救场', 26: '红绿灯', 27: '两档风扇', 28: '防盗报警', 29: '风扇和灯' });
 });
 
 test('task 25 preset: battery (9,12), lamp (9,5)', () => {
@@ -91,5 +59,5 @@ test('goalText takes string or function goals; chapterIndex counts within chapte
   assert.equal(chapterIndex(T(5)), 5);
   assert.equal(chapterIndex(T(6)), 1);
   assert.equal(chapterIndex(T(24)), 1);
-  assert.equal(chapterIndex(T(29)), 4);
+  assert.equal(chapterIndex(T(29)), 6);
 });

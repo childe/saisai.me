@@ -151,3 +151,12 @@ test('chapter 3 lists tasks 11..16 in order', () => {
 test('task 13 question uses the physical cell voltage', () => {
   assert.equal(T(13).answer.question(2), `电池是 ${2 * PHYS.V_CELL} V，两盏一样的灯串联。猜猜电压表读多少？`);
 });
+
+test('task 11: correct meters pass, ammeter across lamp fails', () => {
+  const ok = build({ parts: { B: ['battery'], A: ['ammeter'], L: ['lamp'], V: ['voltmeter'] },
+    wires: [['B.p', 'A.p'], ['A.n', 'L.a'], ['L.b', 'B.n'], ['V.p', 'L.a'], ['V.n', 'L.b']] });
+  assert.equal(run(11, ok).passed, true);
+  const bad = build({ parts: { B: ['battery'], A: ['ammeter'], L: ['lamp'], V: ['voltmeter'] },
+    wires: [['B.p', 'L.a'], ['L.b', 'B.n'], ['A.p', 'L.a'], ['A.n', 'L.b'], ['V.p', 'L.a'], ['V.n', 'L.b']] });
+  assert.equal(run(11, bad).passed, false);
+});
