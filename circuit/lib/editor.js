@@ -95,6 +95,11 @@ function restartTask(state, space, task) {
   return withSpace(state, next, { confirmClear: false, selection: null });
 }
 
+// 松开电路里所有按住的按钮（只换 parts 数组，没有按住的就原样返回）
+const releaseButtons = parts => (parts.some(p => p.type === 'button' && p.params.pressed)
+  ? parts.map(p => (p.type === 'button' && p.params.pressed ? { ...p, params: { ...p.params, pressed: false } } : p))
+  : parts);
+
 const sameSelection = (a, b) => (a === b) || (!!a && !!b && a.kind === b.kind && a.id === b.id);
 
 export function reduce(state, action) {
@@ -105,7 +110,17 @@ export function reduce(state, action) {
     case 'setMode':
       if (action.mode !== 'free' && action.mode !== 'task') return state;
       if (action.mode === state.mode) return state;
-      return { ...state, mode: action.mode, selection: null, confirmClear: false };
+      {
+        // 手指抬起时的 release 只发给当前空间；离开前先松开这边按住的按钮，不进历史
+        const left = state.mode;
+        const sp = state[left];
+        const parts = releaseButtons(sp.circuit.parts);
+        const out = { ...state, mode: action.mode, selection: null, confirmClear: false };
+        if (parts === sp.circuit.parts) return out;
+        const circuit = { ...sp.circuit, parts, rev: sp.circuit.rev + 1, topoRev: sp.circuit.topoRev + 1 };
+        // 重新 settle 但保留损坏和继电器状态
+        return { ...out, [left]: { ...sp, ...settle(circuit, sp.damage, sp.relays) } };
+      }
     case 'setStyle':
       if (action.style !== 'cartoon' && action.style !== 'symbol') return state;
       if (action.style === state.style) return state;
@@ -192,7 +207,7 @@ export function reduce(state, action) {
       if (!space.history.length) return state;
       const snap = space.history[space.history.length - 1];
       // 按钮不跟着撤销走：恢复出来的快照里一律是松开的
-      const released = snap.parts.map(p => (p.type === 'button' && p.params.pressed ? { ...p, params: { ...p.params, pressed: false } } : p));
+      const released = releaseButtons(snap.parts);
       const restored = { ...snap, parts: released, rev: c.rev + 1, topoRev: c.topoRev + 1, nextId: Math.max(snap.nextId, c.nextId) };
       const ws = settle(restored, space.damage, space.relays);
       return withSpace(state, { ...space, ...ws, history: space.history.slice(0, -1) }, { selection: null });

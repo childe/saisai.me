@@ -73,3 +73,21 @@ test('relays reset on task restart', () => {
   s = play(s, { type: 'askClear' }, { type: 'confirmClear' });
   assert.deepEqual(s.task.relays.on, {});
 });
+
+test('切换模式时松开离开那边按住的按钮，且不进历史', () => {
+  let s = play(withCircuit(buttonCircuit()), { type: 'press', id: 'BT' });
+  const n = free(s).history.length;
+  s = play(s, { type: 'setMode', mode: 'task' }, { type: 'release', id: 'BT' }, { type: 'setMode', mode: 'free' });
+  assert.equal(partOf(s, 'BT').params.pressed, false);
+  assert.equal(free(s).history.length, n);
+});
+
+test('任务模式按住的按钮，切回自由模式时也被松开', () => {
+  const s0 = createEditor();
+  const bt = build({ parts: { BT: ['button'] }, wires: [] });
+  let s = { ...s0, mode: 'task', task: { ...s0.task, ...settle(bt, createDamage()), history: [] } };
+  s = play(s, { type: 'press', id: 'BT' });
+  assert.equal(s.task.circuit.parts[0].params.pressed, true);
+  s = play(s, { type: 'setMode', mode: 'free' });
+  assert.equal(s.task.circuit.parts[0].params.pressed, false);
+});

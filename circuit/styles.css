@@ -107,7 +107,7 @@ body {
   align-content: start;
   gap: 6px;
 }
-/* 两列小卡片，12 个元件一屏放得下；按住卡片拖动时不触发列表滚动 */
+/* 两列小卡片，16 个元件一屏放不下时在面板内滚动；按住卡片拖动时不触发列表滚动 */
 .pal-item {
   position: relative;
   border: 2px solid var(--line);

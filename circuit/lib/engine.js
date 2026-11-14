@@ -30,6 +30,7 @@ export function tick(ws, dt) {
   if (brokenKey(d) !== brokenKey(ws.damage) || relayKeyOf(relayOnSet(rl)) !== relayKeyOf(relayOnSet(relays))) {
     return settle(ws.circuit, d, rl);
   }
-  if (d === ws.damage) return { ...ws, relays: rl };
+  if (d === ws.damage) // trail 只在刚 settle 后有意义，这里一律清空
+  if (d === ws.damage) return { ...ws, relays: rl, trail: [] };
   return { ...ws, damage: d, relays: rl, trail: [] };
 }
