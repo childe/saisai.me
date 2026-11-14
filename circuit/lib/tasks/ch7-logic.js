@@ -2,7 +2,9 @@
 import { connectivity } from '../solve.js';
 import { brokenSet } from '../damage.js';
 import { createCircuit } from '../circuit.js';
-import { lampLit, withParams, ofType, result, noProgress, truth, stableSolve, relayMatters, displayValue } from '../task-kit.js';
+import {
+  lampLit, withParams, ofType, result, noProgress, truth, stableSolve, relayMatters, displayValue, presetCircuit,
+} from '../task-kit.js';
 
 const BITS = [[1, 1], [1, 0], [0, 1], [0, 0]];
 const flip = t => (t === 'a' ? 'b' : 'a');
@@ -58,6 +60,53 @@ function halfAdderOk(ws) {
   return false;
 }
 
+// 电铃：有按钮按住时继电器自己振荡（稳态解不出来），松开后稳定且继电器全部释放。
+function bellOk(ws) {
+  const br = brokenSet(ws.damage);
+  return ofType(ws.circuit, 'button').some(b => {
+    if (stableSolve(withParams(ws.circuit, { [b.id]: { pressed: true } }), br).stable) return false;
+    const off = stableSolve(withParams(ws.circuit, { [b.id]: { pressed: false } }), br);
+    return off.stable && off.on.size === 0;
+  });
+}
+
+// 第 36 关预置：上排线圈电池 BC 和开关 A、B、C，中排 7 个继电器（转 90°，线圈朝上、触点朝下），
+// 下排逻辑电池 BL 和显示器 D。同一开关的线圈串成一串：开关 → 最右的线圈 → … → 最左的线圈 → BC 负极，
+// 这样线圈导线只在两处和地线交叉；B 组三个线圈串联要 30 mA 才吸合，所以 BC 用 2 节。
+// 节点 P1、P2 是正极母线的分叉，G1、G2 是地线母线的分叉。
+const RELAYS = [['A1', 4], ['A2', 7], ['B1', 11], ['B2', 14], ['B3', 17], ['C1', 21], ['C2', 24]];
+const fullAdderPreset = () => presetCircuit([
+  ['BC', 'battery', 2, 3, { cells: 2 }, { tag: 'BC', rot: 1 }],
+  ['A', 'switch', 6, 4, {}, { tag: 'A' }],
+  ['B', 'switch', 16, 4, {}, { tag: 'B' }],
+  ['C', 'switch', 23, 4, {}, { tag: 'C' }],
+  ...RELAYS.map(([name, x]) => [name, 'relay', x, 9, {}, { tag: name, rot: 1 }]),
+  ['BL', 'battery', 6, 16, {}, { tag: 'BL' }],
+  ['D', 'display', 26, 15, {}, { tag: 'D' }],
+  ['P1', 'node', 4, 1], ['P2', 'node', 14, 1], ['G1', 'node', 3, 6], ['G2', 'node', 10, 6],
+], [
+  ['BC.p', 'P1.o'], ['P1.o', 'A.a'], ['P1.o', 'P2.o'], ['P2.o', 'B.a'], ['P2.o', 'C.a'],
+  ['A.b', 'A2.x'], ['A2.y', 'A1.x'],
+  ['B.b', 'B3.x'], ['B3.y', 'B2.x'], ['B2.y', 'B1.x'],
+  ['C.b', 'C2.x'], ['C2.y', 'C1.x'],
+  ['BC.n', 'G1.o'], ['G1.o', 'A1.y'], ['G1.o', 'G2.o'], ['G2.o', 'B1.y'], ['G2.o', 'C1.y'],
+  ['BL.n', 'D.g', { via: [[8, 17]] }],
+]);
+
+// 全加器：预置开关 A、B、C 的 8 种组合都稳定，显示器显示 A+B+C。
+function fullAdderOk(ws) {
+  const br = brokenSet(ws.damage);
+  const tagged = t => ws.circuit.parts.find(p => p.preset && p.tag === t);
+  const sw = ['A', 'B', 'C'].map(tagged), d = tagged('D');
+  if (sw.some(s => !s) || !d) return false;
+  for (let n = 0; n < 8; n++) {
+    const bits = [4, 2, 1].map(m => (n & m ? 1 : 0));
+    const s = stableSolve(withParams(ws.circuit, Object.fromEntries(sw.map((p, i) => [p.id, { closed: !!bits[i] }]))), br);
+    if (!s.stable || displayValue(s.result, br, d.id) !== bits[0] + bits[1] + bits[2]) return false;
+  }
+  return true;
+}
+
 const RELAY_PALETTE = { battery: 2, switch: 1, relay: 1, lamp: 1 };
 
 export const CH7 = [
@@ -96,5 +145,27 @@ export const CH7 = [
       const want = ws.variant === 'and' ? ['tt'] : ['tt', 'tf', 'ft'];
       return result(relayLampTask(ws, 2, lit => truth(k => lit(keys.indexOf(k)), want)), progress);
     },
+  },
+  {
+    id: 35, chapter: 7, name: '自制电铃', goal: '按住按钮，继电器自己哒哒响', palette: { battery: 1, button: 1, relay: 1 },
+    preset: () => createCircuit(), initProgress: () => ({ base: null, seen: false }),
+    check(progress, ws) {
+      // 按住期间继电器翻转 4 次以上才算真响过；松开就清掉起点，重新按再数
+      const flips = ws.relays?.flips ?? 0;
+      let next = progress;
+      if (!ofType(ws.circuit, 'button').some(b => b.params.pressed)) {
+        if (progress.base != null) next = { ...progress, base: null };
+      } else {
+        const base = progress.base ?? flips;
+        const seen = progress.seen || flips - base >= 4;
+        if (base !== progress.base || seen !== progress.seen) next = { base, seen };
+      }
+      return result(next.seen && bellOk(ws), next);
+    },
+  },
+  {
+    id: 36, chapter: 7, name: '全加器', goal: '三个开关 A、B、C，显示器显示 A+B+C', palette: {}, lockPreset: true,
+    preset: fullAdderPreset, initProgress: noProgress,
+    check: (progress, ws) => result(fullAdderOk(ws), progress),
   },
 ];

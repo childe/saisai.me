@@ -1,9 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TASKS, CHAPTERS, evaluateTask } from '../lib/tasks.js';
+import { TASKS, CHAPTERS, evaluateTask, withParams } from '../lib/tasks.js';
+import { stableSolve, displayValue } from '../lib/task-kit.js';
 import { settle } from '../lib/engine.js';
 import { createDamage } from '../lib/damage.js';
 import { build } from './helpers.js';
+import { createEditor, reduce } from '../lib/editor.js';
+import { addWire } from '../lib/circuit.js';
+import { PARTS } from '../lib/parts.js';
+import { BOARD, BODY_RECT, LEVER_RECT, rotatePoint, terminalPoint, wirePoints } from '../lib/geometry.js';
 
 const T = id => TASKS.find(t => t.id === id);
 const run = (id, c, variant = null) => evaluateTask(T(id), T(id).initProgress(), { ...settle(c, createDamage()), variant });
@@ -127,7 +132,155 @@ test('34 goal text follows the variant', () => {
   assert.equal(T(34).goal('or'), '随便合上一个开关，灯就亮');
 });
 
-test('chapter 7 is listed with 5 tasks so far', () => {
+test('chapter 7 is listed with 7 tasks', () => {
   assert.ok(CHAPTERS.some(c => c.n === 7 && c.name === '逻辑与加法器'));
-  assert.deepEqual(TASKS.filter(t => t.chapter === 7).map(t => t.id), [30, 31, 32, 33, 34]);
+  assert.deepEqual(TASKS.filter(t => t.chapter === 7).map(t => t.id), [30, 31, 32, 33, 34, 35, 36]);
+});
+
+// 进入第 35 关，把电路装进关卡空间，然后依次执行动作。
+const play = (s, ...as) => as.reduce(reduce, s);
+const bellSpace = c => {
+  const s = play(createEditor(), { type: 'setMode', mode: 'task' }, { type: 'chooseTask', index: TASKS.indexOf(T(35)) });
+  return { ...s, task: { ...s.task, ...settle(c, createDamage()) } };
+};
+const ticks = (s, n) => play(s, ...Array.from({ length: n }, () => ({ type: 'tick', dt: 0.05 })));
+// 按钮接线圈，线圈另一端经触点 contact 回到电池；contact 为 null 时线圈直接接电池负极。
+const bell = contact => build({
+  parts: { B: ['battery'], BT: ['button'], K: ['relay'] },
+  wires: [['B.p', 'BT.a'], ['BT.b', 'K.x'], ...(contact ? [['K.y', `K.${contact}`], ['K.com', 'B.n']] : [['K.y', 'B.n']])],
+});
+
+test('35 bell: nc self-interrupt passes after holding the button', () => {
+  let s = bellSpace(bell('nc'));
+  s = play(s, { type: 'press', id: 'BT' });
+  assert.equal(s.task.passed, false);
+  s = ticks(s, 10);
+  assert.ok(s.task.relays.flips >= 4);
+  assert.equal(s.task.progress.seen, true);
+  assert.equal(s.task.passed, true);
+});
+
+test('35 bell: releasing clears base but keeps seen', () => {
+  let s = ticks(play(bellSpace(bell('nc')), { type: 'press', id: 'BT' }), 10);
+  s = play(s, { type: 'release', id: 'BT' });
+  assert.deepEqual(s.task.progress, { base: null, seen: true });
+});
+
+test('35 bell: tapping a no-contact relay does not pass', () => {
+  for (const contact of ['no', null]) {
+    let s = bellSpace(bell(contact));
+    for (let i = 0; i < 6; i++) s = ticks(play(ticks(play(s, { type: 'press', id: 'BT' }), 2), { type: 'release', id: 'BT' }), 2);
+    assert.equal(s.task.passed, false, String(contact));
+  }
+});
+
+test('35 bell: seen alone is not enough when the relay is stable', () => {
+  // 线圈直接接电池：按住时继电器稳定吸合，不会自己哒哒响
+  const c = build({ parts: { B: ['battery'], BT: ['button', { pressed: true }], K: ['relay'] },
+    wires: [['B.p', 'BT.a'], ['BT.b', 'K.x'], ['K.y', 'B.n']] });
+  const ws = { ...settle(c, createDamage()), variant: null };
+  assert.equal(evaluateTask(T(35), { base: 0, seen: true }, ws).passed, false);
+  const osc = { ...settle(bell('nc'), createDamage()), variant: null };
+  assert.equal(evaluateTask(T(35), { base: 0, seen: true }, osc).passed, true);
+});
+
+// 第 36 关：按 tag 找预置元件，接上触点网络。
+const byTag = (c, tag) => c.parts.find(p => p.tag === tag).id;
+const wireUp = (c, pairs) => pairs.reduce((cc, [a, b]) => {
+  const [pa, ta] = a.split('.'), [pb, tb] = b.split('.');
+  const r = addWire(cc, { part: byTag(cc, pa), term: ta }, { part: byTag(cc, pb), term: tb });
+  assert.ok(r, `${a} - ${b}`);
+  return r.circuit;
+}, c);
+// 设计文档「参考接法」：X1 = A1.no/B1.nc/B2.no，X0 = A1.nc/B1.no/B2.nc，Y1 = B1.com/C1.nc/C2.com，Y0 = B2.com/C1.no。
+const SUM = [
+  ['BL.p', 'A1.com'], ['A1.no', 'B1.nc'], ['A1.no', 'B2.no'], ['A1.nc', 'B1.no'], ['A1.nc', 'B2.nc'],
+  ['B1.com', 'C1.nc'], ['B2.com', 'C1.no'], ['C1.com', 'D.i1'],
+];
+const CARRY = [['BL.p', 'A2.com'], ['A2.no', 'B3.com'], ['B3.no', 'D.i2'], ['B1.com', 'C2.com'], ['C2.no', 'D.i2']];
+const adder = (pairs = [...SUM, ...CARRY]) => wireUp(T(36).preset(), pairs);
+const run36 = c => evaluateTask(T(36), T(36).initProgress(), { ...settle(c, createDamage()), variant: null });
+
+// 元件本体（含拨片）在画板上的矩形
+const bodyOf = p => {
+  const def = PARTS[p.type];
+  const rects = [def.body ?? BODY_RECT, ...(def.lever ? [def.leverRect ?? LEVER_RECT] : [])];
+  const pts = rects.flatMap(r => [[r.x0, r.y0], [r.x1, r.y1]]).map(q => rotatePoint(q, p.rot));
+  const xs = pts.map(q => p.x + q[0]), ys = pts.map(q => p.y + q[1]);
+  return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+};
+const overlap = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+
+test('36 full adder: preset fits the board and nothing overlaps', () => {
+  const c = T(36).preset();
+  const tags = c.parts.filter(p => p.type !== 'node').map(p => p.tag).sort();
+  assert.deepEqual(tags, ['A', 'A1', 'A2', 'B', 'B1', 'B2', 'B3', 'BC', 'BL', 'C', 'C1', 'C2', 'D'].sort());
+  assert.ok(c.parts.every(p => p.preset) && c.wires.every(w => w.preset));
+  const seen = new Map();
+  for (const p of c.parts) for (const term of PARTS[p.type].terms) {
+    const [x, y] = terminalPoint(p, term);
+    assert.ok(x >= 0 && x <= BOARD.w && y >= 0 && y <= BOARD.h, `${p.tag ?? p.id}.${term}`);
+    const k = `${x},${y}`;
+    assert.ok(!seen.has(k), `${p.tag ?? p.id}.${term} 和 ${seen.get(k)} 重合`);
+    seen.set(k, `${p.tag ?? p.id}.${term}`);
+  }
+  const solid = c.parts.filter(p => p.type !== 'node');
+  for (const p of solid) {
+    const b = bodyOf(p);
+    assert.ok(b.x0 >= 0 && b.x1 <= BOARD.w && b.y0 >= 0 && b.y1 <= BOARD.h, p.tag);
+    for (const q of solid) if (q !== p) assert.ok(!overlap(b, bodyOf(q)), `${p.tag} 和 ${q.tag} 重叠`);
+  }
+});
+
+test('36 full adder: preset wires do not run over other terminals', () => {
+  const c = T(36).preset();
+  const terms = c.parts.flatMap(p => PARTS[p.type].terms.map(t => ({ k: `${p.id}.${t}`, pt: terminalPoint(p, t) })));
+  for (const w of c.wires) {
+    const pts = wirePoints(c, w);
+    const ends = [`${w.a.part}.${w.a.term}`, `${w.b.part}.${w.b.term}`];
+    for (const { k, pt } of terms) {
+      if (ends.includes(k)) continue;
+      for (let i = 1; i < pts.length; i++) {
+        const [a, b] = [pts[i - 1], pts[i]];
+        const on = Math.min(a[0], b[0]) <= pt[0] && pt[0] <= Math.max(a[0], b[0])
+          && Math.min(a[1], b[1]) <= pt[1] && pt[1] <= Math.max(a[1], b[1]);
+        assert.ok(!on, `${w.id} 压在 ${k} 上`);
+      }
+    }
+  }
+});
+
+test('36 full adder: preset coils pull in, display starts at 0', () => {
+  const c = T(36).preset();
+  const sw = id => byTag(c, id);
+  const all = withParams(c, { [sw('A')]: { closed: true }, [sw('B')]: { closed: true }, [sw('C')]: { closed: true } });
+  const s = stableSolve(all, new Set());
+  assert.equal(s.stable, true);
+  assert.deepEqual([...s.on].sort(), ['A1', 'A2', 'B1', 'B2', 'B3', 'C1', 'C2'].map(t => byTag(c, t)).sort());
+  assert.equal(displayValue(stableSolve(c, new Set()).result, new Set(), byTag(c, 'D')), 0);
+  assert.equal(T(36).lockPreset, true);
+  assert.deepEqual(T(36).palette, {});
+});
+
+test('36 full adder: reference wiring passes all 8 combos', () => {
+  const c = adder();
+  for (const a of [0, 1]) for (const b of [0, 1]) for (const cc of [0, 1]) {
+    const ch = { [byTag(c, 'A')]: { closed: !!a }, [byTag(c, 'B')]: { closed: !!b }, [byTag(c, 'C')]: { closed: !!cc } };
+    const s = stableSolve(withParams(c, ch), new Set());
+    assert.equal(s.stable, true);
+    assert.equal(displayValue(s.result, new Set(), byTag(c, 'D')), a + b + cc, `${a}${b}${cc}`);
+  }
+  assert.equal(run36(c).passed, true);
+});
+
+test('36 full adder: sum-only wiring fails', () => {
+  assert.equal(run36(adder(SUM)).passed, false);
+  assert.equal(run36(T(36).preset()).passed, false);
+});
+
+test('full adder check is fast', () => {
+  const ws = { ...settle(adder(), createDamage()), variant: null };
+  const t0 = performance.now();
+  T(36).check(T(36).initProgress(), ws);
+  assert.ok(performance.now() - t0 < 50);
 });
