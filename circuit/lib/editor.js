@@ -14,10 +14,23 @@ function makeSpace(circuit, damage = createDamage()) {
   return { ...settle(circuit, damage), history: [] };
 }
 
-function makeTaskSpace(index) {
+// 从 n 个变体里均匀选一个，排除上一个（prev），让「重来」换一道题。
+export function pickVariant(n, prev, rng = Math.random) {
+  if (n <= 1) return 0;
+  if (!(prev >= 0 && prev < n)) return Math.floor(rng() * n);
+  const k = Math.floor(rng() * (n - 1));
+  return k >= prev ? k + 1 : k;
+}
+
+const variantsOf = task => task.variants ?? [null];
+
+function makeTaskSpace(index, prev = -1) {
   const task = TASKS[index];
+  const variants = variantsOf(task);
+  const variantIndex = pickVariant(variants.length, prev);
+  const variant = variants[variantIndex];
   const progress = task.initProgress();
-  const space = { ...makeSpace(task.preset()), index, progress, passed: false, hint: null };
+  const space = { ...makeSpace(task.preset(variant)), index, variantIndex, variant, progress, passed: false, hint: null };
   return evaluate(space);
 }
 
@@ -62,6 +75,25 @@ function commit(state, circuit, { coalesce = false, extra = {}, damage } = {}) {
 
 const currentTask = state => (state.mode === 'task' ? TASKS[state.task.index] : null);
 
+// lockPreset 的关卡里，预置的元件和导线不能改。
+const lockedPart = (task, c, id) => !!task?.lockPreset && !!c.parts.find(p => p.id === id)?.preset;
+const lockedWire = (task, c, id) => !!task?.lockPreset && !!c.wires.find(w => w.id === id)?.preset;
+
+// 换个变体重开本关；history 清空，不能撤销回旧题（否则可以排除法过关）。
+function restartTask(state, space, task) {
+  const c = space.circuit;
+  const variants = variantsOf(task);
+  const variantIndex = pickVariant(variants.length, space.variantIndex);
+  const variant = variants[variantIndex];
+  const base = task.preset(variant);
+  const fresh = { ...base, rev: c.rev + 1, topoRev: c.topoRev + 1, nextId: Math.max(base.nextId, c.nextId) };
+  const next = {
+    ...space, ...settle(fresh, createDamage()), history: [],
+    variantIndex, variant, progress: task.initProgress(), passed: false, hint: null,
+  };
+  return withSpace(state, next, { confirmClear: false, selection: null });
+}
+
 const sameSelection = (a, b) => (a === b) || (!!a && !!b && a.kind === b.kind && a.id === b.id);
 
 export function reduce(state, action) {
@@ -87,12 +119,17 @@ export function reduce(state, action) {
       return commit(state, r.circuit, { extra: { selection: { kind: 'part', id: r.id } } });
     }
     case 'move':
+      // 挪动、旋转预置元件会让端点重合，等于偷偷接线。
+      if (lockedPart(task, c, action.id)) return state;
       return commit(state, movePart(c, action.id, action.x, action.y), { coalesce: !!action.coalesce });
     case 'rotate':
+      if (lockedPart(task, c, action.id)) return state;
       return commit(state, rotatePart(c, action.id));
     case 'connect': {
       // 两端可以是端点，也可以是导线上的一点（先分割）；任一步失败，整个动作作废。
       const { from, to } = action;
+      if (task?.answer?.kind === 'predict') return state; // 预测题不许接线，免得绕过开关偷看读数
+      if (lockedWire(task, c, from?.wire) || lockedWire(task, c, to?.wire)) return state;
       if (from?.wire !== undefined && from.wire === to?.wire) return state;
       const r1 = resolveEnd(c, from);
       const r2 = r1 && resolveEnd(r1.circuit, to);
@@ -101,6 +138,7 @@ export function reduce(state, action) {
     }
     case 'splitWire': {
       const w = c.wires.find(x => x.id === action.id);
+      if (lockedWire(task, c, action.id)) return state;
       const pts = w && wirePoints(c, w);
       if (!pts) return state;
       const s = splitWire(c, w.id, nearestOnRoute(pts, action.at).P);
@@ -117,15 +155,17 @@ export function reduce(state, action) {
     }
     case 'setParam': {
       const p = findPart(c, action.id);
-      if (!p) return state;
+      if (!p || lockedPart(task, c, p.id)) return state;
       if (task?.locked?.[p.type]?.includes(action.key)) return state;
       return commit(state, setParam(c, action.id, action.key, action.value), { coalesce: !!action.coalesce });
     }
     case 'deletePart': {
+      if (lockedPart(task, c, action.id)) return state;
       const sel = sameSelection(state.selection, { kind: 'part', id: action.id }) ? null : state.selection;
       return commit(state, removePart(c, action.id), { extra: { selection: sel } });
     }
     case 'deleteWire': {
+      if (lockedWire(task, c, action.id)) return state;
       const sel = sameSelection(state.selection, { kind: 'wire', id: action.id }) ? null : state.selection;
       return commit(state, removeWire(c, action.id), { extra: { selection: sel } });
     }
@@ -152,16 +192,32 @@ export function reduce(state, action) {
       return state.confirmClear ? { ...state, confirmClear: false } : state;
     case 'confirmClear': {
       if (!state.confirmClear) return state;
-      const base = task ? task.preset() : createCircuit();
+      if (task) return restartTask(state, space, task);
+      const base = createCircuit();
       const fresh = { ...base, rev: c.rev + 1, topoRev: c.topoRev + 1, nextId: Math.max(base.nextId, c.nextId) };
       const history = [...space.history, c].slice(-HISTORY_MAX);
-      let next = { ...space, ...settle(fresh, createDamage()), history };
-      if (task) next = { ...next, progress: task.initProgress(), passed: false, hint: null };
-      return withSpace(state, next, { confirmClear: false, selection: null });
+      return withSpace(state, { ...space, ...settle(fresh, createDamage()), history }, { confirmClear: false, selection: null });
+    }
+    case 'submitAnswer': {
+      if (space.passed) return state; // 过关后再答不改结果
+      const r = task?.submit?.(space.progress, action.value, space);
+      if (!r) return state;
+      const ev = evaluate({ ...space, progress: r.progress });
+      return { ...state, task: { ...ev, hint: ev.hint ?? r.hint } };
+    }
+    case 'accuse': {
+      if (!task?.accuse || !action.target || space.passed) return state;
+      const verdict = task.accuse(space.progress, action.target, space);
+      if (verdict === 'right') return withSpace(state, { ...space, progress: { ...space.progress, found: true } });
+      if (verdict !== 'wrong') return state;
+      const next = restartTask(state, space, task);
+      return { ...next, task: { ...next.task, hint: '不对哦，这关重来' } };
     }
     case 'chooseTask': {
       if (!Number.isInteger(action.index) || action.index < 0 || action.index >= TASKS.length) return state;
-      return { ...state, task: makeTaskSpace(action.index), selection: state.mode === 'task' ? null : state.selection };
+      // 重选当前这关等于换一道题，排除现在这个变体。
+      const prev = action.index === state.task.index ? state.task.variantIndex : -1;
+      return { ...state, task: makeTaskSpace(action.index, prev), selection: state.mode === 'task' ? null : state.selection };
     }
     case 'nextTask': {
       if (state.task.index >= TASKS.length - 1) return state;

@@ -300,5 +300,8 @@ body {
   overflow-y: auto;
 }
 .tasklist-box h2 { margin: 0; font-size: 1.2rem; }
+.tasklist-box h3 { margin: 4px 0 0; font-size: 1rem; color: #6a5a48; }
+.answer-row input { width: 5.5em; font-size: 1.1rem; padding: 4px 6px; }
+.tasklist-body { display: flex; flex-direction: column; gap: 8px; }
 .tasklist-items { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .tasklist-items .btn { justify-content: flex-start; }

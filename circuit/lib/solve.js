@@ -29,7 +29,8 @@ const CONDUCTANCES = {
 };
 
 function conductancesOf(part, broken) {
-  if (broken.has(part.id)) return [];
+  if (broken.has(part.id) || part.fault === 'open') return [];
+  if (part.type === 'spdt' && part.fault === `open-${part.params.to}`) return []; // 故障只废掉这一掷
   return CONDUCTANCES[part.type]?.(part) ?? [];
 }
 
@@ -201,7 +202,7 @@ function readPart(p, V, broken) {
 
 export function solve(circuit, broken = new Set(), opts = { maxIter: 100 }) {
   const bk = brokenKeyOf(broken);
-  const allWires = [...circuit.wires, ...junctionWires(circuit)];
+  const allWires = [...circuit.wires.filter(w => w.fault !== 'open'), ...junctionWires(circuit)];
   const { groups, find } = components(circuit, allWires);
   const partsByRoot = new Map();
   for (const p of circuit.parts) {
@@ -234,6 +235,7 @@ export function solve(circuit, broken = new Set(), opts = { maxIter: 100 }) {
   for (const p of circuit.parts) parts[p.id] = readPart(p, nodes, broken);
   const wires = {};
   for (const w of circuit.wires) {
+    if (w.fault === 'open') { wires[w.id] = { i: 0 }; continue; } // 断线：视为不存在
     const va = nodes[key(w.a.part, w.a.term)] ?? 0, vb = nodes[key(w.b.part, w.b.term)] ?? 0;
     wires[w.id] = { i: (va - vb) / wireR(w) };
   }

@@ -16,8 +16,9 @@ test('index.html wiring', () => {
 });
 
 test('every relative import resolves and nothing is fetched from the network', () => {
-  const files = ['app.js', 'view.js', 'sound.js', ...fs.readdirSync(path.join(root, 'lib')).map(f => `lib/${f}`)]
-    .filter(f => fs.existsSync(path.join(root, f)));
+  const sub = d => fs.readdirSync(path.join(root, d), { withFileTypes: true })
+    .flatMap(e => (e.isDirectory() ? sub(`${d}/${e.name}`) : [`${d}/${e.name}`]));
+  const files = ['app.js', 'view.js', 'sound.js', ...sub('lib')].filter(f => fs.existsSync(path.join(root, f)));
   for (const f of files) {
     const src = read(f);
     assert.doesNotMatch(src, /https?:\/\/|localStorage|indexedDB/, f);

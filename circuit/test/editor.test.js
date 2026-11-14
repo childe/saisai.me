@@ -62,8 +62,8 @@ test('palette limit in task mode follows deletes and undo', () => {
   assert.equal(parts(s).length, 1);
 });
 
-test('task 3 locks battery cells; task 1 passes when wired', () => {
-  let s = play(createEditor(), { type: 'setMode', mode: 'task' }, { type: 'chooseTask', index: 2 }, { type: 'place', partType: 'battery', x: 5, y: 5 });
+test('task 6 locks battery cells; task 1 passes when wired', () => {
+  let s = play(createEditor(), { type: 'setMode', mode: 'task' }, { type: 'chooseTask', index: 5 }, { type: 'place', partType: 'battery', x: 5, y: 5 });
   const b = parts(s)[0];
   assert.equal(b.params.cells, 2);
   assert.equal(play(s, { type: 'setParam', id: b.id, key: 'cells', value: 4 }), s);

@@ -5,7 +5,7 @@ import {
 } from './lib/geometry.js';
 import { render, miniArt, buzzerVolume } from './view.js';
 import { createBuzzer } from './sound.js';
-import { TASKS } from './lib/tasks.js';
+import { taskListHtml, parseAnswer } from './lib/taskbar.js';
 
 const $ = sel => document.querySelector(sel);
 const board = $('#board');
@@ -18,6 +18,9 @@ const dom = {
   panel: $('#panel'),
   banner: $('#banner'),
   confirm: $('#confirm'),
+  confirmText: $('#confirm p'),
+  confirmYes: $('#confirm [data-confirm="yes"]'),
+  clearBtn: $('#clearBtn'),
   taskbar: $('#taskbar'),
   tasklist: $('#tasklist'),
   modeButtons: [...document.querySelectorAll('#modeSeg [data-mode]')],
@@ -258,7 +261,7 @@ dom.panel.addEventListener('pointerup', () => { sliding = false; });
 for (const b of dom.modeButtons) b.addEventListener('click', () => dispatch({ type: 'setMode', mode: b.dataset.mode }));
 for (const b of dom.styleButtons) b.addEventListener('click', () => dispatch({ type: 'setStyle', style: b.dataset.style }));
 dom.undoBtn.addEventListener('click', () => dispatch({ type: 'undo' }));
-$('#clearBtn').addEventListener('click', () => dispatch({ type: 'askClear' }));
+dom.clearBtn.addEventListener('click', () => dispatch({ type: 'askClear' }));
 dom.muteBtn.addEventListener('click', () => dispatch({ type: 'toggleMute' }));
 dom.confirm.addEventListener('click', e => {
   const b = e.target.closest('[data-confirm]');
@@ -277,8 +280,7 @@ document.addEventListener('keydown', e => {
 });
 
 // ---------- 小任务 ----------
-dom.tasklist.querySelector('.tasklist-items').innerHTML = TASKS
-  .map((t, i) => `<button class="btn" data-task="${i}">第 ${t.id} 关 · ${t.name}</button>`).join('');
+dom.tasklist.querySelector('.tasklist-body').innerHTML = taskListHtml();
 function onTaskClick(e) {
   const pick = e.target.closest('[data-task]');
   if (pick) {
@@ -291,6 +293,12 @@ function onTaskClick(e) {
   if (b.dataset.taskAction === 'list') dom.tasklist.hidden = false;
   else if (b.dataset.taskAction === 'close') dom.tasklist.hidden = true;
   else if (b.dataset.taskAction === 'next') dispatch({ type: 'nextTask' });
+  else if (b.dataset.taskAction === 'submit') {
+    const value = parseAnswer($('#answerInput')?.value);
+    if (value !== null) dispatch({ type: 'submitAnswer', value });
+  } else if (b.dataset.taskAction === 'accuse') {
+    if (state.selection) dispatch({ type: 'accuse', target: state.selection });
+  }
 }
 dom.taskbar.addEventListener('click', onTaskClick);
 dom.tasklist.addEventListener('click', onTaskClick);
