@@ -48,7 +48,8 @@ export function presetCircuit(parts, wires) {
   for (const [a, b, extra = {}] of wires) {
     const [pa, ta] = a.split('.'), [pb, tb] = b.split('.');
     const r = addWire(c, { part: ids[pa], term: ta }, { part: ids[pb], term: tb });
-    c = { ...r.circuit, wires: r.circuit.wires.map(w => (w.id === r.id ? { ...w, ...extra, preset: true } : w)) };
+    if (!r) throw new Error(`presetCircuit: 导线 ${a} - ${b} 加不上`);
+    c ={ ...r.circuit, wires: r.circuit.wires.map(w => (w.id === r.id ? { ...w, ...extra, preset: true } : w)) };
   }
   return c;
 }
@@ -57,6 +58,37 @@ export function presetCircuit(parts, wires) {
 export function presetReading(circuit, closeIds, partId, field) {
   const changes = Object.fromEntries(closeIds.map(id => [id, { closed: true }]));
   return Math.abs(solve(withParams(circuit, changes), new Set()).parts[partId][field]);
+}
+
+// 预测题判对：误差不超过实际值的 10%，至少 0.01。
+export const withinTolerance = (guess, actual) => Math.abs(guess - actual) <= Math.max(0.1 * Math.abs(actual), 0.01);
+
+const NEED_SWITCH = '合上开关看看！';
+const presetSwitches = c => ofType(c, 'switch').filter(p => p.preset);
+
+// 预测题：预置电路里的总开关一开始断开，孩子先猜读数，再合上开关核对。
+// 总开关就是预置元件里的开关，所以不用单独传名字。target(ws) 给出要核对的实际读数。
+export function predictTask({ id, chapter, name, goal, variants, preset, target, question, unit }) {
+  return {
+    id, chapter, name, goal, palette: {}, variants, preset, lockPreset: true,
+    answer: { kind: 'predict', question, unit }, target,
+    initProgress: () => ({ answer: null, wrong: false }),
+    submit(progress, value, ws) {
+      if (progress.answer != null || presetSwitches(ws.circuit).some(s => s.params.closed)) return null;
+      return { progress: { ...progress, answer: value }, hint: NEED_SWITCH };
+    },
+    check(progress, ws) {
+      if (progress.answer == null) return result(false, progress);
+      const sw = presetSwitches(ws.circuit);
+      if (!sw.length || !sw.every(s => s.params.closed)) return result(false, progress, NEED_SWITCH);
+      if (!ws.result.ok) return result(false, progress);
+      const actual = target(ws);
+      const wrongHint = `实际是 ${actual.toFixed(2)} ${unit}，差了一点。点「重来」再算一次`;
+      if (progress.wrong) return result(false, progress, wrongHint);
+      if (withinTolerance(progress.answer, actual)) return result(true, progress);
+      return result(false, { ...progress, wrong: true }, wrongHint);
+    },
+  };
 }
 
 // 两个开关的四种组合各解一次，键是「s1 合上? s2 合上?」，如 'tf'；有一种解不出就返回 null。

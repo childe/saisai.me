@@ -72,7 +72,7 @@ test('chapters and ids line up', () => {
 test('existing tasks keep curriculum ids and names', () => {
   const names = Object.fromEntries(TASKS.map(t => [t.id, t.name]));
   assert.deepEqual(names, { 1: '点亮一盏灯', 2: '加个开关', 3: '门铃', 4: '让风扇反转', 5: '让 LED 亮起来',
-    6: '串联和并联', 7: '一个亮一个灭', 8: '保险箱', 9: '前门后门', 10: '总开关', 11: '量一量',
+    6: '串联和并联', 7: '一个亮一个灭', 8: '保险箱', 9: '前门后门', 10: '总开关', 11: '量一量', 12: '串联电流', 13: '串联分压', 14: '并联干路', 15: '精确调电流', 16: 'LED 能受多大电流',
     24: '楼梯灯', 25: '保险丝救场', 26: '红绿灯', 29: '风扇和灯' });
 });
 
