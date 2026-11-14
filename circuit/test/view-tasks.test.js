@@ -5,10 +5,11 @@ import { createEditor, reduce } from '../lib/editor.js';
 
 const inTask = index => reduce(reduce(createEditor(), { type: 'setMode', mode: 'task' }), { type: 'chooseTask', index });
 
-test('taskListHtml groups 29 levels under 6 chapter headings', () => {
+test('taskListHtml groups 34 levels under 7 chapter headings', () => {
   const html = taskListHtml();
-  assert.equal((html.match(/<h3>/g) || []).length, 6);
-  assert.equal((html.match(/data-task=/g) || []).length, 29);
+  assert.equal((html.match(/<h3>/g) || []).length, 7);
+  assert.equal((html.match(/data-task=/g) || []).length, 34);
+  assert.ok(html.includes('第 7 章 · 逻辑与加法器'));
   assert.ok(html.includes('第 3 章 · 电表'));
   assert.ok(html.includes('第 6 关 · LED 能受多大电流'));
   assert.ok(html.includes('data-task="15"'));
