@@ -197,3 +197,27 @@ test('lockPreset refuses move/rotate of preset parts, own parts still move (leve
   const p12 = enter(12);
   assert.equal(play(p12, { type: 'rotate', id: switchOf(p12).id }), p12);
 });
+
+test('submitAnswer after passing is ignored (level 16)', () => {
+  const s0 = enter(16);
+  const s = { ...s0, task: { ...T(s0), passed: true } };
+  assert.equal(play(s, { type: 'submitAnswer', value: 0.9 }), s);
+});
+
+test('accuse after passing is ignored (level 21)', () => {
+  let s = placeAcrossBattery(enter(21));
+  const good = goodLamp(s), bad = faultyLamp(s);
+  s = probeLamp(s, good);
+  s = probeLamp(s, bad);
+  s = play(s, { type: 'accuse', target: { kind: 'part', id: bad.id } });
+  assert.equal(T(s).passed, true);
+  assert.equal(play(s, { type: 'accuse', target: { kind: 'part', id: good.id } }), s);
+});
+
+test('choosing the open level again picks a different variant', () => {
+  for (let k = 0; k < 30; k++) {
+    const s = enter(12);
+    const again = play(s, { type: 'chooseTask', index: 11 });
+    assert.notEqual(T(again).variantIndex, T(s).variantIndex);
+  }
+});

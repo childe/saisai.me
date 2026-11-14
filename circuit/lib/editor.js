@@ -199,13 +199,14 @@ export function reduce(state, action) {
       return withSpace(state, { ...space, ...settle(fresh, createDamage()), history }, { confirmClear: false, selection: null });
     }
     case 'submitAnswer': {
+      if (space.passed) return state; // 过关后再答不改结果
       const r = task?.submit?.(space.progress, action.value, space);
       if (!r) return state;
       const ev = evaluate({ ...space, progress: r.progress });
       return { ...state, task: { ...ev, hint: ev.hint ?? r.hint } };
     }
     case 'accuse': {
-      if (!task?.accuse || !action.target) return state;
+      if (!task?.accuse || !action.target || space.passed) return state;
       const verdict = task.accuse(space.progress, action.target, space);
       if (verdict === 'right') return withSpace(state, { ...space, progress: { ...space.progress, found: true } });
       if (verdict !== 'wrong') return state;
@@ -214,7 +215,9 @@ export function reduce(state, action) {
     }
     case 'chooseTask': {
       if (!Number.isInteger(action.index) || action.index < 0 || action.index >= TASKS.length) return state;
-      return { ...state, task: makeTaskSpace(action.index), selection: state.mode === 'task' ? null : state.selection };
+      // 重选当前这关等于换一道题，排除现在这个变体。
+      const prev = action.index === state.task.index ? state.task.variantIndex : -1;
+      return { ...state, task: makeTaskSpace(action.index, prev), selection: state.mode === 'task' ? null : state.selection };
     }
     case 'nextTask': {
       if (state.task.index >= TASKS.length - 1) return state;
