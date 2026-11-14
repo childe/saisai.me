@@ -8,7 +8,8 @@ import { build } from './helpers.js';
 import { createEditor, reduce } from '../lib/editor.js';
 import { addWire } from '../lib/circuit.js';
 import { PARTS } from '../lib/parts.js';
-import { BOARD, BODY_RECT, LEVER_RECT, rotatePoint, terminalPoint, wirePoints } from '../lib/geometry.js';
+import { drawPart } from '../lib/drawings.js';
+import { GRID, BOARD, BODY_RECT, LEVER_RECT, rotatePoint, terminalPoint, wirePoints } from '../lib/geometry.js';
 
 const T = id => TASKS.find(t => t.id === id);
 const run = (id, c, variant = null) => evaluateTask(T(id), T(id).initProgress(), { ...settle(c, createDamage()), variant });
@@ -283,4 +284,34 @@ test('full adder check is fast', () => {
   const t0 = performance.now();
   T(36).check(T(36).initProgress(), ws);
   assert.ok(performance.now() - t0 < 50);
+});
+
+// 第 36 关：继电器常开/常闭标签和开关、继电器的名字，在板面上互不压住，也不盖端点。
+test('36 full adder: relay contact labels and tag names do not overlap each other or terminals', () => {
+  const c = T(36).preset();
+  const vis = { glow: 0, burnt: false, alarm: false, spin: 0, volume: 0, text: null, stale: false };
+  for (const style of ['cartoon', 'symbol']) {
+    const labels = [], terms = [];
+    for (const p of c.parts) {
+      for (const term of PARTS[p.type].terms) terms.push(terminalPoint(p, term));
+      for (const m of drawPart(p, style, vis).matchAll(/<text\b([^>]*)>([^<]*)</g)) {
+        const a = m[1];
+        if (!/class="label/.test(a) || !['switch', 'relay'].includes(p.type)) continue;
+        // 转回正向的字绕自己的字形中心转：transform 里的圆心就是本地中心；没转的字中心在基线上方约 6。
+        const rot = a.match(/rotate\(-?\d+ ([-\d.]+) ([-\d.]+)\)/);
+        const local = rot ? [Number(rot[1]), Number(rot[2])] : [Number(a.match(/\bx="([-\d.]+)"/)[1]), Number(a.match(/\by="([-\d.]+)"/)[1]) - 6];
+        const [rx, ry] = rotatePoint([local[0] / GRID, local[1] / GRID], p.rot);
+        labels.push({ text: m[2], x: p.x + rx, y: p.y + ry, w: m[2].length * 0.4 });
+      }
+    }
+    // 7 个继电器各有常开、常闭，再加 3 个开关和 7 个继电器的名字。
+    assert.equal(labels.length, 7 * 2 + 10, style);
+    for (const l of labels) {
+      assert.ok(l.x - l.w / 2 >= 0 && l.x + l.w / 2 <= BOARD.w && l.y >= 0.4 && l.y <= BOARD.h - 0.4, `${style}/${l.text} 出界`);
+      for (const [tx, ty] of terms) assert.ok(Math.hypot(l.x - tx, l.y - ty) >= 0.35, `${style}/${l.text} 盖住端点`);
+    }
+    for (const [i, a] of labels.entries()) for (const b of labels.slice(i + 1)) {
+      if (Math.abs(a.y - b.y) < 0.4) assert.ok(Math.abs(a.x - b.x) >= (a.w + b.w) / 2 + 0.1, `${style}/${a.text}@${a.x},${a.y} 和 ${b.text}@${b.x},${b.y} 重叠`);
+    }
+  }
 });

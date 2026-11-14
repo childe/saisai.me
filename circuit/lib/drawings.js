@@ -1,6 +1,6 @@
 // 每种元件两种画法（实物卡通 / 标准符号）的 SVG 片段。本地坐标：SVG 单位，端点在 termPos × GRID。
 import { PARTS } from './parts.js';
-import { GRID, LEVER_RECT } from './geometry.js';
+import { GRID, LEVER_RECT, rotatePoint } from './geometry.js';
 import { resistorBands } from './viewmodel.js';
 
 const INK = '#3a2e25';
@@ -244,7 +244,10 @@ const DRAW = {
     const link = `<line x1="${n((arm[0] - 20) / 2)}" y1="${n((arm[1] + 30) / 2)}" x2="${n((blade[0] + 60) / 2)}" y2="${n(blade[1] / 2)}" stroke="${INK}" stroke-width="2" stroke-dasharray="6 5"/>`;
     const coilLeads = line(-80, -40, -40, -40) + line(-40, -40, -40, -24) + line(-80, 40, -40, 40) + line(-40, 40, -40, 24);
     const contactLeads = line(80, 0, 60, 0) + line(80, -40, 24, -40) + line(80, 40, 24, 40);
-    const labels = `<text x="52" y="-48" text-anchor="middle" class="label">常开</text><text x="52" y="62" text-anchor="middle" class="label">常闭</text>`;
+    // 常开、常闭标签放在端点外侧（引线伸出的方向），中心对准端点轴线；
+    // 竖放时在端点正下方（相邻继电器之间错开一格），横放时在端点右侧。字始终正向（见 upright）。
+    const lx = part.rot % 2 ? 98 : 104;
+    const labels = `<text x="${lx}" y="-35" text-anchor="middle" class="label">常开</text><text x="${lx}" y="45" text-anchor="middle" class="label">常闭</text>`;
     if (style === 'cartoon') {
       return `<rect x="-64" y="-54" width="128" height="108" rx="10" fill="#d9c7a7" stroke="${INK}" stroke-width="3" opacity="0.85"/>` +
         coilLeads + contactLeads +
@@ -351,7 +354,19 @@ export function drawPart(part, style, visual) {
   const draw = DRAW[part.type];
   if (!draw) return '';
   const ends = part.type === 'node' ? '' : terms(part);
-  return `<g class="part-art ${style}">${upright(draw(part, style, visual), part.rot)}${ends}</g>`;
+  return `<g class="part-art ${style}">${upright(draw(part, style, visual) + tagLabel(part), part.rot)}${ends}</g>`;
+}
+
+// 开关、继电器带 tag 时画出名字（预置电路里的 A、B、C、A1…），让孩子分得清谁是谁。
+// 字画在本地坐标里，由 upright 转回正向。开关放在本体旁（本地 (0,32)，不压导线）；
+// 继电器放在板面上本体正上方、两个线圈端点之间（本地坐标按 rot 反转），避开下方的常开常闭标签。
+export function tagLabelAt(part) {
+  return part.type === 'relay' ? rotatePoint([0, -76], -part.rot) : [0, 32];
+}
+function tagLabel(part) {
+  if (!part.tag || (part.type !== 'switch' && part.type !== 'relay')) return '';
+  const [x, y] = tagLabelAt(part);
+  return `<text x="${n(x)}" y="${n(y + 6)}" text-anchor="middle" class="label tag">${esc(part.tag)}</text>`;
 }
 
 // 文字基线到字形中心的大致偏移（约 0.35em），按 styles.css 里的字号。

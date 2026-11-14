@@ -159,6 +159,7 @@ body {
 .part .sel { fill: none; stroke: var(--accent); stroke-width: 3; stroke-dasharray: 8 6; }
 .part text { font-family: inherit; fill: var(--ink); }
 .part .label { font-size: 15px; }
+.part .tag { font-size: 18px; font-weight: bold; }
 .part .pol { font-size: 18px; font-weight: bold; }
 .part .sym { font-size: 22px; font-weight: bold; }
 .part .reading { font-size: 18px; font-weight: bold; font-family: ui-monospace, Menlo, monospace; }

@@ -65,6 +65,18 @@ test('relay contacts are labelled 常开 / 常闭, display inputs 1 2 4 8', () =
   }
 });
 
+test('tagged switch and relay draw their tag upright, untagged ones and other types do not', () => {
+  for (const type of ['switch', 'relay']) for (const style of ['cartoon', 'symbol']) for (const rot of [0, 1, 2, 3]) {
+    const tagged = drawPart({ ...mk(type), rot, tag: 'A7' }, style, vis());
+    const t = tagged.match(/<text\b[^>]*class="label tag"[^>]*>A7</);
+    assert.ok(t, `${type}/${style}/${rot}`);
+    if (rot) assert.match(t[0], new RegExp(`rotate\\(${-rot * 90} `), `${type}/${style}/${rot} upright`);
+    assert.doesNotMatch(tagged, /NaN|undefined|Infinity/);
+    assert.doesNotMatch(drawPart({ ...mk(type), rot }, style, vis()), /class="label tag"/);
+  }
+  assert.doesNotMatch(drawPart({ ...mk('lamp'), tag: 'L' }, 'cartoon', vis()), />L</);
+});
+
 test('node renders as a dot in both styles and stays out of the palette', () => {
   for (const [style, r] of [['cartoon', 7], ['symbol', 5]]) {
     const s = drawPart(mk('node'), style, vis());
