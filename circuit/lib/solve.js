@@ -241,6 +241,7 @@ function split(circuit) {
 }
 
 // 按导线、重合端点和元件内部连通，返回 'partId.term' → 所在分量的根。
+// 电路里没有的端点键返回 undefined。
 export function connectivity(circuit) {
   const { find } = split(circuit);
   return find;

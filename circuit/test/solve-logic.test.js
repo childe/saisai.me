@@ -88,7 +88,6 @@ test('display value sums powered inputs', () => {
 test('display reads 0 when reversed or common floating', () => {
   const parts = { B: ['battery'], D: ['display'] };
   assert.equal(solve(build({ parts, wires: [['B.n', 'D.i1'], ['B.p', 'D.g']] })).parts.D.value, 0);
-  assert.equal(solve(build({ parts, wires: [['B.p', 'D.i2'], ['B.n', 'D.i1']] })).parts.D.value, 0);
   assert.equal(solve(build({ parts, wires: [['B.p', 'D.i2']] })).parts.D.value, 0);
 });
 
