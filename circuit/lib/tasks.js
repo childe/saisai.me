@@ -1,4 +1,4 @@
-// 10 个小任务：元件栏、预置电路、按物理结果判定。
+// 16 个小任务：元件栏、预置电路、按物理结果判定。
 import { PHYS } from './parts.js';
 import { solve } from './solve.js';
 import { brokenSet } from './damage.js';
@@ -12,6 +12,16 @@ export function lampLit(result, broken, id) {
 export function ledLit(result, broken, id) {
   const r = result?.parts?.[id];
   return !!r && !broken.has(id) && r.i >= PHYS.LED_LIT_A;
+}
+
+export function buzzerOn(result, broken, id) {
+  const r = result?.parts?.[id];
+  return !!r && !broken.has(id) && r.v > 0 && r.i >= 0.001;
+}
+
+export function motorOn(result, broken, id) {
+  const r = result?.parts?.[id];
+  return !!r && !broken.has(id) && Math.abs(r.v) >= 0.5;
 }
 
 export function withParams(circuit, changes) {
@@ -41,7 +51,36 @@ function presetCircuit(parts, wires) {
   return c;
 }
 
+// 两个开关的四种组合各解一次，键是「s1 合上? s2 合上?」，如 'tf'；有一种解不出就返回 null。
+function switchTable(circuit, broken, s1, s2) {
+  const table = {};
+  for (const a of [true, false]) for (const b of [true, false]) {
+    const r = solve(withParams(circuit, { [s1]: { closed: a }, [s2]: { closed: b } }), broken);
+    if (!r.ok) return null;
+    table[(a ? 't' : 'f') + (b ? 't' : 'f')] = r;
+  }
+  return table;
+}
+
+// 每一对开关（两种顺序）的四种组合，交给 pred 判断。
+function anySwitchPair(ws, pred) {
+  const br = brokenSet(ws.damage);
+  const sw = ofType(ws.circuit, 'switch');
+  for (const a of sw) for (const b of sw) {
+    if (a === b) continue;
+    const table = switchTable(ws.circuit, br, a.id, b.id);
+    if (table && pred(table, br)) return true;
+  }
+  return false;
+}
+
+// 只看开关组合下谁亮：on(k) 是组合 k 下的亮灭，want 是期望亮的组合。
+const truth = (on, want) => ['tt', 'tf', 'ft', 'ff'].every(k => on(k) === want.includes(k));
+
 const HINT3 = '试试另一种接法，亮度有什么不同？';
+// 灯接 1 节电池：并联时每盏约 0.22 W，串联时每盏约 0.06 W，以 0.15 W 区分。
+const BRIGHT_P = 0.15;
+const HINT14 = '两盏灯有点暗，换个接法让它们都亮亮的';
 
 export const TASKS = [
   {
@@ -206,6 +245,90 @@ export const TASKS = [
       const passed = blown && iNow < PHYS.SHORT_A && !!pre &&
         Math.abs(pre.iFuse - pre.iBatt) <= 0.05 * pre.iBatt && pre.iFuse > PHYS.SHORT_A;
       return result(passed, next);
+    },
+  },
+  {
+    id: 11, name: '门铃', goal: '按下开关，蜂鸣器就响', palette: { battery: 1, switch: 1, buzzer: 1 },
+    preset: createCircuit, initProgress: noProgress,
+    check(progress, ws) {
+      const br = brokenSet(ws.damage);
+      const buzzers = ofType(ws.circuit, 'buzzer');
+      for (const s of ofType(ws.circuit, 'switch')) {
+        const on = solve(withParams(ws.circuit, { [s.id]: { closed: true } }), br);
+        const off = solve(withParams(ws.circuit, { [s.id]: { closed: false } }), br);
+        if (!on.ok || !off.ok) continue;
+        if (buzzers.some(z => buzzerOn(on, br, z.id) && !buzzerOn(off, br, z.id))) return result(true, progress);
+      }
+      return result(false, progress);
+    },
+  },
+  {
+    id: 12, name: '保险箱', goal: '两个开关都合上，灯才亮', palette: { battery: 1, lamp: 1, switch: 2 },
+    preset: createCircuit, initProgress: noProgress,
+    check(progress, ws) {
+      const lamps = ofType(ws.circuit, 'lamp');
+      return result(anySwitchPair(ws, (t, br) =>
+        lamps.some(l => truth(k => lampLit(t[k], br, l.id), ['tt']))), progress);
+    },
+  },
+  {
+    id: 13, name: '前门后门', goal: '前门、后门的开关都能让门铃响', palette: { battery: 1, buzzer: 1, switch: 2 },
+    preset: createCircuit, initProgress: noProgress,
+    check(progress, ws) {
+      const buzzers = ofType(ws.circuit, 'buzzer');
+      return result(anySwitchPair(ws, (t, br) =>
+        buzzers.some(z => truth(k => buzzerOn(t[k], br, z.id), ['tt', 'tf', 'ft']))), progress);
+    },
+  },
+  {
+    id: 14, name: '总开关', goal: '一个开关管两盏灯，两盏都要亮亮的', palette: { battery: 1, lamp: 2, switch: 1 },
+    defaults: { battery: { cells: 1 } }, locked: { battery: ['cells'] },
+    preset: createCircuit, initProgress: noProgress,
+    check(progress, ws) {
+      const br = brokenSet(ws.damage);
+      const lamps = ofType(ws.circuit, 'lamp');
+      if (lamps.length < 2) return result(false, progress);
+      let dim = false;
+      for (const s of ofType(ws.circuit, 'switch')) {
+        const on = solve(withParams(ws.circuit, { [s.id]: { closed: true } }), br);
+        const off = solve(withParams(ws.circuit, { [s.id]: { closed: false } }), br);
+        if (!on.ok || !off.ok) continue;
+        if (!lamps.every(l => lampLit(on, br, l.id)) || lamps.some(l => lampLit(off, br, l.id))) continue;
+        if (lamps.every(l => on.parts[l.id].p >= BRIGHT_P)) return result(true, progress);
+        dim = true;
+      }
+      return result(false, progress, dim ? HINT14 : null);
+    },
+  },
+  {
+    id: 15, name: '风扇和灯', goal: '一个开关管灯，另一个开关管风扇', palette: { battery: 1, lamp: 1, motor: 1, switch: 2 },
+    preset: createCircuit, initProgress: noProgress,
+    check(progress, ws) {
+      const lamps = ofType(ws.circuit, 'lamp');
+      const motors = ofType(ws.circuit, 'motor');
+      return result(anySwitchPair(ws, (t, br) =>
+        lamps.some(l => truth(k => lampLit(t[k], br, l.id), ['tt', 'tf'])) &&
+        motors.some(m => truth(k => motorOn(t[k], br, m.id), ['tt', 'ft']))), progress);
+    },
+  },
+  {
+    id: 16, name: '红绿灯', goal: '拨一下开关，两盏 LED 换着亮', palette: { battery: 2, resistor: 1, spdt: 1, led: 2 },
+    preset: createCircuit, initProgress: noProgress,
+    check(progress, ws) {
+      const br = brokenSet(ws.damage);
+      const leds = ofType(ws.circuit, 'led');
+      for (const s of ofType(ws.circuit, 'spdt')) {
+        const lit = [];
+        for (const to of ['a', 'b']) {
+          const r = solve(withParams(ws.circuit, { [s.id]: { to } }), br);
+          // 拨过去会烧坏的 LED 不算数：判定只解电路，不会真的记下损坏。
+          const safe = r.ok && leds.every(d => !(r.parts[d.id]?.i >= PHYS.LED_BURN_A));
+          lit.push(safe ? leds.filter(d => ledLit(r, br, d.id)).map(d => d.id) : null);
+        }
+        const [x, y] = lit;
+        if (x?.length === 1 && y?.length === 1 && x[0] !== y[0]) return result(true, progress);
+      }
+      return result(false, progress);
     },
   },
 ];

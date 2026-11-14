@@ -11,8 +11,10 @@ const run = (n, c, progress = T(n).initProgress()) => evaluateTask(T(n), progres
 const series2 = (cells = 2) => build({ parts: { B: ['battery', { cells }], L1: ['lamp'], L2: ['lamp'] },
   wires: [['B.p', 'L1.a'], ['L1.b', 'L2.a'], ['L2.b', 'B.n']] });
 
-test('ten tasks in spec order', () => {
-  assert.deepEqual(TASKS.map(t => t.name), ['点亮一盏灯', '加个开关', '串联和并联', '一个亮一个灭', '让 LED 亮起来', '调光台灯', '让风扇反转', '楼梯灯', '量一量', '保险丝救场']);
+test('sixteen tasks in spec order', () => {
+  assert.deepEqual(TASKS.map(t => t.name), ['点亮一盏灯', '加个开关', '串联和并联', '一个亮一个灭', '让 LED 亮起来', '调光台灯', '让风扇反转', '楼梯灯', '量一量', '保险丝救场',
+    '门铃', '保险箱', '前门后门', '总开关', '风扇和灯', '红绿灯']);
+  assert.deepEqual(TASKS.map(t => t.id), TASKS.map((_, i) => i + 1));
 });
 
 test('task 1: lit lamp passes, unconnected lamp fails', () => {
@@ -107,6 +109,53 @@ test('task 10: preset fails; fuse in the short loop passes; fuse elsewhere fails
   const elsewhere = build({ parts: { B: ['battery'], L: ['lamp'], F: ['fuse'] },
     wires: [['B.p', 'F.a'], ['F.b', 'L.a'], ['L.b', 'B.n'], ['B.p', 'B.n']] });
   assert.equal(run(10, elsewhere).passed, false);
+});
+
+test('task 11: switch rings buzzer; reversed buzzer or no switch fails', () => {
+  const mk = (p, n) => build({ parts: { B: ['battery', { cells: 2 }], S: ['switch'], Z: ['buzzer'] },
+    wires: [['B.p', 'S.a'], ['S.b', p], [n, 'B.n']] });
+  assert.equal(run(11, mk('Z.p', 'Z.n')).passed, true);
+  assert.equal(run(11, mk('Z.n', 'Z.p')).passed, false);
+  const always = build({ parts: { B: ['battery', { cells: 2 }], Z: ['buzzer'] }, wires: [['B.p', 'Z.p'], ['Z.n', 'B.n']] });
+  assert.equal(run(11, always).passed, false);
+});
+
+test('task 12: switches in series pass, in parallel fail', () => {
+  const mk = wires => build({ parts: { B: ['battery'], S1: ['switch'], S2: ['switch'], L: ['lamp'] }, wires });
+  assert.equal(run(12, mk([['B.p', 'S1.a'], ['S1.b', 'S2.a'], ['S2.b', 'L.a'], ['L.b', 'B.n']])).passed, true);
+  assert.equal(run(12, mk([['B.p', 'S1.a'], ['B.p', 'S2.a'], ['S1.b', 'L.a'], ['S2.b', 'L.a'], ['L.b', 'B.n']])).passed, false);
+});
+
+test('task 13: switches in parallel ring buzzer, in series fail', () => {
+  const mk = wires => build({ parts: { B: ['battery', { cells: 2 }], S1: ['switch'], S2: ['switch'], Z: ['buzzer'] }, wires });
+  assert.equal(run(13, mk([['B.p', 'S1.a'], ['B.p', 'S2.a'], ['S1.b', 'Z.p'], ['S2.b', 'Z.p'], ['Z.n', 'B.n']])).passed, true);
+  assert.equal(run(13, mk([['B.p', 'S1.a'], ['S1.b', 'S2.a'], ['S2.b', 'Z.p'], ['Z.n', 'B.n']])).passed, false);
+});
+
+test('task 14: one switch on main line with parallel lamps passes; series lamps too dim', () => {
+  const par = build({ parts: { B: ['battery'], S: ['switch'], L1: ['lamp'], L2: ['lamp'] },
+    wires: [['B.p', 'S.a'], ['S.b', 'L1.a'], ['S.b', 'L2.a'], ['L1.b', 'B.n'], ['L2.b', 'B.n']] });
+  assert.equal(run(14, par).passed, true);
+  const ser = build({ parts: { B: ['battery'], S: ['switch'], L1: ['lamp'], L2: ['lamp'] },
+    wires: [['B.p', 'S.a'], ['S.b', 'L1.a'], ['L1.b', 'L2.a'], ['L2.b', 'B.n']] });
+  assert.equal(run(14, ser).passed, false);
+  assert.deepEqual(T(14).locked, { battery: ['cells'] });
+});
+
+test('task 15: each switch controls its own branch; shared main switch fails', () => {
+  const mk = wires => build({ parts: { B: ['battery', { cells: 2 }], S1: ['switch'], S2: ['switch'], L: ['lamp'], M: ['motor'] }, wires });
+  assert.equal(run(15, mk([['B.p', 'S1.a'], ['S1.b', 'L.a'], ['L.b', 'B.n'], ['B.p', 'S2.a'], ['S2.b', 'M.a'], ['M.b', 'B.n']])).passed, true);
+  assert.equal(run(15, mk([['B.p', 'S1.a'], ['S1.b', 'S2.a'], ['S2.b', 'L.a'], ['S2.b', 'M.a'], ['L.b', 'B.n'], ['M.b', 'B.n']])).passed, false);
+});
+
+test('task 16: spdt alternates two LEDs; one LED only or no resistor fails', () => {
+  const mk = extra => build({ parts: { B1: ['battery'], B2: ['battery'], R: ['resistor', { ohms: 220 }], S: ['spdt'], D1: ['led'], D2: ['led', { color: 'green' }] },
+    wires: [['B1.p', 'B2.n'], ['B2.p', 'R.a'], ['R.b', 'S.c'], ['S.a', 'D1.a'], ['D1.k', 'B1.n'], ...extra] });
+  assert.equal(run(16, mk([['S.b', 'D2.a'], ['D2.k', 'B1.n']])).passed, true);
+  assert.equal(run(16, mk([])).passed, false);
+  const noR = build({ parts: { B1: ['battery'], B2: ['battery'], S: ['spdt'], D1: ['led'], D2: ['led'] },
+    wires: [['B1.p', 'B2.n'], ['B2.p', 'S.c'], ['S.a', 'D1.a'], ['D1.k', 'B1.n'], ['S.b', 'D2.a'], ['D2.k', 'B1.n']] });
+  assert.equal(run(16, noR).passed, false);
 });
 
 test('remainingPalette counts non-preset parts on canvas', () => {
