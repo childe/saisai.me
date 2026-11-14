@@ -121,3 +121,34 @@ export function anySwitchPair(ws, pred) {
 
 // 只看开关组合下谁亮：on(k) 是组合 k 下的亮灭，want 是期望亮的组合。
 export const truth = (on, want) => ['tt', 'tf', 'ft', 'ff'].every(k => on(k) === want.includes(k));
+
+// 孩子有没有用电表量过：求解过程中电流表 |i| ≥ 0.01 A，或电压表 |v| ≥ 0.1 V。
+export function metersRead(ws) {
+  const meters = ws.circuit.parts.filter(p => p.type === 'ammeter' || p.type === 'voltmeter');
+  return [...(ws.trail ?? []), ws.result].some(r => meters.some(m => {
+    const x = r?.parts?.[m.id];
+    return !!x && (m.type === 'ammeter' ? Math.abs(x.i) >= 0.01 : Math.abs(x.v) >= 0.1);
+  }));
+}
+
+const MEASURE_FIRST = '先用电表量一量';
+
+// 找故障：预置电路里藏着一处故障（元件或导线带 fault），孩子用电表量，再指认。
+// 指认由编辑器处理：accuse 只判对错，found 由编辑器写进 progress。
+export function faultTask({ id, chapter, name, goal, palette, variants, preset }) {
+  return {
+    id, chapter, name, goal, palette, variants, preset, lockPreset: true,
+    initProgress: () => ({ measured: false, found: false }),
+    check(progress, ws) {
+      const measured = progress.measured || metersRead(ws);
+      const next = measured === progress.measured ? progress : { ...progress, measured };
+      return result(next.found, next, measured ? null : MEASURE_FIRST);
+    },
+    accuse(progress, target, ws) {
+      if (!progress.measured) return null;
+      const item = (target.kind === 'wire' ? ws.circuit.wires : ws.circuit.parts).find(x => x.id === target.id);
+      if (!item?.preset) return null;
+      return item.fault ? 'right' : 'wrong';
+    },
+  };
+}
