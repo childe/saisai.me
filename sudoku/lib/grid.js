@@ -46,13 +46,18 @@ export function format(values) {
 // 每格候选位掩码（第 d 位表示数字 d）；已填格为 0
 export function candidates(values, spec, eliminated = new Set()) {
   const full = ((1 << (spec.size + 1)) - 1) & ~1;
-  return values.map((v, cell) => {
+  const out = values.map((v, cell) => {
     if (v) return 0;
     let mask = full;
     for (const p of spec.peers[cell]) if (values[p]) mask &= ~(1 << values[p]);
-    for (let d = 1; d <= spec.size; d++) if (eliminated.has(`${cell}:${d}`)) mask &= ~(1 << d);
     return mask;
   });
+  // 只遍历已删除的候选，避免对每格每个数字拼字符串
+  for (const key of eliminated) {
+    const [cell, d] = key.split(':').map(Number);
+    if (!values[cell]) out[cell] &= ~(1 << d);
+  }
+  return out;
 }
 
 export function bits(mask) {
