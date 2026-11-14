@@ -2154,21 +2154,55 @@ function start() {
   }
 
   // 3. 浏览器进程里第一次 new AudioContext() 要同步等音频服务启动（软件渲染的测试环境约 150ms），
-  //    放在第一次按键里会卡一帧。enumerateDevices() 是异步的，不创建音频、不需要手势、不弹权限，
-  //    却会提前启动音频服务，之后第一次手势里建 AudioContext 只要几毫秒。预热帧等它完成（最多 2 秒）
+  //    放在第一次按键里会卡一帧。让一个静音、不播放的 <audio> 预加载内存里生成的 64 个采样的 WAV：
+  //    不创建 AudioContext、不需要手势、不出声，却会异步启动音频服务，之后第一次手势里建
+  //    AudioContext 只要几毫秒。预热帧等它就绪（最多 2 秒）。
+  //    （enumerateDevices() 也能启动音频服务，但页面没有焦点时 Chrome 会一直挂起它，还会枚举摄像头）
   let audioWarm = false;
   try {
-    const md = navigator.mediaDevices;
-    if (md && typeof md.enumerateDevices === 'function') {
-      md.enumerateDevices().then(
-        () => (audioWarm = true),
-        () => (audioWarm = true),
-      );
-    } else {
-      audioWarm = true;
-    }
+    audioWarm = !warmAudioService(() => (audioWarm = true));
   } catch {
     audioWarm = true;
+  }
+
+  // 返回是否已开始预加载；结束（就绪或出错）时调用 done
+  function warmAudioService(done) {
+    if (typeof Audio !== 'function' || typeof Blob !== 'function' || !window.URL) return false;
+    const n = 64;
+    const buf = new ArrayBuffer(44 + n * 2); // 8kHz、16 位单声道、64 个 0 采样
+    const v = new DataView(buf);
+    const tag = (o, str) => {
+      for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i));
+    };
+    tag(0, 'RIFF');
+    v.setUint32(4, 36 + n * 2, true);
+    tag(8, 'WAVE');
+    tag(12, 'fmt ');
+    v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true);
+    v.setUint16(22, 1, true);
+    v.setUint32(24, 8000, true);
+    v.setUint32(28, 16000, true);
+    v.setUint16(32, 2, true);
+    v.setUint16(34, 16, true);
+    tag(36, 'data');
+    v.setUint32(40, n * 2, true);
+    const url = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+    const el = new Audio();
+    el.muted = true;
+    el.preload = 'auto';
+    const finish = () => {
+      el.removeEventListener('canplaythrough', finish);
+      el.removeEventListener('error', finish);
+      el.removeAttribute('src');
+      URL.revokeObjectURL(url);
+      done();
+    };
+    el.addEventListener('canplaythrough', finish);
+    el.addEventListener('error', finish);
+    el.src = url;
+    el.load();
+    return true;
   }
   const warmStart = performance.now();
 

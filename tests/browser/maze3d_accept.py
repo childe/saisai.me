@@ -1160,6 +1160,12 @@ def perf_round(
                 "() => window.__maze3d.textureStats"
                 " ? window.__maze3d.textureStats.lastMs : null"
             ),
+            # 玩法字段（基线页面没有，返回 null）
+            "extras": page.evaluate(
+                "() => { const M = window.__maze3d; return { minimapVisible: M.minimapVisible ?? null,"
+                " starTotal: M.starTotal ?? null, soundOn: M.soundOn ?? null,"
+                " audioState: M.audioState ?? null }; }"
+            ),
             "errors": errors,
         }
     finally:
@@ -1942,6 +1948,12 @@ def perf_fixed_start(page):
 
 def check_t7(browser, base):
     """GPU 下 iPhone SE + 4 倍 CPU 降速：各主题帧时间不超过基线的 1.3 倍，且不触发降画质。"""
+    return perf_compare(browser, base)
+
+
+def perf_compare(browser, base, extra=None):
+    """check_t7 的主体：GPU、iPhone SE、4 倍 CPU 降速，基线与四个主题各跑一轮 play_continuous。
+    extra(name, round) 对每个新代码轮次返回 (ok, msg)，不通过即 FAIL。"""
     if not BASELINE_ROOT:
         return None, "need --baseline-root"
     bt = browser.browser_type
@@ -2007,6 +2019,12 @@ def check_t7(browser, base):
             verdicts = []
             ok = True
             for tid, r in runs[1:]:
+                if extra:
+                    e_ok, e_msg = extra(tid, r)
+                    if not e_ok:
+                        verdicts.append(f"{tid}: FAIL {e_msg}")
+                        ok = False
+                        continue
                 if high and r["downgradeCount"] > 0:
                     verdicts.append(
                         f"{tid}: FAIL 触发降级 downgradeCount={r['downgradeCount']}"
@@ -5386,6 +5404,131 @@ def check_b9(browser, base):
         close(page)
 
 
+def check_b14(browser, base):
+    """性能：t7 的方法，新代码轮次里小地图在跟随视角显示、星星在场（20×20 共 7 颗）、声音开启且已创建
+    AudioContext；各主题平均帧时间 ≤ 基线 1.3 倍且不降画质。"""
+
+    def extra(name, r):
+        x = r.get("extras") or {}
+        ok = (
+            x.get("minimapVisible") is True
+            and x.get("starTotal") == 7
+            and x.get("soundOn") is True
+            and x.get("audioState") not in (None, "none")
+        )
+        return ok, f"extras={x}"
+
+    return perf_compare(browser, base, extra=extra)
+
+
+def check_b15(browser, base):
+    """截图：四个主题各一张游戏中画面（星星、脚印、未探索区、信息栏）、一张第一人称、一张新纪录通关层；
+    6 个文件都存在且非空才 PASS。"""
+    SHOTS.mkdir(parents=True, exist_ok=True)
+    details = []
+    ok = True
+    errs = []
+    files = []
+    for tid in THEME_IDS:
+        page, errors = open_page(
+            browser,
+            f"{base}{PAGE}?seed={S}&size=10&debug=1",
+            viewport={"width": 1280, "height": 800},
+            init_script=theme_init(tid) + preset_storage("1", "2"),
+            reduced_motion="reduce",
+        )
+        try:
+            wait_idle(page)
+            star, path = logic(
+                page,
+                """(() => { let best = [null, []];
+                  for (const s of M.stars) {
+                    const p = L.findPath(M.connections, {row: 0, col: 0}, s);
+                    if (p.length > best[1].length) best = [s, p]; }
+                  return best; })()""",
+            )
+            if not star or len(path) < 7:
+                details.append(f"{tid}: route too short star={star} len={len(path)}")
+                ok = False
+                continue
+            prev = path[-2]
+            walk_to(page, *prev)
+            page.evaluate("() => window.__maze3d.setStarsForTest({ paused: true })")
+            face_yaw(page, math.atan2(star["col"] - prev[1], -(star["row"] - prev[0])))
+            wait_camera_still(page)
+            wait_frames(page, 3)
+            fp = m3(page, "footprints")
+            st = [
+                x
+                for x in m3(page, "stars")
+                if x["row"] == star["row"] and x["col"] == star["col"]
+            ][0]
+            cam = m3(page, "cameraState")
+            cw, ch = page.evaluate(
+                f"() => {{ const c = document.querySelector('{CANVAS_SEL}'); return [c.clientWidth, c.clientHeight]; }}"
+            )
+            sp = project_css(cam, (star["col"] + 0.5, 0.35, star["row"] + 0.5), cw, ch)
+            on_screen = sp is not None and 0 <= sp[0] < cw and 0 <= sp[1] < ch
+            shot = SHOTS / f"gameplay-{tid}-play.png"
+            page.locator("#stage").screenshot(path=str(shot))
+            files.append(shot)
+            good = len(fp) >= 6 and st["visible"] and on_screen
+            details.append(
+                f"{tid}: star=({star['row']},{star['col']}) route={len(path)} footprints={len(fp)}"
+                f" visible={st['visible']} onScreen={on_screen}"
+            )
+            ok = ok and good
+            if tid == "garden":
+                page.click("#view-btn")
+                page.wait_for_timeout(300)
+                wait_frames(page, 3)
+                st2 = [
+                    x
+                    for x in m3(page, "stars")
+                    if x["row"] == star["row"] and x["col"] == star["col"]
+                ][0]
+                seen = m3(page, f"exploredAt({star['row']}, {star['col']})")
+                fpv = SHOTS / "gameplay-first-person.png"
+                page.locator("#stage").screenshot(path=str(fpv))
+                files.append(fpv)
+                good = not st2["collected"] and seen
+                details.append(
+                    f"firstPerson: collected={st2['collected']} explored={seen}"
+                )
+                ok = ok and good
+            errs += errors
+        finally:
+            close(page)
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 1280, "height": 800},
+        init_script=best_init("9999999"),
+        reduced_motion="reduce",
+    )
+    try:
+        wait_idle(page)
+        star, path = first_clear_star(page)
+        walk_to(page, star["row"], star["col"])
+        won = walk_to_exit(page)
+        r = m3(page, "lastResult")
+        page.wait_for_timeout(300)
+        win = SHOTS / "gameplay-win.png"
+        page.screenshot(path=str(win))
+        files.append(win)
+        good = won and r and r["isNew"] and r["stars"] >= 1
+        details.append(f"win: won={won} result={r}")
+        ok = ok and good
+        errs += errors
+    finally:
+        close(page)
+    saved = [f for f in files if f.exists() and f.stat().st_size > 0]
+    details.append(f"files={len(saved)}/6 dir={SHOTS}")
+    ok = ok and len(saved) == 6
+    ok_err, msg = no_errors(errs)
+    return ok and ok_err, (" ".join(details) + " " + msg).strip()
+
+
 CHECKS = {
     "1": check_1,
     "10": check_10,
@@ -5451,6 +5594,8 @@ CHECKS = {
     "b11": check_b11,
     "b12": check_b12,
     "b13": check_b13,
+    "b14": check_b14,
+    "b15": check_b15,
 }
 
 
@@ -5519,8 +5664,8 @@ def main():
             + (f" --baseline-root {BASELINE_ROOT}" if BASELINE_ROOT else ""),
             f"自动检查：{'PASS' if all_ok else 'FAIL'}",
             f"基线代码：{BASELINE_ROOT}（merge-base）",
-            f"人工检查：待用户查看 {SHOTS} 下 polish-*-start.png（开局迷宫占画面主体、阴影、暗边、光柱）"
-            "与 polish-*-arrow.png（边缘箭头与距离）",
+            f"人工检查：待用户查看 {SHOTS} 下 gameplay-*-play.png（星星、脚印、未探索区、信息栏）、"
+            "gameplay-first-person.png 与 gameplay-win.png（用时、最佳、新纪录、星星数）",
             "",
         ]
         RESULTS.write_text("\n".join(header + lines) + "\n", encoding="utf-8")
