@@ -168,7 +168,10 @@ function nextDrill() {
 function again() {
   if (!play) return;
   if (play.kind === 'drill') startDrill(play.ci, play.slot, play.variant);
-  else startFree(play.size, play.level);
+  else {
+    routeToken++;
+    startFree(play.size, play.level);
+  }
 }
 
 const PLAY_ACTIONS = {
@@ -200,7 +203,11 @@ const PAGE_ACTIONS = {
     saveInstantCheck(!loadInstantCheck());
     showHome();
   },
-  regen: () => play && startFree(play.size, play.level),
+  regen: () => {
+    if (!play) return;
+    routeToken++;
+    startFree(play.size, play.level);
+  },
   next: () => play && nextDrill(),
   again,
   back: () => go(backBtn.dataset.target || '#/'),
