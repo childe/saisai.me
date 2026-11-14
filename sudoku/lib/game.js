@@ -81,14 +81,14 @@ const place = (g, cell, digit) => (g.notesMode ? toggleNote(g, cell, digit) : fi
 function tapCell(g, cell) {
   if (!Number.isInteger(cell) || cell < 0 || cell >= g.spec.cells) return g;
   if (g.held && !g.given[cell]) return place(g, cell, g.held);
-  if (g.selected === cell && g.held === null) return g;
+  if (g.selected === cell) return { ...g, selected: null }; // 再点选中的格 → 取消选中
   return { ...g, selected: cell, held: null };
 }
 
 function digit(g, d) {
   if (!Number.isInteger(d) || d < 1 || d > g.size) return g;
   if (g.selected === null) return { ...g, held: g.held === d ? null : d };
-  if (g.given[g.selected]) return g;
+  if (g.given[g.selected]) return { ...g, selected: null, held: d }; // 选中题面格时点数字 → 拿起该数字
   return place(g, g.selected, d);
 }
 

@@ -227,7 +227,8 @@ function moveSelection(dr, dc) {
     r = Math.min(size - 1, Math.max(0, Math.floor(cur / size) + dr));
     c = Math.min(size - 1, Math.max(0, (cur % size) + dc));
   }
-  dispatch({ type: 'tapCell', cell: r * size + c });
+  // 撞到边上不动：再点同一格会取消选中
+  if (r * size + c !== cur) dispatch({ type: 'tapCell', cell: r * size + c });
 }
 
 function onKey(e) {

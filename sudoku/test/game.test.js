@@ -27,9 +27,28 @@ test('digit-first input fills several cells', () => {
 test('modes are exclusive', () => {
   let g = run(g0(), { type: 'digit', digit: 3 }, { type: 'tapCell', cell: 1 });
   assert.deepEqual([g.values[1], g.held, g.selected], [2, null, 1]);
+  // R9：选中题面格时点数字 → 拿起该数字、清掉选中，题面不变
   g = run(g0(), { type: 'tapCell', cell: 0 }, { type: 'digit', digit: 1 }, { type: 'tapCell', cell: 1 });
-  g = act(act(g, { type: 'tapCell', cell: 1 }), { type: 'digit', digit: 4 });
-  assert.equal(g.values[1], 2);
+  g = act(g, { type: 'digit', digit: 4 });
+  assert.deepEqual([g.values[1], g.held, g.selected], [2, 4, null]);
+});
+test('R9: tapping the selected cell deselects it, then digit-first works', () => {
+  let g = run(g0(), { type: 'tapCell', cell: 0 }, { type: 'digit', digit: 1 }, { type: 'tapCell', cell: 0 });
+  assert.deepEqual([g.selected, g.held, g.values[0]], [null, null, 1]);
+  g = run(g, { type: 'digit', digit: 4 }, { type: 'tapCell', cell: 21 });
+  assert.deepEqual([g.held, g.selected, g.values[21]], [4, null, 4]);
+});
+test('R9: digit on a selected given cell picks it up; empty/player cells still fill', () => {
+  let g = run(g0(), { type: 'tapCell', cell: 1 }, { type: 'digit', digit: 6 });
+  assert.deepEqual([g.held, g.selected], [6, null]);
+  g = run(g, { type: 'tapCell', cell: 35 }, { type: 'tapCell', cell: 7 });
+  assert.deepEqual([g.values[35], g.values[7]], [6, 6]);
+  // 玩家填过的格选中后点数字仍是改填
+  g = run(g0(), { type: 'tapCell', cell: 0 }, { type: 'digit', digit: 2 }, { type: 'digit', digit: 1 });
+  assert.deepEqual([g.values[0], g.selected, g.held], [1, 0, null]);
+  // 笔记模式下选中空格点数字仍切换笔记
+  g = run(g0(), { type: 'toggleNotes' }, { type: 'tapCell', cell: 0 }, { type: 'digit', digit: 3 });
+  assert.equal(g.notes[0], 1 << 3);
 });
 test('wrong digit costs a heart; fifth ends the game', () => {
   let g = run(g0(), { type: 'tapCell', cell: 0 }, { type: 'digit', digit: 2 });

@@ -328,7 +328,11 @@ def c5_win(ctx):
         tap(page, c)
         key(page, int(sol[c]))
     page.locator('#overlay [data-action="next"]').click()
-    page.wait_for_selector("#board .cell")
+    # hashchange 是异步的，等标题换掉再断言，避免读到旧盘面
+    page.wait_for_function(
+        "() => document.getElementById('title').textContent.includes('第 3 题')",
+        timeout=3000,
+    )
     check(page.locator("#title").text_content() == "排除法 · 第 3 题", "下一题")
     check(page.locator("#overlay").is_hidden(), "")
     page.context.close()
@@ -429,6 +433,9 @@ def c9_keyboard(ctx):
     page.keyboard.press("ArrowRight")
     page.keyboard.press("ArrowDown")
     check("sel" in cell_classes(page, 7), "方向键移动")
+    for _ in range(8):
+        page.keyboard.press("ArrowRight")
+    check("sel" in cell_classes(page, 11), "撞到右边停住、不取消选中")
     e = empty_cells(page)[0]
     tap(page, e)
     page.keyboard.press(sol[e])
@@ -447,6 +454,61 @@ def c9_keyboard(ctx):
     page.context.close()
 
 
+def c10_reselect(ctx):
+    """R9：选中格子填完后，再点该格取消选中或选中题面格点数字，都能回到先选数字连续填。"""
+    page = ctx.open("#/play/hidden/5")
+    page.wait_for_selector("#board .cell")
+    sol = solution_for(page, "hidden", 5)
+
+    def digit_with_two(exclude=()):
+        empties = empty_cells(page)
+        for d in range(1, 10):
+            cells = [c for c in empties if int(sol[c]) == d and c not in exclude]
+            if len(cells) >= 2:
+                return d, cells[:2]
+        raise AssertionError("找不到还剩 2 格的数字")
+
+    def held_fill(d, cells, label):
+        check(
+            "on" in page.locator(f'#pad .key[data-digit="{d}"]').get_attribute("class"),
+            f"{label}：数字键 {d} 拿在手上",
+        )
+        check(page.locator("#board .cell.sel").count() == 0, f"{label}：没有选中格")
+        for c in cells:
+            tap(page, c)
+            check(cell(page, c).text_content() == str(d), f"{label}：格 {c} 填入 {d}")
+        key(page, d)  # 放下
+
+    # 路径 1：选格填数 → 再点同一格取消选中 → 拿起数字连续填两格
+    d, cells = digit_with_two()
+    a = next(c for c in empty_cells(page) if c not in cells)
+    tap(page, a)
+    key(page, int(sol[a]))
+    check(cell(page, a).text_content() == sol[a], "先点格子填数")
+    check("sel" in cell_classes(page, a), "填完仍选中")
+    tap(page, a)
+    check("sel" not in cell_classes(page, a), "再点同一格取消选中")
+    key(page, d)
+    held_fill(d, cells, "取消选中后")
+    shot(page, "10-deselect-held")
+
+    # 路径 2：选格填数 → 点题面格 → 点数字直接拿起，连续填两格
+    d, cells = digit_with_two()
+    a = next(c for c in empty_cells(page) if c not in cells)
+    tap(page, a)
+    key(page, int(sol[a]))
+    given = page.evaluate(
+        "() => Number(document.querySelector('#board .cell.given').dataset.cell)"
+    )
+    tap(page, given)
+    check("sel" in cell_classes(page, given), "选中题面格")
+    key(page, d)
+    held_fill(d, cells, "选中题面格后")
+    check(page.locator("#hearts").text_content().count("❤") == 5, "全程没填错")
+    shot(page, "10-given-held")
+    page.context.close()
+
+
 def c8_console(ctx):
     """控制台无报错（汇总前面所有页面）。"""
     check(not ERRORS, "控制台报错：\n" + "\n".join(ERRORS))
@@ -461,6 +523,7 @@ CHECKS = [
     ("6", c6_free),
     ("7", c7_phone),
     ("9", c9_keyboard),
+    ("10", c10_reselect),
     ("8", c8_console),
 ]
 
