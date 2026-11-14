@@ -20,8 +20,8 @@ function solveEach(circuit, br, settings) {
 }
 
 // 继电器灯题：对每个开关（或有序开关对）和每盏灯，want(lit) 判亮灭对不对，且继电器起作用。
-// lit(i) 是第 i 组设定下灯亮不亮；apart 为真时还要求灯和开关不在同一个连通回路里。
-function relayLampTask(ws, nSwitches, want, apart = false) {
+// lit(i) 是第 i 组设定下灯亮不亮；灯还要和每个开关都不在同一个连通回路里，开关只能经继电器管灯。
+function relayLampTask(ws, nSwitches, want) {
   const br = brokenSet(ws.damage);
   const sw = ofType(ws.circuit, 'switch');
   const lamps = ofType(ws.circuit, 'lamp');
@@ -33,7 +33,7 @@ function relayLampTask(ws, nSwitches, want, apart = false) {
     const solved = solveEach(ws.circuit, br, settings);
     if (!solved) continue;
     for (const l of lamps) {
-      if (apart && find(`${l.id}.a`) === find(`${g[0].id}.a`)) continue;
+      if (g.some(s => find(`${s.id}.a`) === find(`${l.id}.a`))) continue;
       const out = r => String(lampLit(r, br, l.id));
       if (want(i => lampLit(solved.results[i], br, l.id)) && relayMatters(solved.circuits, br, out)) return true;
     }
@@ -78,12 +78,12 @@ export const CH7 = [
     id: 32, chapter: 7, name: '认识继电器', goal: '合上开关，继电器点亮另一节电池那边的灯', palette: RELAY_PALETTE,
     preset: () => createCircuit(), initProgress: noProgress,
     // 设定顺序：合上、断开
-    check: (progress, ws) => result(relayLampTask(ws, 1, lit => lit(0) && !lit(1), true), progress),
+    check: (progress, ws) => result(relayLampTask(ws, 1, lit => lit(0) && !lit(1)), progress),
   },
   {
     id: 33, chapter: 7, name: '继电器非门', goal: '开关合上灯灭，断开灯亮', palette: RELAY_PALETTE,
     preset: () => createCircuit(), initProgress: noProgress,
-    check: (progress, ws) => result(relayLampTask(ws, 1, lit => !lit(0) && lit(1), true), progress),
+    check: (progress, ws) => result(relayLampTask(ws, 1, lit => !lit(0) && lit(1)), progress),
   },
   {
     id: 34, chapter: 7, name: '继电器与门 / 或门',

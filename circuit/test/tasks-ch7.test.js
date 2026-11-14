@@ -22,13 +22,14 @@ test('30 display: only i4 does not pass for 5', () => {
   assert.equal(run(30, display(['i4', 'i1']), 3).passed, false);
 });
 
-// 半加器参考接法：上组交叉接出「和」，下组串起来出「进位」。swap 为真时每个开关的 a、b 端对调（「1」换到 a 位置）。
-const halfAdder = ({ swap = false, carry = true, to = 'a' } = {}) => {
-  const t = s => (swap ? s.replace(/^(.)(.)$/, (_, x, n) => ({ a: 'b', b: 'a' })[x] + n) : s);
-  return build({ parts: { B: ['battery'], A: ['dpdt', { to }], S: ['dpdt', { to }], D: ['display'] },
+// 半加器参考接法：上组交叉接出「和」，下组串起来出「进位」。swapA / swapB 为真时把那个开关的 a、b 端对调（「1」换到 a 位置）。
+const halfAdder = ({ swapA = false, swapB = false, carry = true } = {}) => {
+  const t = (sw, swap) => term => `${sw}.${swap ? { a: 'b', b: 'a' }[term[0]] + term[1] : term}`;
+  const A = t('A', swapA), S = t('S', swapB);
+  return build({ parts: { B: ['battery'], A: ['dpdt'], S: ['dpdt'], D: ['display'] },
     wires: [
-      ['B.p', 'A.c1'], [`A.${t('a1')}`, `S.${t('b1')}`], [`A.${t('b1')}`, `S.${t('a1')}`], ['S.c1', 'D.i1'],
-      ...(carry ? [['B.p', 'A.c2'], [`A.${t('b2')}`, 'S.c2'], [`S.${t('b2')}`, 'D.i2']] : []),
+      ['B.p', 'A.c1'], [A('a1'), S('b1')], [A('b1'), S('a1')], ['S.c1', 'D.i1'],
+      ...(carry ? [['B.p', 'A.c2'], [A('b2'), 'S.c2'], [S('b2'), 'D.i2']] : []),
       ['D.g', 'B.n'],
     ] });
 };
@@ -38,8 +39,9 @@ test('31 half adder: reference wiring passes', () => {
 });
 
 test('31 half adder: either 1-position mapping passes', () => {
-  assert.equal(run(31, halfAdder({ swap: true })).passed, true);
-  assert.equal(run(31, halfAdder({ to: 'b' })).passed, true);
+  assert.equal(run(31, halfAdder({ swapA: true, swapB: true })).passed, true);
+  // A 的「1」在 b、B 的「1」在 a：两个开关的映射不同也要能过
+  assert.equal(run(31, halfAdder({ swapB: true })).passed, true);
 });
 
 test('31 half adder: sum without carry fails', () => {
@@ -110,6 +112,13 @@ test('34 and: switches driving the lamp directly fail', () => {
   // 两个开关直接串在灯的回路里，继电器空接：亮灭对，但继电器不起作用
   const c = build({ parts: { B1: ['battery'], S1: ['switch'], S2: ['switch'], K1: ['relay'], K2: ['relay'], B2: ['battery'], L: ['lamp'] },
     wires: [['B1.p', 'K1.x'], ['K1.y', 'B1.n'], ['B2.p', 'S1.a'], ['S1.b', 'S2.a'], ['S2.b', 'L.a'], ['L.b', 'B2.n']] });
+  assert.equal(run(34, c, 'and').passed, false);
+});
+
+test('34 and: switches in the lamp loop plus an always-on relay fail', () => {
+  // 两个开关直接串在灯的回路里，再串一个线圈常通的继电器常开触点：继电器看似起作用，但开关没经过继电器
+  const c = build({ parts: { B1: ['battery'], S1: ['switch'], S2: ['switch'], K1: ['relay'], K2: ['relay'], B2: ['battery'], L: ['lamp'] },
+    wires: [['B1.p', 'K1.x'], ['K1.y', 'B1.n'], ['B2.p', 'S1.a'], ['S1.b', 'S2.a'], ['S2.b', 'K1.com'], ['K1.no', 'L.a'], ['L.b', 'B2.n']] });
   assert.equal(run(34, c, 'and').passed, false);
 });
 
