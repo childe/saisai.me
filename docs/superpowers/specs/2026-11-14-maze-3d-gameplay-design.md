@@ -130,9 +130,16 @@
 **最佳成绩**
 
 - 每个尺寸（10 / 15 / 20）一个记录，存到 `maze3d.best.10`、`maze3d.best.15`、`maze3d.best.20`，值为整数毫秒字符串。读出的值不是正整数（缺失、`'abc'`、`'-5'`、`'0'`、`'NaN'`）都当作没有记录。
-- 通关时：本局时间小于记录、或者没有记录，就写入新记录，并显示「新纪录!」。
+- 时间精度：计时器内部按 `dt × 1000` 累加，可能含小数。判胜结算时统一取 `timeMs = Math.round(timer.elapsedMs)`，之后的比较、写存储、`lastResult.timeMs`、`#win-time` 显示都只用这个整数。HUD 在游戏中途显示的是未取整的 `elapsedMs` 经 `formatTime` 向下取整的结果，不受影响。
+- 通关时：本局时间（整数毫秒）小于记录、或者没有记录，就写入新记录，并显示「新纪录!」。
 - 迷雾开关、视野半径、视角、主题都不分开记录。这是有意接受的简化：给孩子看一个数字最简单；本局中途切换迷雾时也不需要规定成绩算到哪一边。
-- 本局计时开始后点过「显示道路」的，本局成绩不计入最佳（看着道路走不算本事）。通关层仍显示用时，并显示「这局看了道路，不计入最佳成绩」。计时开始前（还没动）点过再隐藏的不影响。
+- 本局走的时候道路开着的，本局成绩不计入最佳（看着道路走不算本事）。判定规则：
+  - 计时开始那一刻（首次实际移动），`pathUsedThisRun ||= showPath`。所以「开局先点显示道路、不隐藏就开始走」也不计入。
+  - 计时开始后点「显示道路」，`pathUsedThisRun = true`。
+  - 之后点「隐藏道路」不撤销 `pathUsedThisRun`。
+  - 计时开始前点过「显示道路」、但开始走之前已经点了「隐藏道路」的，不影响。
+  - `showPath` 在 `buildMaze()` 中不清除（现有行为，`main.js` 里重新生成、切换尺寸都保留道路开关）；`pathUsedThisRun` 在 `buildMaze()` 中清零。道路开着进入下一局时，由第一条规则在下一局计时开始时置真。
+  - 通关层仍显示用时，并显示「这局看了道路，不计入最佳成绩」。
 
 **通关层**
 
@@ -150,7 +157,7 @@
 
 **位置**（纯函数 `placeStars(connections, seed, count)`，同 seed 同尺寸结果相同；不改迷宫生成器，不消耗生成器的随机数）：
 
-1. 从起点 BFS（`canMove`），得到可达格子和到起点的步数。只有可达的格子能放星星：生成器不保证每格都可达，放在不可达格子里的星星永远拿不到。
+1. 从起点 BFS（`canMove`），得到可达格子和到起点的步数。BFS 不从终点继续向外扩展（走到终点即通关，经过终点才能到的格子在通关前拿不到）。只有这样可达的格子能放星星：生成器不保证每格都可达，放在不可达格子里的星星永远拿不到。
 2. 候选格 = 可达格子，去掉起点、终点，以及与起点或终点 Chebyshev 距离为 1 的格子（开局一步就拿到、或通关时顺手拿到都没意思）。
 3. 用 `findPath` 得到起点到终点的最短路线。每个候选格的权重：死胡同（可通行方向数 = 1）+2，不在最短路线上 +1。
 4. 用独立的随机数生成器（mulberry32，种子由 `seed` 的低 32 位与高 32 位混合得到，常数写在代码里）按行优先顺序给每个候选格一个随机数。候选格按「权重降序，随机数升序」排序。
@@ -221,7 +228,7 @@
 - `FOOTPRINT_ALPHA = [0.35, 0.9]`，`footprintAlpha(i, n)`：第 i 个（0 = 最旧）脚印的不透明度。
 - `formatTime(ms)` → `'mm:ss.t'`，向下取整到十分之一秒，夹到 `99:59.9`。
 - `parseBest(str)` → 正整数毫秒或 `null`。
-- `updateBest(prevStr, timeMs, eligible)` → `{ best, isNew, write }`：`eligible` 为假时 `isNew = false`、`write = false`、`best = parseBest(prevStr)`。
+- `updateBest(prevStr, timeMs, eligible)` → `{ best, isNew, write }`：`timeMs` 先 `Math.round` 成整数再比较，`write` 为要写入的字符串（整数毫秒）或 `null`；`eligible` 为假时 `isNew = false`、`write = null`、`best = parseBest(prevStr)`。
 - `createGameTimer()`：`{ start(), tick(dt), stop(), reset(), started, running, elapsedMs }`；`tick` 只在 running 时累加。
 - `createStepCounter(stride = 0.5)`：`add(dist)` 返回本次触发的脚步数（整数），内部累计余量；`reset()`。
 - `createBumpDetector({ hold = 0.15, cooldown = 0.6, ratio = 0.5 })`：`update(pushing, moved, wanted, dt)` 返回布尔值（本帧是否触发）；`reset()`。
@@ -247,7 +254,9 @@
 - `recomputeFog()`：先 `markExplored()`，再设置星星可见性，再标脏底图。
 - `updatePlayer()`：记录 `stepPlayer` 前的位置；之后算实际位移 → 计时开始判定 → 脚步计数 → 撞墙检测 → 收集星星 → 显示格变化时 `pushFootprint` + `recomputeFog()` + 判胜。判胜时依次：停止计时、`updateBest()`、写存储、填写通关层、`play('win')`、`vibrate`、`startConfetti()`。
 - 帧循环：`timer.tick(dt)`；更新 HUD（十分之一秒位变化才写）；星星自转与浮动；小地图可见时 `drawMinimap()`（内部有「没变就跳过」）。
-- 「显示道路」按钮：计时已开始时 `pathUsedThisRun = true`。
+- 计时开始判定处：`timer.start()` 的同时 `pathUsedThisRun ||= showPath`。
+- 「显示道路」按钮：计时已开始时 `pathUsedThisRun = true`。「隐藏道路」不改 `pathUsedThisRun`。
+- 判胜结算：`timeMs = Math.round(timer.elapsedMs)`，再调用 `updateBest()`（见第 3 节「时间精度」）。
 - 首次手势监听、`#sound-btn`、`visibilitychange` 中挂接 `sfx.suspend()` / `sfx.resume()`。
 - 预渲染：`buildMaze()` 之后的首帧预渲染前，把 7 个星星网格临时全部设为可见，渲染完恢复。理由：three.js 只为可见对象编译着色器；开局时星星可能全在迷雾外，第一次出现时编译会卡一帧。
 - 星星与终点星星共用 `buildStar` 的造形逻辑：把五角星 `Shape` 的生成抽成按外半径、内半径参数化的函数。
@@ -281,6 +290,7 @@
   - 数量等于 `starCountFor(size)`，格子互不相同。
   - 不在起点、终点上，与起点、终点的 Chebyshev 距离 ≥ 2。
   - 每颗都能从起点走到（`findPath` 非空）。
+  - 不经过终点也能走到：测试里另做一次 BFS，终点格不入队扩展，所有星星都在 BFS 结果内。
   - 两两曼哈顿距离 ≥ 2。
   - 同一 seed 调用两次结果完全相同；调用前后 `MazeGenerator` 对同一 seed 的生成结果不变。
   - 对全部 600 个迷宫统计：死胡同或不在最短路线上的星星占比 ≥ 80%。
@@ -289,7 +299,7 @@
 - `pushFootprint`：与末尾相同不变；新格追加；重复格移到末尾；长度不超过 size²。
 - `footprintAlpha`：最旧 0.35，最新 0.9，单调递增；n = 1 时为 0.9。
 - `formatTime`：0 → `00:00.0`；1234 → `00:01.2`；59999 → `00:59.9`；61050 → `01:01.0`；超过 99:59.9 的值 → `99:59.9`。
-- `parseBest` / `updateBest`：无记录时 `isNew` 为真；更快时 `isNew` 为真并写入；相等或更慢时 `isNew` 为假、不写；非法记录值当作无记录；`eligible` 为假时不写、`isNew` 为假。
+- `parseBest` / `updateBest`：无记录时 `isNew` 为真；更快时 `isNew` 为真并写入；相等或更慢时 `isNew` 为假、不写；非法记录值当作无记录；`eligible` 为假时不写、`isNew` 为假；`timeMs = 1234.6`、无记录时 `write === '1235'`；同一 `timeMs`、记录为 `'1235'` 时视为相等，`isNew` 为假、`write === null`。
 - `createGameTimer`：未 `start` 时 `tick` 不累加；`stop` 后不累加；`reset` 清零并回到未开始。
 - `createStepCounter`：连续 `add(0.1)` 20 次共触发 4 次；一次 `add(1.2)` 触发 2 次，余量 0.2 留到下一次；`reset` 清余量。
 - `createBumpDetector`（dt = 1/60）：
@@ -325,6 +335,10 @@
    - 预设 `'1'`，走到终点：`isNew` 为假，`#win-record` 隐藏，存储仍为 `'1'`，`#win-best` 含 `00:00.0`。
    - 预设 `'abc'`：当作无记录，通关后 `isNew` 为真并写入。
    - 预设 `'9999999'`，前进 0.5 秒后点「显示道路」，走到终点：`eligible` 为假、`isNew` 为假、存储仍为 `'9999999'`、`#win-path-note` 可见。
+   - 开着道路开始走：预设 `'9999999'`，开局不动，点「显示道路」，再前进并走到终点：`eligible` 为假、存储仍为 `'9999999'`、`#win-path-note` 可见。
+   - 道路开关跨局保留：上一局点「显示道路」后点「再来一局」（不隐藏道路），新一局走到终点：`eligible` 为假、存储不变。
+   - 开始前看过道路再隐藏：开局不动，点「显示道路」再点「隐藏道路」，然后走到终点：`eligible` 为真。
+   - 整数毫秒：任一通关后 `Number.isInteger(lastResult.timeMs)` 为真，`localStorage['maze3d.best.10']` 匹配 `/^[1-9]\d*$/`。
 6. **b6 声音（调试日志）**：
    - 页面打开、没有任何手势时 `audioState === 'none'`。用 `page.keyboard.press('Shift')` 之后 `audioState` 不是 `'none'`（`'running'` 或 `'suspended'` 都接受：无头环境的音频设备状态不可控，声音本身无法在无头环境中听到，所以用 `sfxLog` 验证触发）。
    - `clearSfxLog()` 后沿直线走 2 格：`step` 条目 3–5 条，`variant` 交替。
