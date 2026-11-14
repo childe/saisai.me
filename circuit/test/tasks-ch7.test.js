@@ -22,6 +22,11 @@ test('30 display: 4+1 shows 5', () => {
   assert.equal(run(30, display(['i4', 'i2', 'i1']), 7).passed, true);
 });
 
+test('30 display: 13 needs 8+4+1', () => {
+  assert.equal(run(30, display(['i8', 'i4', 'i1']), 13).passed, true);
+  assert.equal(run(30, display(['i8', 'i4']), 13).passed, false);
+});
+
 test('30 display: only i4 does not pass for 5', () => {
   assert.equal(run(30, display(['i4']), 5).passed, false);
   // 显示 5 但目标是 3

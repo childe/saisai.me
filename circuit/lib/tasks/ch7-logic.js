@@ -112,7 +112,7 @@ const RELAY_PALETTE = { battery: 2, switch: 1, relay: 1, lamp: 1 };
 export const CH7 = [
   {
     id: 30, chapter: 7, name: '认识数字显示器', goal: v => `让显示器显示 ${v}`, palette: { battery: 1, display: 1 },
-    variants: [3, 5, 6, 7, 9], preset: () => createCircuit(), initProgress: noProgress,
+    variants: [3, 5, 6, 7, 9, 11, 13, 14], preset: () => createCircuit(), initProgress: noProgress,
     check(progress, ws) {
       const br = brokenSet(ws.damage);
       return result(ofType(ws.circuit, 'display').some(d => displayValue(ws.result, br, d.id) === ws.variant), progress);

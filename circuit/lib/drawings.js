@@ -314,15 +314,16 @@ const DRAW = {
       line(-32, -40, ends[0][0], ends[0][1]) + line(-32, 40, ends[1][0], ends[1][1]) + link + lever(toA, true, PARTS.dpdt.leverRect);
   },
 
-  // 数字显示器：屏上一个暗的「8」打底，上面叠当前数字；输入端旁标权重 1、2、4、8。
+  // 数字显示器：屏上两个暗的「8」打底，上面叠当前数字（右对齐，0–15）；输入端旁标权重 1、2、4、8。
   display(part, style, vis) {
-    const text = esc(String(vis.text ?? '-').slice(0, 1)); // 屏上只有一位（元件栏小图传的是 '--'）
+    const s = String(vis.text ?? '-').slice(-2); // 屏上两位（元件栏小图传的是 '--'）
+    const cells = [[-14, s.length > 1 ? s[0] : ''], [14, s[s.length - 1]]];
     const ins = [[-80, 1], [-40, 2], [0, 4], [40, 8]];
     const leads = ins.map(([y]) => line(-80, y, -44, y)).join('') + line(0, 80, 0, 58);
     const marks = ins.map(([y, w]) => `<text x="-70" y="${y - 8}" class="label">${w}</text>`).join('');
-    const digit = (fg, ghost) =>
-      `<text class="ghost" x="0" y="2" text-anchor="middle" style="fill:${ghost}">8</text>` +
-      `<text class="digit" x="0" y="2" text-anchor="middle" style="fill:${fg}">${text}</text>`;
+    const digit = (fg, ghost) => cells.map(([x, ch]) =>
+      `<text class="ghost" x="${x}" y="-8" text-anchor="middle" style="fill:${ghost}">8</text>` +
+      `<text class="digit" x="${x}" y="-8" text-anchor="middle" style="fill:${fg}">${esc(ch)}</text>`).join('');
     if (style === 'cartoon') {
       return leads + `<rect x="-44" y="-92" width="88" height="150" rx="10" fill="#33302c" stroke="${INK}" stroke-width="3"/>` +
         `<rect x="-32" y="-78" width="64" height="108" rx="5" fill="#1d1a17" stroke="#5a524a" stroke-width="2"/>` +

@@ -42,8 +42,8 @@ export function partVisual(part, reading, damage, ok, relays) {
     case 'voltmeter':
       vis.text = formatReading(reading.v, 'V');
       break;
-    case 'display': // 0–9 显示数字，10–15 显示 E
-      vis.text = !Number.isFinite(reading.value) ? '-' : reading.value > 9 ? 'E' : String(reading.value);
+    case 'display': // 0–15 显示数字
+      vis.text = !Number.isFinite(reading.value) ? '-' : String(reading.value);
       break;
     default:
   }
