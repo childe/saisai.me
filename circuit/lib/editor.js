@@ -17,6 +17,7 @@ function makeSpace(circuit, damage = createDamage()) {
 // 从 n 个变体里均匀选一个，排除上一个（prev），让「重来」换一道题。
 export function pickVariant(n, prev, rng = Math.random) {
   if (n <= 1) return 0;
+  if (!(prev >= 0 && prev < n)) return Math.floor(rng() * n);
   const k = Math.floor(rng() * (n - 1));
   return k >= prev ? k + 1 : k;
 }
@@ -78,7 +79,7 @@ const currentTask = state => (state.mode === 'task' ? TASKS[state.task.index] : 
 const lockedPart = (task, c, id) => !!task?.lockPreset && !!c.parts.find(p => p.id === id)?.preset;
 const lockedWire = (task, c, id) => !!task?.lockPreset && !!c.wires.find(w => w.id === id)?.preset;
 
-// 换个变体重开本关；history 保留旧电路，可以撤销。
+// 换个变体重开本关；history 清空，不能撤销回旧题（否则可以排除法过关）。
 function restartTask(state, space, task) {
   const c = space.circuit;
   const variants = variantsOf(task);
@@ -86,9 +87,8 @@ function restartTask(state, space, task) {
   const variant = variants[variantIndex];
   const base = task.preset(variant);
   const fresh = { ...base, rev: c.rev + 1, topoRev: c.topoRev + 1, nextId: Math.max(base.nextId, c.nextId) };
-  const history = [...space.history, c].slice(-HISTORY_MAX);
   const next = {
-    ...space, ...settle(fresh, createDamage()), history,
+    ...space, ...settle(fresh, createDamage()), history: [],
     variantIndex, variant, progress: task.initProgress(), passed: false, hint: null,
   };
   return withSpace(state, next, { confirmClear: false, selection: null });

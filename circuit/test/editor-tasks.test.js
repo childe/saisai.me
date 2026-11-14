@@ -10,6 +10,8 @@ test('pickVariant', () => {
   assert.equal(pickVariant(1, 0), 0);
   assert.equal(pickVariant(0, 0), 0);
   assert.equal(pickVariant(3, 0, () => 0), 1);
+  assert.equal(pickVariant(3, -1, () => 0), 0);
+  assert.deepEqual([...new Set(Array.from({ length: 1000 }, () => pickVariant(3, -1)))].sort(), [0, 1, 2]);
   for (let i = 0; i < 1000; i++) assert.notEqual(pickVariant(3, 2), 2);
 });
 
@@ -131,4 +133,25 @@ test('undo keeps fault and preset marks (level 21)', () => {
   s = play(s, { type: 'place', partType: 'voltmeter', x: 12, y: 18 }, { type: 'undo' });
   assert.ok(faultyLamp(s));
   assert.ok(T(s).circuit.parts.every(p => p.preset === true));
+});
+
+test('wrong accuse cannot be undone back to the old variant (level 22)', () => {
+  let s = enter(22);
+  const faultId = () => T(s).circuit.wires.find(w => w.fault).id;
+  const oldFault = faultId();
+  s = play(s, { type: 'place', partType: 'voltmeter', x: 20, y: 18 });
+  const m = T(s).circuit.parts.find(p => p.type === 'voltmeter');
+  const b = T(s).circuit.parts.find(p => p.type === 'battery');
+  s = play(s,
+    { type: 'connect', from: { part: m.id, term: 'p' }, to: { part: b.id, term: 'p' } },
+    { type: 'connect', from: { part: m.id, term: 'n' }, to: { part: b.id, term: 'n' } });
+  assert.equal(T(s).progress.measured, true);
+  const good = T(s).circuit.wires.find(w => w.preset && !w.fault);
+  s = play(s, { type: 'accuse', target: { kind: 'wire', id: good.id } });
+  assert.notEqual(T(s).circuit.wires.find(w => w.id === oldFault).fault, true);
+  assert.equal(T(s).history.length, 0);
+  const after = play(s, { type: 'undo' });
+  assert.equal(after, s);
+  const r = play(after, { type: 'accuse', target: { kind: 'wire', id: oldFault } });
+  assert.equal(T(r).passed, false);
 });
