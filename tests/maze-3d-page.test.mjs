@@ -16,6 +16,7 @@ const OWN = [
   'wall-geometry.js',
   'movement.js',
   'effects.js',
+  'gameplay.js',
   'README.md',
 ];
 
