@@ -29,15 +29,15 @@ function leads(part, inset = 52) {
   }).join('');
 }
 
-// 拨片按钮：画在 LEVER_RECT × GRID 内。
-function lever(on, symbol) {
-  const cx = 0, cy = ((LEVER_RECT.y0 + LEVER_RECT.y1) / 2) * GRID;
-  const r = Math.min((LEVER_RECT.x1 - LEVER_RECT.x0), (LEVER_RECT.y1 - LEVER_RECT.y0)) * GRID / 2 - 4;
+// 拨片按钮：画在 rect × GRID 内（默认 LEVER_RECT，元件可用 leverRect 换位置）。
+function lever(on, symbol, R = LEVER_RECT) {
+  const cx = ((R.x0 + R.x1) / 2) * GRID, cy = ((R.y0 + R.y1) / 2) * GRID;
+  const r = Math.min((R.x1 - R.x0), (R.y1 - R.y0)) * GRID / 2 - 4;
   const fill = on ? '#4caf50' : '#e5533d';
   const knob = symbol
     ? `<circle cx="${cx}" cy="${n(cy)}" r="${n(r * 0.75)}" fill="#fff" stroke="${INK}" stroke-width="3"/><circle cx="${cx}" cy="${n(cy)}" r="${n(r * 0.35)}" fill="${fill}"/>`
     : `<circle cx="${cx}" cy="${n(cy)}" r="${n(r)}" fill="${fill}" stroke="${INK}" stroke-width="3"/><circle cx="${n(cx - r * 0.3)}" cy="${n(cy - r * 0.3)}" r="${n(r * 0.25)}" fill="#fff" opacity="0.6"/>`;
-  return `<g class="lever"><rect x="${LEVER_RECT.x0 * GRID}" y="${LEVER_RECT.y0 * GRID}" width="${(LEVER_RECT.x1 - LEVER_RECT.x0) * GRID}" height="${(LEVER_RECT.y1 - LEVER_RECT.y0) * GRID}" fill="transparent"/>${knob}</g>`;
+  return `<g class="lever"><rect x="${n(R.x0 * GRID)}" y="${n(R.y0 * GRID)}" width="${n((R.x1 - R.x0) * GRID)}" height="${n((R.y1 - R.y0) * GRID)}" fill="transparent"/>${knob}</g>`;
 }
 
 const glowCircle = (cx, cy, base, glow, color = '#ffd84d') =>
@@ -289,6 +289,7 @@ const DRAW = {
   },
 
   // 双刀双掷：两组单刀双掷触点上下排列，中间虚线连杆，两片动片同时转到 a 或 b。
+  // 拨片画在两组触点中间（leverRect），压在连杆上，不挡动片。
   dpdt(part, style) {
     const toA = part.params.to === 'a';
     const ends = toA ? [[36, -78], [36, 40]] : [[36, -40], [36, 78]];
@@ -303,11 +304,11 @@ const DRAW = {
         blade(ends[0], -40) + blade(ends[1], 40) + link +
         `<text x="54" y="-86" class="label">a</text><text x="54" y="-24" class="label">b</text>` +
         `<text x="54" y="34" class="label">a</text><text x="54" y="96" class="label">b</text>` +
-        lever(toA, false);
+        lever(toA, false, PARTS.dpdt.leverRect);
     }
     const dot = (x, y) => `<circle cx="${x}" cy="${y}" r="4" fill="#fff" stroke="${INK}" stroke-width="3"/>`;
     return poles + contacts + dot(-36, -40) + dot(-36, 40) + [-80, -40, 40, 80].map(y => dot(40, y)).join('') +
-      line(-32, -40, ends[0][0], ends[0][1]) + line(-32, 40, ends[1][0], ends[1][1]) + link + lever(toA, true);
+      line(-32, -40, ends[0][0], ends[0][1]) + line(-32, 40, ends[1][0], ends[1][1]) + link + lever(toA, true, PARTS.dpdt.leverRect);
   },
 
   // 数字显示器：屏上一个暗的「8」打底，上面叠当前数字；输入端旁标权重 1、2、4、8。

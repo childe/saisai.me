@@ -57,10 +57,12 @@ export const PARTS = Object.freeze({
   voltmeter: { label: '电压表', ...two('p', 'n'), params: {}, lever: false },
   fuse: { label: '保险丝', ...two('a', 'b'), params: { rating: { default: 1, options: [0.5, 1, 2] } }, lever: false },
   // groups：元件内部互相连通的端点分组；没写就是全部端点一组。
+  // body、leverRect：比通用触控区大或位置不同的元件自己的本体、拨片矩形（本地网格坐标）。
   relay: {
     label: '继电器', terms: ['x', 'y', 'com', 'no', 'nc'],
     termPos: { x: [-2, -1], y: [-2, 1], com: [2, 0], no: [2, -1], nc: [2, 1] },
     groups: [['x', 'y'], ['com', 'no', 'nc']], params: {}, lever: false,
+    body: { x0: -1.6, x1: 1.6, y0: -1.35, y1: 1.35 },
   },
   button: { label: '按钮', ...two('a', 'b'), params: { pressed: { default: false, options: [false, true] } }, lever: true },
   dpdt: {
@@ -68,10 +70,12 @@ export const PARTS = Object.freeze({
     termPos: { c1: [-2, -1], a1: [2, -2], b1: [2, -1], c2: [-2, 1], a2: [2, 1], b2: [2, 2] },
     groups: [['c1', 'a1', 'b1'], ['c2', 'a2', 'b2']],
     params: { to: { default: 'a', options: ['a', 'b'] } }, lever: true,
+    body: { x0: -1.5, x1: 1.3, y0: -2.3, y1: 2.3 }, leverRect: { x0: -0.6, x1: 0.6, y0: -0.6, y1: 0.6 },
   },
   display: {
     label: '数字显示器', terms: ['i1', 'i2', 'i4', 'i8', 'g'],
     termPos: { i1: [-2, -2], i2: [-2, -1], i4: [-2, 0], i8: [-2, 1], g: [0, 2] }, params: {}, lever: false,
+    body: { x0: -1.1, x1: 1.1, y0: -2.3, y1: 1.45 },
   },
   // 连接点：只有一个端点、没有本体，不出现在元件栏里。
   node: { label: '连接点', terms: ['o'], termPos: { o: [0, 0] }, params: {}, lever: false },

@@ -51,6 +51,7 @@ test('button press gesture and relay click are wired', () => {
   assert.match(app, /type:\s*'press'/);
   assert.match(app, /type:\s*'release'/);
   assert.match(app, /relays\.flips/);
+  assert.match(app, /'lostpointercapture',\s*e => endGesture\(e, true\)/);
   assert.match(app, /\.click\(state\.muted\)/);
   assert.match(read('sound.js'), /function click\(muted\)/);
 });

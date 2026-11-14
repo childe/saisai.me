@@ -74,3 +74,16 @@ test('node renders as a dot in both styles and stays out of the palette', () => 
   }
   assert.equal(PART_TYPES.includes('node'), false);
 });
+
+test('dpdt lever knob is drawn in its own lever rect, clear of the upper blade', () => {
+  for (const style of ['cartoon', 'symbol']) {
+    const s = drawPart(mk('dpdt'), style, vis());
+    const rect = s.match(/<g class="lever"><rect x="([-\d.]+)" y="([-\d.]+)" width="([\d.]+)" height="([\d.]+)"/);
+    assert.ok(rect, style);
+    const [x, y, w, h] = rect.slice(1).map(Number);
+    assert.deepEqual([x, y, w, h], [PARTS.dpdt.leverRect.x0 * 40, PARTS.dpdt.leverRect.y0 * 40,
+      (PARTS.dpdt.leverRect.x1 - PARTS.dpdt.leverRect.x0) * 40, (PARTS.dpdt.leverRect.y1 - PARTS.dpdt.leverRect.y0) * 40]);
+    // 上下两组触点都在 y = ±40 以外，拨片区不碰到它们。
+    assert.ok(y > -40 && y + h < 40, style);
+  }
+});

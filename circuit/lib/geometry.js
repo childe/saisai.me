@@ -32,6 +32,14 @@ export function touchAreas(k = 1) {
   };
 }
 
+// 元件自己写了 body / leverRect 时：以矩形中心往四周撑到至少 44 屏幕像素。
+function grow(r, k) {
+  const m = MIN_TOUCH_PT / (k * GRID);
+  const cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2;
+  const hw = Math.max((r.x1 - r.x0) / 2, m / 2), hh = Math.max((r.y1 - r.y0) / 2, m / 2);
+  return { x0: cx - hw, x1: cx + hw, y0: cy - hh, y1: cy + hh };
+}
+
 const toLocal = (part, [x, y]) => rotatePoint([x - part.x, y - part.y], 4 - (part.rot % 4));
 
 function distToSegment([px, py], [ax, ay], [bx, by]) {
@@ -137,14 +145,17 @@ export function hitTest(circuit, pt, k = 1, selWire = null) {
     if (best) return best;
   }
   for (const p of parts) {
-    if (!PARTS[p.type].lever) continue;
+    const def = PARTS[p.type];
+    if (!def.lever) continue;
+    const r = def.leverRect ? grow(def.leverRect, k) : lever;
     const [x, y] = toLocal(p, pt);
-    if (x >= lever.x0 && x <= lever.x1 && y >= lever.y0 && y < lever.y1) return { kind: 'lever', id: p.id };
+    if (x >= r.x0 && x <= r.x1 && y >= r.y0 && y < r.y1) return { kind: 'lever', id: p.id };
   }
   for (const p of parts) {
     if (p.type === 'node') continue; // 连接点没有本体，只有端点
+    const b = PARTS[p.type].body ? grow(PARTS[p.type].body, k) : body;
     const [x, y] = toLocal(p, pt);
-    if (x >= body.x0 && x <= body.x1 && y >= body.y0 && y <= body.y1) return { kind: 'part', id: p.id };
+    if (x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1) return { kind: 'part', id: p.id };
   }
   for (const w of [...circuit.wires].reverse()) {
     const pts = wirePoints(circuit, w);

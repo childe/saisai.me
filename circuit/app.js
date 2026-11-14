@@ -205,6 +205,8 @@ function endGesture(e, cancelled) {
 }
 board.addEventListener('pointerup', e => endGesture(e, false));
 board.addEventListener('pointercancel', e => endGesture(e, true));
+// 指针捕获丢失（系统手势、切后台等）也当作取消，保证按住的按钮会松开。
+board.addEventListener('lostpointercapture', e => endGesture(e, true));
 
 // ---------- 元件栏 ----------
 let palDrag = null;
