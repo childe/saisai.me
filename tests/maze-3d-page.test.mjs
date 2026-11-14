@@ -16,6 +16,8 @@ const OWN = [
   'wall-geometry.js',
   'movement.js',
   'effects.js',
+  'gameplay.js',
+  'sound.js',
   'README.md',
 ];
 
@@ -63,6 +65,15 @@ test('page has all controls', () => {
     '再来一局',
     '<title>3D 迷宫</title>',
     '<script type="module" src="main.js">',
+    'id="hud"',
+    'id="timer"',
+    'id="win-time"',
+    'id="win-best"',
+    'id="win-record"',
+    'id="win-path-note"',
+    'id="star-count"',
+    'id="win-stars"',
+    'id="sound-btn"',
   ];
   for (const n of needles) assert.ok(html.includes(n), n);
   assert.match(html, /id="fog-minus"[^>]*>−</);
@@ -146,4 +157,10 @@ test('fullscreen button and two hint texts', () => {
   assert.ok(html.includes('WASD / 方向键移动，拖动鼠标转视角'));
   assert.ok(html.includes('左边拖动走路，右边拖动转视角'));
   assert.match(html, /@media\s*\(pointer:\s*coarse\)/);
+});
+
+test('hud does not take pointer events', () => {
+  const m = read('index.html').match(/#hud\s*\{([^}]*)\}/);
+  assert.ok(m, '#hud rule');
+  assert.match(m[1], /pointer-events\s*:\s*none/);
 });

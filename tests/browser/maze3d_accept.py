@@ -9,11 +9,13 @@ Chromium 逐项检查，打印 PASS / FAIL；任一项失败时退出码为 1。
 """
 
 import argparse
+import base64
 import datetime
 import io
 import json
 import math
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -49,7 +51,7 @@ WASD = {"up": "w", "down": "s", "left": "a", "right": "d"}
 PW = None  # main() 中赋值，供需要设备描述的检查使用
 BASELINE_ROOT = None  # --baseline-root：改动前代码的副本，供对比检查使用
 SHOTS = Path(
-    "/Users/jialiu/Projects/saisai.me/.xdev/20261113-141153-maze-3d-polish/screenshots"
+    "/Users/jialiu/Projects/saisai.me/.xdev/20261114-103742-maze-3d-gameplay/screenshots"
 )  # --shots 覆盖
 DIRS = {"up": (-1, 0), "down": (1, 0), "left": (0, -1), "right": (0, 1)}
 
@@ -932,7 +934,7 @@ def minimap_data(page):
 
 
 def check_3(browser, base):
-    """切换视角：保留 yaw，pitch 改为该视角默认值；第一人称显示小地图、隐藏小人。"""
+    """切换视角：保留 yaw，pitch 改为该视角默认值；两种视角都显示小地图；第一人称隐藏小人。"""
     page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
     details = []
     try:
@@ -983,7 +985,7 @@ def check_3(browser, base):
         )
         ok = (
             view == "follow"
-            and not mini
+            and mini
             and pv is True
             and abs(yaw3 - yaw2) < 1e-9
             and abs(pitch_deg - 40) <= 0.5
@@ -1053,6 +1055,25 @@ def check_8(browser, base):
             and not any(intersects(stick, b) for b in buttons)
         )
         cdp_touch(cdp, "touchEnd", {})
+        # 跟随视角（开局）：信息栏与小地图都在舞台内，声音按钮不压舞台，窄屏小地图 110px
+        follow_mini = box_of(page, "#minimap")
+        follow_mini_ok = (
+            follow_mini is not None
+            and inside(follow_mini, stage)
+            and abs(follow_mini["width"] - 110) <= 0.5
+        )
+        hud = box_of(page, "#hud") if page.locator("#hud").count() else None
+        hud_ok = hud is not None and inside(hud, stage)
+        hud_note = f"inside={hud_ok}"
+        sb = box_of(page, "#sound-btn") if page.locator("#sound-btn").count() else None
+        sound_ok = sb is not None and not intersects(sb, stage)
+        sound_note = f"offStage={sound_ok}"
+        details.append(
+            f"follow: minimap={follow_mini} minimapOk={follow_mini_ok}"
+            f" hud={hud_note} soundBtn={sound_note}"
+        )
+        if not (follow_mini_ok and hud_ok and sound_ok):
+            return False, " ".join(details)
         page.click("#view-btn")
         page.wait_for_timeout(200)
         mini = box_of(page, "#minimap")
@@ -1066,12 +1087,24 @@ def check_8(browser, base):
             return False, " ".join(details)
         page.set_viewport_size({"width": 667, "height": 375})
         page.wait_for_timeout(300)
+        wait_frames(page, 3)
         sw2 = page.evaluate("() => document.documentElement.scrollWidth")
         cw = box_of(page, "#stage > canvas:not(#minimap)")["width"]
         stw = box_of(page, "#stage")["width"]
         page.screenshot(path=str(SCRATCH / "maze3d-667x375.png"), full_page=True)
-        details.append(f"landscape: scrollWidth={sw2} canvas={cw} stage={stw}")
-        ok = sw2 <= 667 and abs(cw - stw) < 1
+        mm = page.evaluate(
+            "() => ({ lay: window.__maze3d.minimapLayout,"
+            " w: document.getElementById('minimap').width,"
+            " dpr: window.devicePixelRatio })"
+        )
+        lay = mm["lay"] or {}
+        want_px = round(140 * mm["dpr"])
+        px_ok = lay.get("px") == want_px and mm["w"] == want_px
+        details.append(
+            f"landscape: scrollWidth={sw2} canvas={cw} stage={stw}"
+            f" minimapPx={lay.get('px')} canvasWidth={mm['w']} want={want_px}"
+        )
+        ok = sw2 <= 667 and abs(cw - stw) < 1 and px_ok
         ok_err, msg = no_errors(errors)
         return ok and ok_err, (" ".join(details) + " " + msg).strip()
     finally:
@@ -1105,7 +1138,18 @@ def perf_round(
             init_script=init_script,
         )
     try:
-        wait_idle(page, timeout=15000)
+        try:
+            wait_idle(page, timeout=15000)
+        except Exception as exc:
+            # 页面没就绪时带上现场，便于判断是 WebGL 不可用、脚本报错还是单纯加载慢
+            state = page.evaluate(
+                "() => ({ ready: window.__maze3d !== undefined,"
+                " noWebgl: !document.getElementById('no-webgl')?.hidden,"
+                " readyState: document.readyState })"
+            )
+            raise RuntimeError(
+                f"page not ready url={url} state={state} errors={errors[:3]}: {exc}"
+            ) from exc
         if prepare:
             prepare(page)
             page.wait_for_timeout(800)
@@ -1117,6 +1161,8 @@ def perf_round(
         return {
             "endPos": m3(page, "playerPos"),
             "wins": wins,
+            # walk_route 驱动记录的换格次数；其他驱动为 None
+            "walkCells": page.evaluate("() => window.__walkCells ?? null"),
             "count": stats["count"],
             "avg": round(stats["avg"], 1),
             "p95": round(stats["p95"], 1),
@@ -1126,6 +1172,12 @@ def perf_round(
             "textureMs": page.evaluate(
                 "() => window.__maze3d.textureStats"
                 " ? window.__maze3d.textureStats.lastMs : null"
+            ),
+            # 玩法字段（基线页面没有，返回 null）
+            "extras": page.evaluate(
+                "() => { const M = window.__maze3d; return { minimapVisible: M.minimapVisible ?? null,"
+                " starTotal: M.starTotal ?? null, soundOn: M.soundOn ?? null,"
+                " audioState: M.audioState ?? null }; }"
             ),
             "errors": errors,
         }
@@ -1590,14 +1642,23 @@ def check_t8(browser, base):
 
 def canvas_image(page, attempts=3):
     """3D canvas 的截图。自动降画质会换掉 canvas 元素，截图途中被换掉时重试。"""
-    for i in range(attempts):
-        try:
-            data = page.locator("#stage > canvas:not(#minimap)").screenshot()
-            return Image.open(io.BytesIO(data)).convert("RGB")
-        except Exception as exc:
-            if "not attached" not in str(exc) or i == attempts - 1:
-                raise
-            page.wait_for_timeout(200)
+    # 元素截图包含盖在 canvas 上的覆盖层；测的是 3D 画面本身，截图前先藏起小地图与信息栏
+    toggle = (
+        "(v) => { for (const id of ['minimap', 'hud']) {"
+        " const el = document.getElementById(id); if (el) el.style.visibility = v; } }"
+    )
+    page.evaluate(toggle, "hidden")
+    try:
+        for i in range(attempts):
+            try:
+                data = page.locator("#stage > canvas:not(#minimap)").screenshot()
+                return Image.open(io.BytesIO(data)).convert("RGB")
+            except Exception as exc:
+                if "not attached" not in str(exc) or i == attempts - 1:
+                    raise
+                page.wait_for_timeout(200)
+    finally:
+        page.evaluate(toggle, "")
 
 
 def screen_metrics(img):
@@ -1882,12 +1943,51 @@ def fmt_perf(name, r):
         f"{name}: avg={r['avg']} p95={r['p95']} quality={r['quality']}"
         f" downgradeCount={r['downgradeCount']} renderer={r['renderer']!r} textureMs={ms_s}"
         f" endPos={ep_s} wins={r.get('wins')}"
+        + ("" if r.get("walkCells") is None else f" walkCells={r['walkCells']}")
     )
 
 
 # 基线（3aa67ab）跟随视角的默认俯角与缩放：movement.js FOLLOW_PITCH.def = 40°，main.js cameraZoom = 1
 BASELINE_FOLLOW_PITCH = math.radians(40)
 BASELINE_ZOOM = 1.0
+
+
+WALK_ROUTE_JS = """async ([ms]) => {
+  const L = await import('/maze-3d/game-logic.js');
+  const M = window.__maze3d;
+  window.__walkCells = 0;
+  return await new Promise((resolve) => {
+    const t0 = performance.now();
+    let prev = M.playerCell;
+    const end = { row: M.size - 1, col: M.size - 1 };
+    const done = (won) => { M.setInputForTest(null); resolve(won ? 1 : 0); };
+    const tick = () => {
+      if (M.state === 'won') return done(true);
+      if (performance.now() - t0 > ms) return done(false);
+      const cell = M.playerCell;
+      if (cell.row !== prev.row || cell.col !== prev.col) { window.__walkCells++; prev = cell; }
+      const path = L.findPath(M.connections, cell, end);
+      const [tr, tc] = path.length >= 2 ? path[1] : [cell.row, cell.col];
+      const p = M.playerPos;
+      const yaw = Math.atan2(tc + 0.5 - p.x, -(tr + 0.5 - p.z));
+      M.setInputForTest({ forward: 1, strafe: 0, turn: 0, yaw });
+      requestAnimationFrame(tick);
+    };
+    tick();
+  });
+}"""
+
+
+def walk_route(page, seconds=8):
+    """perf_round 的移动驱动：沿 findPath 朝终点持续走 seconds 秒，每帧换格计入 window.__walkCells。
+    只用基线也有的钩子（connections、playerCell、playerPos、setInputForTest）。返回通关次数（0 或 1）。"""
+    return page.evaluate(WALK_ROUTE_JS, [int(seconds * 1000)])
+
+
+def perf_moving_start(page):
+    """移动轮次的起始条件：同 perf_fixed_start，再按一次 Shift 作为用户手势，让新代码真实创建 AudioContext。"""
+    perf_fixed_start(page)
+    page.keyboard.press("Shift")
 
 
 def perf_fixed_start(page):
@@ -1900,6 +2000,20 @@ def perf_fixed_start(page):
 
 def check_t7(browser, base):
     """GPU 下 iPhone SE + 4 倍 CPU 降速：各主题帧时间不超过基线的 1.3 倍，且不触发降画质。"""
+    return perf_compare(browser, base)
+
+
+def perf_compare(
+    browser,
+    base,
+    extra=None,
+    driver=play_continuous,
+    prepare=perf_fixed_start,
+    each=None,
+):
+    """check_t7 的主体：GPU、iPhone SE、4 倍 CPU 降速，基线与四个主题各跑一轮 driver（默认 play_continuous）。
+    extra(name, round) 对每个新代码轮次返回 (ok, msg)，不通过即 FAIL；
+    each(name, round) 对包括基线在内的每一轮返回 (ok, msg)，不通过即 FAIL（用来确认驱动真的按预期跑了）。"""
     if not BASELINE_ROOT:
         return None, "need --baseline-root"
     bt = browser.browser_type
@@ -1917,7 +2031,12 @@ def check_t7(browser, base):
                     (
                         "baseline",
                         perf_round(
-                            gb, bbase, mobile=True, debug=True, prepare=perf_fixed_start
+                            gb,
+                            bbase,
+                            mobile=True,
+                            debug=True,
+                            prepare=prepare,
+                            driver=driver,
                         ),
                     )
                 ]
@@ -1936,7 +2055,8 @@ def check_t7(browser, base):
                                 mobile=True,
                                 init_script=theme_init(tid),
                                 debug=True,
-                                prepare=perf_fixed_start,
+                                prepare=prepare,
+                                driver=driver,
                             ),
                         )
                     )
@@ -1952,6 +2072,14 @@ def check_t7(browser, base):
             errs = [e for _, r in runs for e in r["errors"]]
             if errs:
                 return False, detail + " | errors=" + " | ".join(errs[:3])
+            if each:
+                bad = []
+                for n, r in runs:
+                    e_ok, e_msg = each(n, r)
+                    if not e_ok:
+                        bad.append(f"{n}: {e_msg}")
+                if bad:
+                    return False, detail + " | FAIL " + "; ".join(bad)
             bl = runs[0][1]
             # 轨迹一致性：同样的按键序列下，各主题与基线的通关次数、结束位置应一致
             for tid, r in runs[1:]:
@@ -1965,6 +2093,12 @@ def check_t7(browser, base):
             verdicts = []
             ok = True
             for tid, r in runs[1:]:
+                if extra:
+                    e_ok, e_msg = extra(tid, r)
+                    if not e_ok:
+                        verdicts.append(f"{tid}: FAIL {e_msg}")
+                        ok = False
+                        continue
                 if high and r["downgradeCount"] > 0:
                     verdicts.append(
                         f"{tid}: FAIL 触发降级 downgradeCount={r['downgradeCount']}"
@@ -4188,6 +4322,1389 @@ def check_p8(browser, base):
     return ok and ok_err, (" ".join(details) + f" dir={SHOTS} " + msg).strip()
 
 
+# ---------------------------------------------------------------- gameplay（PR B）
+
+
+def gameplay(page, expr, arg=None):
+    """在页面里 import gameplay.js（G）与 game-logic.js（L）后求值 expr（可用 G、L、M=__maze3d、arg）。"""
+    return page.evaluate(
+        "async ([expr, arg]) => {"
+        " const G = await import('/maze-3d/gameplay.js');"
+        " const L = await import('/maze-3d/game-logic.js');"
+        " const M = window.__maze3d;"
+        " return (new Function('G', 'L', 'M', 'arg', 'return (' + expr + ');'))(G, L, M, arg);"
+        "}",
+        [expr, arg],
+    )
+
+
+def mini_colors(page):
+    return {k: hex_rgb(v) for k, v in gameplay(page, "G.MINI_COLORS").items()}
+
+
+def minimap_image(page):
+    """#minimap 画布的设备像素图（解码 toDataURL）。"""
+    data = minimap_data(page)
+    raw = base64.b64decode(data.split(",", 1)[1])
+    return Image.open(io.BytesIO(raw)).convert("RGB")
+
+
+def mini_px(lay, row, col, fx=0.5, fz=0.5):
+    """格 (row, col) 内相对位置 (fx, fz) 在小地图画布上的设备像素坐标。"""
+    return (
+        lay["pad"] + (col + fx) * lay["cell"],
+        lay["pad"] + (row + fz) * lay["cell"],
+    )
+
+
+def cheb_rc(a, b):
+    """两个 (row, col) 序列的 Chebyshev 距离。"""
+    return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
+
+
+def px_at(img, xy):
+    return img.getpixel((int(xy[0]), int(xy[1])))
+
+
+def footprint_alpha(i, n):
+    """与 gameplay.js 的 footprintAlpha 同公式。"""
+    if n <= 1:
+        return 0.9
+    return 0.35 + 0.55 * i / (n - 1)
+
+
+def mix_rgb(a, b, alpha):
+    return tuple(alpha * x + (1 - alpha) * y for x, y in zip(a, b))
+
+
+def route_to_end(page):
+    return logic(
+        page,
+        "L.findPath(M.connections, {row: 0, col: 0}, {row: M.size - 1, col: M.size - 1})",
+    )
+
+
+def check_b1(browser, base):
+    """已探索格子：开局 4 格；沿通关路线走到第 7 格后路上视野都已探索；小地图已探索 / 未探索格颜色；
+    关迷雾全部已探索，再开仍是全部。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        init_script=preset_storage("1", "1"),
+    )
+    details = []
+    try:
+        wait_idle(page)
+        e0 = m3(page, "explored")
+        details.append(f"start explored={e0}")
+        if e0 != 4:
+            return False, " ".join(details)
+        route = route_to_end(page)
+        details.append(f"route={len(route)}")
+        if len(route) < 8:
+            return False, " ".join(details)
+        t = route[6]
+        ok_walk = walk_to(page, *t)
+        cell = m3(page, "playerCell")
+        st = m3(page, "state")
+        details.append(f"walk to {t}: ok={ok_walk} cell={cell} state={st}")
+        if not ok_walk or cell != {"row": t[0], "col": t[1]} or st == "won":
+            return False, " ".join(details)
+        e1 = m3(page, "explored")
+        missing = page.evaluate(
+            "(route) => { const M = window.__maze3d; const out = [];"
+            " for (const [r, c] of route) for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {"
+            "  const rr = r + dr, cc = c + dc;"
+            "  if (rr < 0 || cc < 0 || rr >= M.size || cc >= M.size) continue;"
+            "  if (!M.exploredAt(rr, cc)) out.push([rr, cc]); }"
+            " return out; }",
+            route[:7],
+        )
+        details.append(f"explored={e1} missingOnRoute={missing[:5]}")
+        if e1 <= 4 or missing:
+            return False, " ".join(details)
+        wait_frames(page, 3)
+        colors = mini_colors(page)
+        lay = m3(page, "minimapLayout")
+        img = minimap_image(page)
+        explored_map = page.evaluate(
+            "() => { const M = window.__maze3d; const out = [];"
+            " for (let r = 0; r < M.size; r++) { const row = [];"
+            "  for (let c = 0; c < M.size; c++) row.push(M.exploredAt(r, c)); out.push(row); }"
+            " return out; }"
+        )
+        bad = []
+        n_seen = n_fog = 0
+        for r in range(10):
+            for c in range(10):
+                if cheb_rc((r, c), t) <= 1 or (r, c) == (9, 9):
+                    continue
+                px = px_at(img, mini_px(lay, r, c, 0.25, 0.25))
+                if explored_map[r][c]:
+                    d = min(rgb_dist(px, colors["floor"]), rgb_dist(px, colors["seen"]))
+                    n_seen += 1
+                else:
+                    d = rgb_dist(px, colors["fog"])
+                    n_fog += 1
+                if d > 20:
+                    bad.append(((r, c), explored_map[r][c], px, round(d, 1)))
+        details.append(f"pixels explored={n_seen} fog={n_fog} bad={bad[:4]}")
+        if bad or n_fog == 0:
+            return False, " ".join(details)
+        page.click("#fog-btn")
+        page.wait_for_timeout(100)
+        e2 = m3(page, "explored")
+        page.click("#fog-btn")
+        page.wait_for_timeout(100)
+        e3 = m3(page, "explored")
+        details.append(f"fogOff explored={e2} fogOn again={e3}")
+        ok = e2 == 100 and e3 == 100
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_b2(browser, base):
+    """脚印：按走过顺序记录；小地图格心是按不透明度混合的脚印色；回头走移到末尾；
+    瞬移不记；重新生成只剩起点。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        init_script=preset_storage("1", "5"),
+    )
+    details = []
+    try:
+        wait_idle(page)
+        route = route_to_end(page)[:6]
+        ok_walk = walk_to(page, *route[5])
+        fp = m3(page, "footprints")
+        details.append(f"route={route} walk={ok_walk} footprints={fp}")
+        if not ok_walk or fp != route:
+            return False, " ".join(details)
+        wait_frames(page, 3)
+        colors = mini_colors(page)
+        lay = m3(page, "minimapLayout")
+        img = minimap_image(page)
+        ppos = m3(page, "playerPos")
+        pc = (
+            lay["pad"] + ppos["x"] * lay["cell"],
+            lay["pad"] + ppos["z"] * lay["cell"],
+        )
+        rad = 2.2 * max(2.5 * lay["dpr"], 0.28 * lay["cell"]) + 2
+        cur = route[5]
+        n = len(fp)
+        bad = []
+        checked = 0
+        for i, (r, c) in enumerate(route[:-1]):
+            xy = mini_px(lay, r, c)
+            if math.hypot(xy[0] - pc[0], xy[1] - pc[1]) < rad:
+                continue
+            under = colors["floor"] if cheb_rc((r, c), cur) <= 5 else colors["seen"]
+            want = mix_rgb(colors["foot"], under, footprint_alpha(i, n))
+            got = px_at(img, xy)
+            d = rgb_dist(got, want)
+            checked += 1
+            if d > 30:
+                bad.append(((r, c), got, tuple(round(v) for v in want), round(d, 1)))
+        details.append(f"pixels checked={checked} bad={bad[:4]}")
+        if bad or checked == 0:
+            return False, " ".join(details)
+        ok_back = walk_to(page, *route[4])
+        fp2 = m3(page, "footprints")
+        details.append(
+            f"back to {route[4]}: ok={ok_back} last={fp2[-1]} len={len(fp2)}"
+        )
+        if not ok_back or fp2[-1] != route[4] or len(fp2) != 6:
+            return False, " ".join(details)
+        page.evaluate("() => window.__maze3d.teleportForTest(5, 5)")
+        fp3 = m3(page, "footprints")
+        details.append(f"teleport unchanged={fp3 == fp2}")
+        if fp3 != fp2:
+            return False, " ".join(details)
+        page.click("#regen-btn")
+        wait_idle(page)
+        fp4 = m3(page, "footprints")
+        details.append(f"regen footprints={fp4}")
+        ok = fp4 == [[0, 0]]
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_b3(browser, base):
+    """小地图在跟随视角也显示；跟随视角下终点箭头不压小地图；静止时小地图连续 30 帧不变。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    details = []
+    try:
+        wait_idle(page)
+        v0 = m3(page, "minimapVisible")
+        page.click("#view-btn")
+        page.wait_for_timeout(100)
+        v1 = m3(page, "minimapVisible")
+        page.click("#view-btn")
+        page.wait_for_timeout(100)
+        details.append(f"visible follow={v0} first={v1}")
+        if not (v0 is True and v1 is True):
+            return False, " ".join(details)
+        errs = list(errors)
+    finally:
+        close(page)
+    page, errors = hint_page(browser, base, "0", "5")
+    try:
+        back_to_end_state(page)
+        r = page.evaluate(
+            "() => { const M = window.__maze3d;"
+            " const a = document.getElementById('end-arrow').getBoundingClientRect();"
+            " const m = document.getElementById('minimap').getBoundingClientRect();"
+            " const hit = !(a.right <= m.left || a.left >= m.right || a.bottom <= m.top || a.top >= m.bottom);"
+            " return { mode: M.endHint.mode, hit, mini: !document.getElementById('minimap').hidden }; }"
+        )
+        details.append(f"arrow: {r}")
+        if r["mode"] != "edge" or r["hit"] or not r["mini"]:
+            return False, " ".join(details)
+        set_test_input(page)
+        wait_camera_still(page)
+        shots = []
+        for _ in range(30):
+            wait_frames(page, 1)
+            shots.append(minimap_data(page))
+        same = all(x == shots[0] for x in shots)
+        details.append(f"still 30 frames same={same}")
+        ok_err, msg = no_errors(errs + errors)
+        return same and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def best_init(value):
+    """init script：只在 maze3d.best.10 缺失时写入 value（刷新不会覆盖）。"""
+    return (
+        "try { const k = 'maze3d.best.10';"
+        " if (localStorage.getItem(k) === null) localStorage.setItem(k, %s); } catch (e) {}"
+        % json.dumps(value)
+    )
+
+
+SET_VISIBILITY_JS = """(v) => {
+  Object.defineProperty(document, 'visibilityState', { value: v, configurable: true });
+  document.dispatchEvent(new Event('visibilitychange'));
+}"""
+
+
+def set_visibility(page, value):
+    """模拟页面切到后台 / 回到前台：改写 document.visibilityState 并派发 visibilitychange。"""
+    page.evaluate(SET_VISIBILITY_JS, value)
+
+
+def timer_of(page):
+    return m3(page, "timer")
+
+
+def check_b4(browser, base):
+    """计时：不动不走；只转视角不走；首次移动开始；后台暂停、回前台不补算；通关冻结；
+    再来一局与切换尺寸清零。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    details = []
+    try:
+        wait_idle(page)
+        page.wait_for_timeout(1000)
+        t0 = timer_of(page)
+        dom0 = page.inner_text("#timer")
+        details.append(f"idle: {t0} dom={dom0!r}")
+        if t0["started"] or t0["text"] != "00:00.0" or "00:00.0" not in dom0:
+            return False, " ".join(details)
+        set_test_input(page, turn=1)
+        page.wait_for_timeout(500)
+        set_test_input(page)
+        t1 = timer_of(page)
+        details.append(f"turn: started={t1['started']}")
+        if t1["started"]:
+            return False, " ".join(details)
+        face_open(page)
+        set_test_input(page, forward=1)
+        page.wait_for_timeout(200)
+        t2 = timer_of(page)
+        page.wait_for_timeout(1000)
+        t3 = timer_of(page)
+        set_test_input(page)
+        details.append(
+            f"forward: started@200ms={t2['started']} elapsed@1.2s={t3['elapsedMs']:.0f}"
+        )
+        if not t2["started"] or not (800 <= t3["elapsedMs"] <= 1400):
+            return False, " ".join(details)
+        # 后台：渲染循环停止，计时不走；回到前台 dt 不含后台时长
+        set_visibility(page, "hidden")
+        h0 = timer_of(page)["elapsedMs"]
+        page.wait_for_timeout(1000)
+        h1 = timer_of(page)["elapsedMs"]
+        set_visibility(page, "visible")
+        page.wait_for_timeout(500)
+        h2 = timer_of(page)["elapsedMs"]
+        details.append(f"hidden: {h0:.0f}->{h1:.0f} visible+500ms: {h2:.0f}")
+        if h1 != h0 or not (h0 < h2 <= h0 + 900):
+            return False, " ".join(details)
+        if not walk_to_exit(page):
+            details.append("walk_to_exit failed")
+            return False, " ".join(details)
+        w0 = timer_of(page)
+        page.wait_for_timeout(500)
+        w1 = timer_of(page)
+        want = gameplay(page, "G.formatTime(M.lastResult.timeMs)")
+        win_time = page.inner_text("#win-time")
+        details.append(
+            f"won: running={w0['running']} {w0['elapsedMs']:.1f}->{w1['elapsedMs']:.1f}"
+            f" winTime={win_time!r} want={want}"
+        )
+        if w0["running"] or w0["elapsedMs"] != w1["elapsedMs"] or want not in win_time:
+            return False, " ".join(details)
+        page.click("#again-btn")
+        wait_idle(page)
+        a = timer_of(page)
+        details.append(f"again: {a['elapsedMs']} started={a['started']}")
+        if a["elapsedMs"] != 0 or a["started"]:
+            return False, " ".join(details)
+        face_open(page)
+        set_test_input(page, forward=1)
+        page.wait_for_timeout(400)
+        set_test_input(page)
+        moved_t = timer_of(page)
+        page.click("#size-15")
+        wait_idle(page)
+        z = timer_of(page)
+        details.append(
+            f"size15: before={moved_t['started']} after={z['elapsedMs']} started={z['started']}"
+        )
+        ok = moved_t["started"] and z["elapsedMs"] == 0 and not z["started"]
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+WIN_DOM_JS = """() => {
+  const vis = (id) => { const el = document.getElementById(id); return !!el && !el.hidden && getComputedStyle(el).display !== 'none'; };
+  const txt = (id) => document.getElementById(id).textContent;
+  let b10 = null, b15 = null;
+  try { b10 = localStorage.getItem('maze3d.best.10'); b15 = localStorage.getItem('maze3d.best.15'); } catch (e) {}
+  return { r: window.__maze3d.lastResult, record: vis('win-record'), recordText: txt('win-record'),
+    best: vis('win-best'), bestText: txt('win-best'), note: vis('win-path-note'), b10, b15 };
+}"""
+
+
+def win_dom(page):
+    return page.evaluate(WIN_DOM_JS)
+
+
+def int_ok(w):
+    """整数毫秒：lastResult.timeMs 是整数；存储（如有）是正整数串。"""
+    r = w["r"] or {}
+    t = r.get("timeMs")
+    store_ok = w["b10"] is None or bool(re.fullmatch(r"[1-9]\d*", w["b10"]))
+    return isinstance(t, int) and store_ok
+
+
+def forward_half_second(page):
+    face_open(page)
+    set_test_input(page, forward=1)
+    page.wait_for_timeout(500)
+    set_test_input(page)
+
+
+def b5_case(browser, base, name, init, run):
+    """一个子场景：新上下文、init script、执行 run(page) → (ok, detail)。"""
+    page, errors = open_page(
+        browser, f"{base}{PAGE}?seed={S}&size=10&debug=1", init_script=init
+    )
+    try:
+        wait_idle(page)
+        ok, detail = run(page)
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, f"[{name}] {detail} {msg}".strip()
+    finally:
+        close(page)
+
+
+def check_b5(browser, base):
+    """最佳成绩：新纪录、跨刷新保留、更慢不刷新、非法记录、看了道路不计入（三种路径）、
+    开始前看过再隐藏仍计入、整数毫秒、存储被禁用时照常显示新纪录。"""
+    results = []
+
+    def record_then_reload(page):
+        if not walk_to_exit(page):
+            return False, "walk1 failed"
+        w = win_dom(page)
+        r = w["r"]
+        ok1 = (
+            r["isNew"]
+            and w["record"]
+            and w["recordText"] == "新纪录!"
+            and w["b10"] == str(r["timeMs"])
+            and w["b15"] is None
+            and int_ok(w)
+        )
+        d = f"first: isNew={r['isNew']} record={w['record']} b10={w['b10']} timeMs={r['timeMs']} b15={w['b15']}"
+        if not ok1:
+            return False, d
+        prev = int(w["b10"])
+        page.reload()
+        wait_idle(page)
+        if not walk_to_exit(page):
+            return False, d + " walk2 failed"
+        w2 = win_dom(page)
+        r2 = w2["r"]
+        want = gameplay(page, "G.formatTime(M.lastResult.bestMs)")
+        ok2 = (
+            r2["bestMs"] is not None
+            and r2["bestMs"] <= prev
+            and w2["best"]
+            and want in w2["bestText"]
+            and int_ok(w2)
+        )
+        return (
+            ok2,
+            d + f" reload: bestMs={r2['bestMs']} prev={prev} best={w2['bestText']!r}",
+        )
+
+    results.append(
+        b5_case(browser, base, "new", best_init("9999999"), record_then_reload)
+    )
+
+    def slower(page):
+        if not walk_to_exit(page):
+            return False, "walk failed"
+        w = win_dom(page)
+        r = w["r"]
+        ok = (
+            not r["isNew"]
+            and not w["record"]
+            and w["b10"] == "1"
+            and w["best"]
+            and "00:00.0" in w["bestText"]
+            and int_ok(w)
+        )
+        return (
+            ok,
+            f"isNew={r['isNew']} record={w['record']} b10={w['b10']} best={w['bestText']!r}",
+        )
+
+    results.append(b5_case(browser, base, "slower", best_init("1"), slower))
+
+    def invalid(page):
+        if not walk_to_exit(page):
+            return False, "walk failed"
+        w = win_dom(page)
+        r = w["r"]
+        ok = r["isNew"] and w["b10"] == str(r["timeMs"]) and int_ok(w)
+        return ok, f"isNew={r['isNew']} b10={w['b10']} timeMs={r['timeMs']}"
+
+    results.append(b5_case(browser, base, "abc", best_init("abc"), invalid))
+
+    def not_counted(w):
+        r = w["r"]
+        ok = (
+            r["eligible"] is False
+            and not r["isNew"]
+            and w["b10"] == "9999999"
+            and w["note"]
+            and int_ok(w)
+        )
+        return (
+            ok,
+            f"eligible={r['eligible']} isNew={r['isNew']} b10={w['b10']} note={w['note']}",
+        )
+
+    def path_mid(page):
+        forward_half_second(page)
+        page.click("#show-path-btn")
+        if not walk_to_exit(page):
+            return False, "walk failed"
+        return not_counted(win_dom(page))
+
+    results.append(b5_case(browser, base, "pathMid", best_init("9999999"), path_mid))
+
+    def path_before(page):
+        page.click("#show-path-btn")
+        if not walk_to_exit(page):
+            return False, "walk failed"
+        return not_counted(win_dom(page))
+
+    results.append(
+        b5_case(browser, base, "pathBefore", best_init("9999999"), path_before)
+    )
+
+    def path_carry(page):
+        page.click("#show-path-btn")
+        if not walk_to_exit(page):
+            return False, "walk1 failed"
+        page.click("#again-btn")
+        wait_idle(page)
+        if not walk_to_exit(page):
+            return False, "walk2 failed"
+        return not_counted(win_dom(page))
+
+    results.append(
+        b5_case(browser, base, "pathCarry", best_init("9999999"), path_carry)
+    )
+
+    def path_hidden(page):
+        page.click("#show-path-btn")
+        page.click("#hide-path-btn")
+        if not walk_to_exit(page):
+            return False, "walk failed"
+        w = win_dom(page)
+        r = w["r"]
+        ok = r["eligible"] is True and not w["note"] and int_ok(w)
+        return ok, f"eligible={r['eligible']} note={w['note']} isNew={r['isNew']}"
+
+    results.append(
+        b5_case(browser, base, "pathHidden", best_init("9999999"), path_hidden)
+    )
+
+    def blocked(page):
+        if not walk_to_exit(page):
+            return False, "walk failed"
+        w = win_dom(page)
+        r = w["r"]
+        st = m3(page, "state")
+        ok = st == "won" and r["isNew"] and w["record"]
+        return ok, f"state={st} isNew={r['isNew']} record={w['record']}"
+
+    results.append(b5_case(browser, base, "blocked", BLOCK_STORAGE, blocked))
+
+    ok = all(r[0] for r in results)
+    return ok, " ".join(r[1] for r in results)
+
+
+def star_cells(page):
+    return [[st["row"], st["col"]] for st in m3(page, "stars")]
+
+
+def first_clear_star(page):
+    """第一颗「从起点出发的最短路不经过其他星星格」的星星，返回 (star, path)。"""
+    return logic(
+        page,
+        """(() => {
+          const S = M.stars;
+          for (const s of S) {
+            const p = L.findPath(M.connections, {row: 0, col: 0}, s);
+            const others = S.filter((o) => o !== s && p.some(([r, c]) => r === o.row && c === o.col));
+            if (p.length && !others.length) return [s, p];
+          }
+          return [null, []];
+        })()""",
+    )
+
+
+def check_b10(browser, base):
+    """星星数量 3 / 5 / 7、信息栏计数文字；同 seed 刷新位置不变；与页面里调用 placeStars 一致；
+    20 → 10 后多出来的星星网格隐藏。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    details = []
+    try:
+        wait_idle(page)
+        for n, want in [(10, 3), (15, 5), (20, 7)]:
+            page.click(f"#size-{n}")
+            wait_idle(page)
+            total = m3(page, "starTotal")
+            text = page.inner_text("#star-count")
+            details.append(f"{n}: total={total} text={text!r}")
+            if total != want or text != f"⭐ 0/{want}":
+                return False, " ".join(details)
+        before = star_cells(page)
+        page.reload()
+        wait_idle(page)
+        after = star_cells(page)
+        ref = gameplay(
+            page,
+            "G.placeStars(M.connections, M.seed, G.starCountFor(M.size)).map((s) => [s.row, s.col])",
+        )
+        details.append(f"reload same={before == after} placeStars same={after == ref}")
+        if before != after or after != ref:
+            return False, " ".join(details)
+        errs = list(errors)
+    finally:
+        close(page)
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=20&debug=1",
+        init_script=preset_storage("0", "5"),
+    )
+    try:
+        wait_idle(page)
+        v20 = m3(page, "starMeshesVisible")
+        page.click("#size-10")
+        wait_idle(page)
+        v10 = m3(page, "starMeshesVisible")
+        details.append(f"fogOff meshesVisible 20={v20} ->10={v10}")
+        ok = v20 == 7 and v10 == 3
+        ok_err, msg = no_errors(errs + errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_b11(browser, base):
+    """收集星星：计数、隐藏、小地图标记消失；来回走不重复计数；通关层显示 1 / 3；再来一局清零。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    details = []
+    try:
+        wait_idle(page)
+        star, path = first_clear_star(page)
+        details.append(f"star={star} path={len(path)}")
+        if not star:
+            return False, " ".join(details)
+        idx = [
+            i
+            for i, st in enumerate(m3(page, "stars"))
+            if st["row"] == star["row"] and st["col"] == star["col"]
+        ][0]
+        ok_walk = walk_to(page, star["row"], star["col"])
+        n1 = m3(page, "starsCollected")
+        text = page.inner_text("#star-count")
+        st = m3(page, "stars")[idx]
+        details.append(f"walk={ok_walk} collected={n1} text={text!r} star={st}")
+        if not (
+            ok_walk
+            and n1 == 1
+            and text == "⭐ 1/3"
+            and st["collected"]
+            and not st["visible"]
+        ):
+            return False, " ".join(details)
+        prev = path[-2]
+        walk_to(page, *prev)
+        walk_to(page, star["row"], star["col"])
+        walk_to(page, *prev)
+        n2 = m3(page, "starsCollected")
+        wait_frames(page, 3)
+        lay = m3(page, "minimapLayout")
+        px = px_at(minimap_image(page), mini_px(lay, star["row"], star["col"]))
+        d = rgb_dist(px, hex_rgb("#ffb300"))
+        details.append(f"back&forth collected={n2} miniCenter={px} distStar={d:.1f}")
+        if n2 != 1 or d <= 60:
+            return False, " ".join(details)
+        cur = m3(page, "playerCell")
+        p = logic(
+            page,
+            "L.findPath(M.connections, arg, {row: M.size - 1, col: M.size - 1})",
+            cur,
+        )
+        page.evaluate(
+            "([r, c]) => window.__maze3d.teleportForTest(r, c)", [p[-2][0], p[-2][1]]
+        )
+        won = walk_to_exit(page)
+        ws = page.inner_text("#win-stars")
+        details.append(f"won={won} winStars={ws!r}")
+        if not won or "1 / 3" not in ws:
+            return False, " ".join(details)
+        page.click("#again-btn")
+        wait_idle(page)
+        n3 = m3(page, "starsCollected")
+        details.append(f"again collected={n3}")
+        ok = n3 == 0
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_b12(browser, base):
+    """星星与迷雾：视野外隐藏、小地图不暴露；到相邻格后显示并出现标记；离开后 3D 隐藏、标记保留。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        init_script=preset_storage("1", "1"),
+    )
+    details = []
+    try:
+        wait_idle(page)
+        star = m3(page, "stars")[0]
+        r, c = star["row"], star["col"]
+        colors = mini_colors(page)
+
+        def center_px():
+            wait_frames(page, 3)
+            lay = m3(page, "minimapLayout")
+            return px_at(minimap_image(page), mini_px(lay, r, c))
+
+        p0 = center_px()
+        d0 = rgb_dist(p0, colors["fog"])
+        details.append(
+            f"star=({r},{c}) visible={star['visible']} center={p0} distFog={d0:.1f}"
+        )
+        if star["visible"] or d0 > 20:
+            return False, " ".join(details)
+        nb = next(
+            (r + dr, c + dc)
+            for dr in (-1, 0, 1)
+            for dc in (-1, 0, 1)
+            if (dr or dc) and 0 <= r + dr < 10 and 0 <= c + dc < 10
+        )
+        page.evaluate("([r, c]) => window.__maze3d.teleportForTest(r, c)", list(nb))
+        v1 = m3(page, "stars")[0]["visible"]
+        p1 = center_px()
+        d1 = rgb_dist(p1, colors["star"])
+        details.append(f"near {nb}: visible={v1} center={p1} distStar={d1:.1f}")
+        if not v1 or d1 > 40:
+            return False, " ".join(details)
+        page.evaluate("() => window.__maze3d.teleportForTest(0, 0)")
+        v2 = m3(page, "stars")[0]["visible"]
+        p2 = center_px()
+        d2 = rgb_dist(p2, colors["star"])
+        details.append(f"away: visible={v2} center={p2} distStar={d2:.1f}")
+        ok = not v2 and d2 <= 40
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def avg3(img, x, y):
+    """(x, y)（设备像素）周围 3×3 平均色。"""
+    px = img.load()
+    acc = [0, 0, 0]
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            xx = min(img.size[0] - 1, max(0, int(x) + dx))
+            yy = min(img.size[1] - 1, max(0, int(y) + dy))
+            v = px[xx, yy]
+            for k in range(3):
+                acc[k] += v[k]
+    return tuple(a / 9 for a in acc)
+
+
+def check_b13(browser, base):
+    """星星可见度：四个主题，星星中心颜色与周围 0.6 格的地板、与道路都相差 ≥ 60。"""
+    details = []
+    ok = True
+    errs = []
+    for tid in THEME_IDS:
+        page, errors = open_page(
+            browser,
+            f"{base}{PAGE}?seed={S}&size=10&debug=1",
+            viewport={"width": 1280, "height": 800},
+            init_script=theme_init(tid) + preset_storage("0", "5"),
+        )
+        try:
+            wait_idle(page)
+            page.evaluate("() => window.__maze3d.setStarsForTest({ paused: true })")
+            star = m3(page, "stars")[0]
+            r, c = star["row"], star["col"]
+            nb = logic(
+                page,
+                "Object.values(L.DIRS).map(([dr, dc]) => ({row: arg.row + dr, col: arg.col + dc}))"
+                ".find((n) => L.canMove(M.connections, arg, n))",
+                {"row": r, "col": c},
+            )
+            page.evaluate(
+                "([r, c]) => window.__maze3d.teleportForTest(r, c)",
+                [nb["row"], nb["col"]],
+            )
+            face_yaw(page, math.atan2(c - nb["col"], -(r - nb["row"])))
+            wait_camera_still(page)
+            wait_frames(page, 3)
+            cam = m3(page, "cameraState")
+            cw, ch = page.evaluate(
+                f"() => {{ const c = document.querySelector('{CANVAS_SEL}'); return [c.clientWidth, c.clientHeight]; }}"
+            )
+            sp = project_css(cam, (c + 0.5, 0.35, r + 0.5), cw, ch)
+            img = canvas_image(page)
+            ratio = img.size[0] / cw
+
+            def color_at(pt):
+                return avg3(img, pt[0] * ratio, pt[1] * ratio)
+
+            if sp is None or not (0 <= sp[0] < cw and 0 <= sp[1] < ch):
+                details.append(f"{tid}: star off screen {sp}")
+                ok = False
+                continue
+            sc = color_at(sp)
+
+            def ring(kind):
+                out = []
+                for k in range(8):
+                    a = k * math.pi / 4
+                    x = c + 0.5 + 0.6 * math.cos(a)
+                    z = r + 0.5 + 0.6 * math.sin(a)
+                    cell = (math.floor(z), math.floor(x))
+                    if not (0 <= cell[0] < 10 and 0 <= cell[1] < 10):
+                        continue
+                    if m3(page, f"floorKindAt({cell[0]}, {cell[1]})") != kind:
+                        continue
+                    pt = page.evaluate(
+                        "([x, z]) => window.__maze3d.floorPointCss(x, z)", [x, z]
+                    )
+                    if pt:
+                        out.append((pt["x"], pt["y"]))
+                return out
+
+            floor_pts = ring("floor")
+            floor_d = [rgb_dist(sc, color_at(pt)) for pt in floor_pts]
+            page.click("#show-path-btn")
+            wait_frames(page, 3)
+            img2 = canvas_image(page)
+
+            def color2(pt):
+                return avg3(img2, pt[0] * ratio, pt[1] * ratio)
+
+            sc2 = color2(sp)
+            if m3(page, f"floorKindAt({r}, {c})") == "path":
+                path_pts = ring("path")
+                src = "ring"
+            else:
+                cell = logic(
+                    page,
+                    """(() => { let best = null, bd = 1e9;
+                      for (let rr = 0; rr < M.size; rr++) for (let cc = 0; cc < M.size; cc++) {
+                        if (M.floorKindAt(rr, cc) !== 'path') continue;
+                        if (!M.floorSamplePoints(rr, cc).length) continue;
+                        const d = Math.hypot(rr - arg.row, cc - arg.col);
+                        if (d < bd) { bd = d; best = [rr, cc]; } }
+                      return best; })()""",
+                    {"row": r, "col": c},
+                )
+                path_pts = (
+                    [
+                        (q["x"], q["y"])
+                        for q in m3(page, f"floorSamplePoints({cell[0]}, {cell[1]})")
+                    ]
+                    if cell
+                    else []
+                )
+                src = f"cell{cell}"
+            path_d = [rgb_dist(sc2, color2(pt)) for pt in path_pts]
+            good = (
+                len(floor_d) >= 1
+                and min(floor_d) >= 60
+                and len(path_d) >= 1
+                and min(path_d) >= 60
+            )
+            ok = ok and good
+            details.append(
+                f"{tid}: star={tuple(round(v) for v in sc)} floor n={len(floor_d)}"
+                f" min={min(floor_d) if floor_d else None!s:.5} path({src}) n={len(path_d)}"
+                f" min={min(path_d) if path_d else None!s:.5} ok={good}"
+            )
+            errs += errors
+        finally:
+            close(page)
+    ok_err, msg = no_errors(errs)
+    return ok and ok_err, (" ".join(details) + " " + msg).strip()
+
+
+VIBRATE_RECORD = """
+Object.defineProperty(Navigator.prototype, 'vibrate', { configurable: true, writable: true,
+  value: function (p) { (window.__vib = window.__vib || []).push(p); return true; } });
+"""
+
+NO_AUDIO = """
+delete window.AudioContext; delete window.webkitAudioContext; delete Navigator.prototype.vibrate;
+"""
+
+
+def sfx_log(page):
+    return m3(page, "sfxLog")
+
+
+def sfx_names(page):
+    return [e["name"] for e in sfx_log(page)]
+
+
+def clear_sfx(page):
+    page.evaluate("() => window.__maze3d.clearSfxLog()")
+
+
+def vib_log(page):
+    return page.evaluate("() => window.__vib || []")
+
+
+def straight_cell(page, n):
+    """从起点 BFS 找第一个「某方向连续 n 格可走」的格（路线与直线都不经过终点），返回 (cell, dir)。"""
+    r = logic(
+        page,
+        """(() => {
+          const N = arg; const end = M.size - 1;
+          const isEnd = (p) => p.row === end && p.col === end;
+          const seen = new Set(['0,0']);
+          const q = [{ row: 0, col: 0 }];
+          for (let i = 0; i < q.length; i++) {
+            const p = q[i];
+            for (const d of ['up', 'right', 'down', 'left']) {
+              const [dr, dc] = L.DIRS[d];
+              let ok = true; let a = p;
+              for (let k = 1; k <= N; k++) {
+                const b = { row: p.row + dr * k, col: p.col + dc * k };
+                if (!L.canMove(M.connections, a, b) || isEnd(b)) { ok = false; break; }
+                a = b;
+              }
+              if (ok) return [p, d];
+            }
+            for (const [dr, dc] of Object.values(L.DIRS)) {
+              const nb = { row: p.row + dr, col: p.col + dc };
+              if (!L.canMove(M.connections, p, nb) || isEnd(nb) || seen.has(nb.row + ',' + nb.col)) continue;
+              seen.add(nb.row + ',' + nb.col);
+              q.push(nb);
+            }
+          }
+          return [null, null];
+        })()""",
+        n,
+    )
+    return r[0], r[1]
+
+
+def walk_straight(page, n=2):
+    """走到 straight_cell 的起点、朝该方向，清空日志后沿直线走 n 格；返回是否到达。"""
+    cell, d = straight_cell(page, n)
+    if cell is None or not walk_to(page, cell["row"], cell["col"]):
+        return False
+    face_yaw(page, DIR_YAW[d])
+    clear_sfx(page)
+    dr, dc = DIRS[d]
+    return walk_to(page, cell["row"] + dr * n, cell["col"] + dc * n)
+
+
+def push_wall(page, seconds):
+    set_test_input(page, forward=1)
+    page.wait_for_timeout(int(seconds * 1000))
+    set_test_input(page)
+
+
+def check_b6(browser, base):
+    """声音调试日志：手势前不建 AudioContext；直线脚步 3–5 条且高低交替；顶墙只响一次、松开再顶再响一次、
+    顶墙期间无脚步；星星与通关各一条；通关后继续推不再响、计时不走；切到后台挂起音频。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    details = []
+    try:
+        wait_idle(page)
+        a0 = m3(page, "audioState")
+        page.keyboard.press("Shift")
+        page.wait_for_timeout(200)
+        a1 = m3(page, "audioState")
+        details.append(f"audio before={a0} afterShift={a1}")
+        if a0 != "none" or a1 == "none":
+            return False, " ".join(details)
+        ok_walk = walk_straight(page, 2)
+        steps = [e for e in sfx_log(page) if e["name"] == "step"]
+        variants = [e["variant"] for e in steps]
+        alt = all(variants[i] != variants[i - 1] for i in range(1, len(variants)))
+        details.append(
+            f"straight walk={ok_walk} steps={len(steps)} variants={variants}"
+        )
+        if not ok_walk or not (3 <= len(steps) <= 5) or not alt:
+            return False, " ".join(details)
+        d = find_wall_cell(page)
+        if d is None:
+            details.append("no wall cell")
+            return False, " ".join(details)
+        face_yaw(page, DIR_YAW[d])
+        clear_sfx(page)
+        push_wall(page, 2)
+        bumps1 = sfx_names(page).count("bump")
+        page.wait_for_timeout(700)
+        push_wall(page, 1)
+        log = sfx_log(page)
+        bump_t = [e["t"] for e in log if e["name"] == "bump"]
+        steps_after = [
+            e for e in log if e["name"] == "step" and bump_t and e["t"] > bump_t[0]
+        ]
+        details.append(
+            f"bump: first2s={bumps1} total={len(bump_t)} stepsAfterBump={len(steps_after)}"
+        )
+        if bumps1 != 1 or len(bump_t) != 2 or steps_after:
+            return False, " ".join(details)
+        star, path = first_clear_star(page)
+        page.evaluate("() => window.__maze3d.teleportForTest(0, 0)")
+        clear_sfx(page)
+        walk_to(page, star["row"], star["col"])
+        n_star = sfx_names(page).count("star")
+        clear_sfx(page)
+        won = walk_to_exit(page)
+        n_win = sfx_names(page).count("win")
+        details.append(f"star={n_star} won={won} win={n_win}")
+        if n_star != 1 or not won or n_win != 1:
+            return False, " ".join(details)
+        clear_sfx(page)
+        e0 = timer_of(page)["elapsedMs"]
+        push_wall(page, 1)
+        names = sfx_names(page)
+        e1 = timer_of(page)["elapsedMs"]
+        details.append(f"afterWin names={names} elapsed {e0:.1f}->{e1:.1f}")
+        if "step" in names or "bump" in names or e0 != e1:
+            return False, " ".join(details)
+        before = m3(page, "audioState")
+        set_visibility(page, "hidden")
+        page.wait_for_timeout(300)
+        hidden = m3(page, "audioState")
+        set_visibility(page, "visible")
+        details.append(f"background: {before}->{hidden}")
+        ok = before != "running" or hidden == "suspended"
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+# 按 HTML 标准的激活规则限制 AudioContext：最近 5 秒内有过激活事件，新建的才是 running、resume 才生效。
+# 激活事件只算 keydown（非 Esc）、mousedown、鼠标 pointerdown、非鼠标 pointerup、touchend——触屏 pointerdown 不算。
+# 这里自己判定而不用 navigator.userActivation：当前 Chromium 在触屏 pointerdown 就给激活，比标准宽，测不出问题。
+# init script 的捕获监听先于页面注册，所以页面处理同一事件时激活已经记上。createOscillator 计数放在 window.__osc
+GATED_AUDIO = """
+(() => {
+  const Real = window.AudioContext || window.webkitAudioContext;
+  if (!Real) return;
+  let last = -Infinity;
+  const mark = (e) => {
+    const t = e.type;
+    const pt = e.pointerType;
+    if ((t === 'keydown' && e.key !== 'Escape') || t === 'mousedown' || t === 'touchend'
+        || (t === 'pointerdown' && pt === 'mouse') || (t === 'pointerup' && pt !== 'mouse')) {
+      last = performance.now();
+    }
+  };
+  for (const t of ['keydown', 'mousedown', 'pointerdown', 'pointerup', 'touchend']) {
+    window.addEventListener(t, mark, { capture: true, passive: true });
+  }
+  const active = () => performance.now() - last < 5000;
+  window.__osc = 0;
+  window.__gate = [];
+  class Gated extends Real {
+    constructor(...a) {
+      super(...a);
+      this.__blocked = !active();
+      window.__gate.push('create:' + (this.__blocked ? 'blocked' : 'ok'));
+      if (this.__blocked) super.suspend();
+    }
+    get state() { return this.__blocked ? 'suspended' : super.state; }
+    resume() {
+      const ok = active();
+      window.__gate.push('resume:' + (ok ? 'ok' : 'blocked'));
+      if (!ok) return Promise.resolve();
+      this.__blocked = false;
+      return super.resume();
+    }
+    createOscillator() { window.__osc++; return super.createOscillator(); }
+  }
+  window.AudioContext = Gated;
+  window.webkitAudioContext = Gated;
+})();
+"""
+
+
+def check_b17(browser, base):
+    """触屏首次操作解锁音频：不按键、不点按钮，第一次就触摸舞台；AudioContext 按激活规则受限，
+    抬手后应进入 running，之后走路真的建出振荡器节点。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        has_touch=True,
+        viewport={"width": 375, "height": 667},
+        init_script=GATED_AUDIO,
+    )
+    details = []
+    try:
+        wait_idle(page)
+        a0 = m3(page, "audioState")
+        box = page.locator("#stage").bounding_box()
+        page.touchscreen.tap(box["x"] + box["width"] / 2, box["y"] + box["height"] / 3)
+        page.wait_for_timeout(300)
+        a1 = m3(page, "audioState")
+        gate = page.evaluate("() => window.__gate")
+        details.append(f"audio before={a0} afterTap={a1} gate={gate}")
+        if a0 != "none" or a1 != "running":
+            return False, " ".join(details)
+        o0 = page.evaluate("() => window.__osc")
+        ok_walk = walk_straight(page, 2)
+        o1 = page.evaluate("() => window.__osc")
+        steps = sfx_names(page).count("step")
+        details.append(f"walk={ok_walk} steps={steps} oscillators {o0}->{o1}")
+        ok = ok_walk and steps >= 1 and o1 - o0 >= steps
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_b7(browser, base):
+    """震动：顶墙 2 秒恰好一次 25；通关时 [80, 60, 80, 60, 200]。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        init_script=VIBRATE_RECORD,
+    )
+    details = []
+    try:
+        wait_idle(page)
+        d = find_wall_cell(page)
+        if d is None:
+            return False, "no wall cell"
+        face_yaw(page, DIR_YAW[d])
+        v0 = len(vib_log(page))
+        push_wall(page, 2)
+        v1 = vib_log(page)[v0:]
+        details.append(f"bump vib={v1}")
+        if v1 != [25]:
+            return False, " ".join(details)
+        won = walk_to_exit(page)
+        vib = vib_log(page)
+        details.append(f"won={won} last={vib[-1] if vib else None}")
+        ok = won and [80, 60, 80, 60, 200] in vib
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_b8(browser, base):
+    """静音：按钮文字、存储、soundOn；静音时顶墙走路不记日志不震动；刷新后保持静音且按键不建 AudioContext；
+    再点恢复。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        init_script=VIBRATE_RECORD,
+    )
+    details = []
+
+    def stored():
+        return page.evaluate("() => localStorage.getItem('maze3d.sound')")
+
+    try:
+        wait_idle(page)
+        page.click("#sound-btn")
+        t1 = page.inner_text("#sound-btn")
+        s1 = stored()
+        on1 = m3(page, "soundOn")
+        details.append(f"off: text={t1!r} stored={s1} soundOn={on1}")
+        if t1 != "声音：关" or s1 != "0" or on1 is not False:
+            return False, " ".join(details)
+        n0 = len(sfx_log(page))
+        v0 = len(vib_log(page))
+        d = find_wall_cell(page)
+        if d is None:
+            return False, " ".join(details) + " no wall cell"
+        face_yaw(page, DIR_YAW[d])
+        push_wall(page, 2)
+        walk_straight(page, 2)
+        n1 = len(sfx_log(page))
+        v1 = len(vib_log(page))
+        details.append(f"muted log {n0}->{n1} vib {v0}->{v1}")
+        if n1 != n0 or v1 != v0:
+            return False, " ".join(details)
+        page.reload()
+        wait_idle(page)
+        t2 = page.inner_text("#sound-btn")
+        on2 = m3(page, "soundOn")
+        page.keyboard.press("Shift")
+        page.wait_for_timeout(200)
+        a2 = m3(page, "audioState")
+        details.append(f"reload: text={t2!r} soundOn={on2} audioAfterKey={a2}")
+        if t2 != "声音：关" or on2 is not False or a2 != "none":
+            return False, " ".join(details)
+        page.click("#sound-btn")
+        page.wait_for_timeout(200)
+        t3 = page.inner_text("#sound-btn")
+        s3 = stored()
+        a3 = m3(page, "audioState")
+        details.append(f"on: text={t3!r} stored={s3} audio={a3}")
+        ok = t3 == "声音：开" and s3 == "1" and a3 != "none"
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_b9(browser, base):
+    """没有 Web Audio、没有震动：按键、顶墙、收集星星、通关、点静音开关都不报错；状态 unsupported；
+    日志照常记录。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        init_script=NO_AUDIO,
+    )
+    details = []
+    try:
+        wait_idle(page)
+        page.keyboard.press("Shift")
+        d = find_wall_cell(page)
+        if d is None:
+            return False, "no wall cell"
+        face_yaw(page, DIR_YAW[d])
+        push_wall(page, 2)
+        star, path = first_clear_star(page)
+        page.evaluate("() => window.__maze3d.teleportForTest(0, 0)")
+        walk_to(page, star["row"], star["col"])
+        won = walk_to_exit(page)
+        # 通关层盖住了按钮行：直接派发 click 事件（走的仍是按钮的点击处理）
+        page.locator("#sound-btn").dispatch_event("click")
+        page.locator("#sound-btn").dispatch_event("click")
+        st = m3(page, "audioState")
+        names = sfx_names(page)
+        details.append(
+            f"won={won} audioState={st} bump={names.count('bump')} star={names.count('star')}"
+            f" win={names.count('win')}"
+        )
+        ok = (
+            won
+            and st == "unsupported"
+            and "bump" in names
+            and "star" in names
+            and "win" in names
+        )
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_b14(browser, base):
+    """性能：t7 的方法，新代码轮次里小地图在跟随视角显示、星星在场（20×20 共 7 颗）、声音开启且已创建
+    AudioContext；各主题平均帧时间 ≤ 基线 1.3 倍且不降画质。
+    跑两组：[still] 与 t7 相同的 play_continuous（开局格附近转圈）；[moving] 沿最短路持续走 8 秒，
+    每轮（含基线）换格 ≥ 5 次、离开局格心 ≥ 2 格，覆盖换格时的已探索、脚印与小地图更新。"""
+
+    def extra(name, r):
+        x = r.get("extras") or {}
+        ok = (
+            x.get("minimapVisible") is True
+            and x.get("starTotal") == 7
+            and x.get("soundOn") is True
+            and x.get("audioState") not in (None, "none")
+        )
+        return ok, f"extras={x}"
+
+    def walked(name, r):
+        ep = r.get("endPos") or {"x": 0.5, "z": 0.5}
+        dist = math.hypot(ep["x"] - 0.5, ep["z"] - 0.5)
+        cells = r.get("walkCells") or 0
+        return cells >= 5 and dist >= 2, f"walkCells={cells} travel={dist:.2f}"
+
+    still_ok, still = perf_compare(browser, base, extra=extra)
+    move_ok, move = perf_compare(
+        browser,
+        base,
+        extra=extra,
+        driver=walk_route,
+        prepare=perf_moving_start,
+        each=walked,
+    )
+    detail = f"[still] {still} || [moving] {move}"
+    if still_ok is False or move_ok is False:
+        return False, detail
+    if still_ok is None or move_ok is None:
+        return None, detail
+    return True, detail
+
+
+def check_b15(browser, base):
+    """截图：四个主题各一张游戏中画面（星星、脚印、未探索区、信息栏）、一张第一人称、一张新纪录通关层；
+    6 个文件都存在且非空才 PASS。"""
+    SHOTS.mkdir(parents=True, exist_ok=True)
+    details = []
+    ok = True
+    errs = []
+    files = []
+    for tid in THEME_IDS:
+        page, errors = open_page(
+            browser,
+            f"{base}{PAGE}?seed={S}&size=10&debug=1",
+            viewport={"width": 1280, "height": 800},
+            init_script=theme_init(tid) + preset_storage("1", "2"),
+            reduced_motion="reduce",
+        )
+        try:
+            wait_idle(page)
+            star, path = logic(
+                page,
+                """(() => { let best = [null, []];
+                  for (const s of M.stars) {
+                    const p = L.findPath(M.connections, {row: 0, col: 0}, s);
+                    if (p.length > best[1].length) best = [s, p]; }
+                  return best; })()""",
+            )
+            if not star or len(path) < 7:
+                details.append(f"{tid}: route too short star={star} len={len(path)}")
+                ok = False
+                continue
+            prev = path[-2]
+            walk_to(page, *prev)
+            page.evaluate("() => window.__maze3d.setStarsForTest({ paused: true })")
+            face_yaw(page, math.atan2(star["col"] - prev[1], -(star["row"] - prev[0])))
+            wait_camera_still(page)
+            wait_frames(page, 3)
+            fp = m3(page, "footprints")
+            st = [
+                x
+                for x in m3(page, "stars")
+                if x["row"] == star["row"] and x["col"] == star["col"]
+            ][0]
+            cam = m3(page, "cameraState")
+            cw, ch = page.evaluate(
+                f"() => {{ const c = document.querySelector('{CANVAS_SEL}'); return [c.clientWidth, c.clientHeight]; }}"
+            )
+            sp = project_css(cam, (star["col"] + 0.5, 0.35, star["row"] + 0.5), cw, ch)
+            on_screen = sp is not None and 0 <= sp[0] < cw and 0 <= sp[1] < ch
+            shot = SHOTS / f"gameplay-{tid}-play.png"
+            page.locator("#stage").screenshot(path=str(shot))
+            files.append(shot)
+            good = len(fp) >= 6 and st["visible"] and on_screen
+            details.append(
+                f"{tid}: star=({star['row']},{star['col']}) route={len(path)} footprints={len(fp)}"
+                f" visible={st['visible']} onScreen={on_screen}"
+            )
+            ok = ok and good
+            if tid == "garden":
+                page.click("#view-btn")
+                page.wait_for_timeout(300)
+                wait_frames(page, 3)
+                st2 = [
+                    x
+                    for x in m3(page, "stars")
+                    if x["row"] == star["row"] and x["col"] == star["col"]
+                ][0]
+                seen = m3(page, f"exploredAt({star['row']}, {star['col']})")
+                fpv = SHOTS / "gameplay-first-person.png"
+                page.locator("#stage").screenshot(path=str(fpv))
+                files.append(fpv)
+                good = not st2["collected"] and seen
+                details.append(
+                    f"firstPerson: collected={st2['collected']} explored={seen}"
+                )
+                ok = ok and good
+            errs += errors
+        finally:
+            close(page)
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        viewport={"width": 1280, "height": 800},
+        init_script=best_init("9999999"),
+        reduced_motion="reduce",
+    )
+    try:
+        wait_idle(page)
+        star, path = first_clear_star(page)
+        walk_to(page, star["row"], star["col"])
+        won = walk_to_exit(page)
+        r = m3(page, "lastResult")
+        page.wait_for_timeout(300)
+        win = SHOTS / "gameplay-win.png"
+        page.screenshot(path=str(win))
+        files.append(win)
+        good = won and r and r["isNew"] and r["stars"] >= 1
+        details.append(f"win: won={won} result={r}")
+        ok = ok and good
+        errs += errors
+    finally:
+        close(page)
+    saved = [f for f in files if f.exists() and f.stat().st_size > 0]
+    details.append(f"files={len(saved)}/6 dir={SHOTS}")
+    ok = ok and len(saved) == 6
+    ok_err, msg = no_errors(errs)
+    return ok and ok_err, (" ".join(details) + " " + msg).strip()
+
+
 CHECKS = {
     "1": check_1,
     "10": check_10,
@@ -4240,6 +5757,22 @@ CHECKS = {
     "p5m": check_p5m,
     "p6": check_p6,
     "p8": check_p8,
+    "b1": check_b1,
+    "b2": check_b2,
+    "b3": check_b3,
+    "b4": check_b4,
+    "b5": check_b5,
+    "b6": check_b6,
+    "b7": check_b7,
+    "b8": check_b8,
+    "b9": check_b9,
+    "b10": check_b10,
+    "b11": check_b11,
+    "b12": check_b12,
+    "b13": check_b13,
+    "b14": check_b14,
+    "b15": check_b15,
+    "b17": check_b17,
 }
 
 
@@ -4308,8 +5841,8 @@ def main():
             + (f" --baseline-root {BASELINE_ROOT}" if BASELINE_ROOT else ""),
             f"自动检查：{'PASS' if all_ok else 'FAIL'}",
             f"基线代码：{BASELINE_ROOT}（merge-base）",
-            f"人工检查：待用户查看 {SHOTS} 下 polish-*-start.png（开局迷宫占画面主体、阴影、暗边、光柱）"
-            "与 polish-*-arrow.png（边缘箭头与距离）",
+            f"人工检查：待用户查看 {SHOTS} 下 gameplay-*-play.png（星星、脚印、未探索区、信息栏）、"
+            "gameplay-first-person.png 与 gameplay-win.png（用时、最佳、新纪录、星星数）",
             "",
         ]
         RESULTS.write_text("\n".join(header + lines) + "\n", encoding="utf-8")

@@ -134,21 +134,38 @@
             display: block;
         }
 
+        /* 圆角半透明底板和阴影画在画布里（main.js drawMinimapBase）：画布元素上的 border-radius
+           会让合成器每帧做圆角裁剪，软件渲染下每帧多约 7ms，平均帧时间越过 33ms 就会自动降画质 */
         #minimap {
             position: absolute;
             top: 8px;
             right: 8px;
             width: 140px;
             height: 140px;
-            border-radius: 6px;
-            background: rgba(255, 255, 255, 0.85);
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
             z-index: 2;
             pointer-events: none;
         }
 
         #minimap[hidden] {
             display: none;
+        }
+
+        /* 信息栏：舞台左上角，与小地图同一风格；不拦截摇杆和拖动；低于终点方向提示（3） */
+        #hud {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            z-index: 2;
+            pointer-events: none;
+            display: flex;
+            gap: 10px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.85);
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+            font-size: 14px;
+            font-weight: bold;
+            font-variant-numeric: tabular-nums;
         }
 
         #stick {
@@ -299,6 +316,39 @@
             margin: 0 0 16px;
         }
 
+        #win-time,
+        #win-best,
+        #win-record,
+        #win-path-note,
+        #win-stars {
+            margin: 0 0 8px;
+        }
+
+        #win-time {
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        #win-record {
+            display: inline-block;
+            background: #ffd600;
+            color: #6d4c00;
+            font-weight: bold;
+            border-radius: 999px;
+            padding: 2px 12px;
+        }
+
+        #win-path-note {
+            color: #666;
+            font-size: 14px;
+        }
+
+        #win-best[hidden],
+        #win-record[hidden],
+        #win-path-note[hidden] {
+            display: none;
+        }
+
         #no-webgl {
             width: 100%;
             background: white;
@@ -354,6 +404,11 @@
                 height: clamp(220px, 50vh, 640px);
             }
 
+            #minimap {
+                width: 110px;
+                height: 110px;
+            }
+
             .hint {
                 font-size: 13px;
             }
@@ -377,6 +432,7 @@
             <button id="fog-minus" aria-label="缩小视野">−</button>
             <span id="fog-radius">视野 5</span>
             <button id="fog-plus" aria-label="扩大视野">+</button>
+            <button id="sound-btn">声音：开</button>
             <button id="fullscreen-btn" hidden>全屏</button>
         </div>
 
@@ -393,7 +449,8 @@
         </div>
 
         <div id="stage">
-            <canvas id="minimap" hidden></canvas>
+            <canvas id="minimap"></canvas>
+            <span id="hud"><span id="timer">⏱ 00:00.0</span><span id="star-count">⭐ 0/3</span></span>
             <span id="end-arrow" hidden><span class="end-arrow-head"></span><span class="end-dist"></span></span>
             <span id="end-marker" hidden><span class="end-dot"></span><span class="end-dist"></span></span>
             <div id="stick" hidden><div id="stick-knob"></div></div>
@@ -414,6 +471,11 @@
     <div id="win" hidden>
         <div class="win-box">
             <p id="win-text">恭喜！你成功走出了迷宫！</p>
+            <p id="win-time"></p>
+            <p id="win-best" hidden></p>
+            <p id="win-record" hidden>新纪录!</p>
+            <p id="win-path-note" hidden>这局看了道路，不计入最佳成绩</p>
+            <p id="win-stars"></p>
             <button id="again-btn">再来一局</button>
         </div>
     </div>

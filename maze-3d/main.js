@@ -33,6 +33,7 @@ import {
 import { wallGroupLayout, applyWallUvs } from './wall-geometry.js';
 import {
   PLAYER_RADIUS,
+  MAX_SPEED,
   WALL_LENGTH,
   WALL_HEIGHT,
   WALL_THICKNESS,
@@ -83,6 +84,24 @@ import {
   edgeArrow,
   endHintMode,
 } from './effects.js';
+import {
+  markExplored,
+  pushFootprint,
+  footprintAlpha,
+  MINI_COLORS,
+  formatTime,
+  updateBest,
+  createGameTimer,
+  placeStars,
+  starCountFor,
+  starHit,
+  STAR_COLORS,
+  STAR_SHAPE,
+  STAR_FLOAT,
+  createStepCounter,
+  createBumpDetector,
+} from './gameplay.js';
+import { createSfx, installGestureUnlock } from './sound.js';
 
 const EYE_HEIGHT = 0.45;
 const STICK_RADIUS = 50; // 虚拟摇杆底座半径，CSS 像素
@@ -383,6 +402,30 @@ function start() {
   const star = buildStar();
   scene.add(star);
 
+  // 可收集的星星：启动时按最大数量建好网格，共用一份几何与材质；buildMaze 只设位置和 visible
+  const MAX_STARS = 7;
+  const starGroup = new THREE.Group();
+  const starMeshes = [];
+  {
+    const geo = new THREE.ExtrudeGeometry(starShape(STAR_SHAPE.outer, STAR_SHAPE.inner), {
+      depth: STAR_SHAPE.depth,
+      bevelEnabled: false,
+    });
+    geo.center();
+    // ExtrudeGeometry 组 0 为正反面、组 1 为侧面
+    const mats = [
+      new THREE.MeshLambertMaterial({ color: STAR_COLORS.face, emissive: STAR_COLORS.emissive }),
+      new THREE.MeshLambertMaterial({ color: STAR_COLORS.side }),
+    ];
+    for (let i = 0; i < MAX_STARS; i++) {
+      const m = new THREE.Mesh(geo, mats);
+      m.visible = false;
+      starMeshes.push(m);
+      starGroup.add(m);
+    }
+  }
+  scene.add(starGroup);
+
   let connections = null;
   let segments = [];
   let boxes = [];
@@ -407,6 +450,57 @@ function start() {
   let showPath = false;
   let pathSet = null;
   let fogRecomputeCount = 0;
+
+  // ---------- 本局：已探索格子与脚印 ----------
+  let explored = new Uint8Array(0); // 本局进入过迷雾视野的格子（迷雾关时全部）
+  const footTrail = []; // 走过的格子 row * size + col，按最近一次走过排序，最旧在前
+
+  // ---------- 本局：计时与成绩 ----------
+  const timer = createGameTimer();
+  let pathUsedThisRun = false; // 本局计时开始后道路开过（成绩不计入最佳）
+  let lastResult = null; // 最近一次通关的结算
+  let hudTimerText = ''; // #timer 当前显示的文字，变化才写 DOM
+  const timerEl = $('timer');
+
+  // ---------- 本局：星星 ----------
+  const stars = []; // { row, col, collected }
+  let starsCollected = 0;
+  let starTime = 0;
+  let starsPaused = false; // setStarsForTest 用：停止自转与浮动
+  let hudStarText = '';
+  const starCountEl = $('star-count');
+
+  // ---------- 音效与震动 ----------
+  // 页面加载时不建 AudioContext；第一次用户手势（且声音开着）时才建
+  const sfxLog = []; // ?debug=1 时最近 100 条播放记录
+  const sfx = createSfx({
+    win: window,
+    enabled: storageGet('maze3d.sound') !== '0',
+    log: debug
+      ? (name, variant) => {
+          sfxLog.push({ name, variant, t: performance.now() });
+          if (sfxLog.length > 100) sfxLog.shift();
+        }
+      : null,
+  });
+  const stepCounter = createStepCounter();
+  const bumpDetector = createBumpDetector();
+  let stepVariant = 0;
+  // 手势解锁：确认 AudioContext 进入 running 后才移除监听（触屏 pointerdown 里建的会停在 suspended）
+  installGestureUnlock(window, sfx);
+
+  const soundBtn = $('sound-btn');
+  function updateSoundUi() {
+    soundBtn.textContent = sfx.enabled ? '声音：开' : '声音：关';
+  }
+  soundBtn.addEventListener('click', () => {
+    const on = !sfx.enabled;
+    sfx.setEnabled(on);
+    storageSet('maze3d.sound', on ? '1' : '0');
+    if (on) sfx.unlock();
+    updateSoundUi();
+  });
+  updateSoundUi();
 
   const tmpMatrix = new THREE.Matrix4();
   const tmpColor = new THREE.Color();
@@ -445,10 +539,9 @@ function start() {
     return { player: g, bodyGroup: body };
   }
 
-  function buildStar() {
+  // 五角星轮廓（XY 平面，尖朝 +y）；终点星星与可收集的星星共用
+  function starShape(outer, inner) {
     const shape = new THREE.Shape();
-    const outer = 0.25;
-    const inner = 0.1;
     for (let i = 0; i < 10; i++) {
       const r = i % 2 === 0 ? outer : inner;
       const a = Math.PI / 2 + (i * Math.PI) / 5;
@@ -458,7 +551,11 @@ function start() {
       else shape.lineTo(x, y);
     }
     shape.closePath();
-    const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.06, bevelEnabled: false });
+    return shape;
+  }
+
+  function buildStar() {
+    const geo = new THREE.ExtrudeGeometry(starShape(0.25, 0.1), { depth: 0.06, bevelEnabled: false });
     geo.center();
     return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: COLORS.star }));
   }
@@ -567,6 +664,27 @@ function start() {
       b.classList.toggle('active', Number(b.dataset.size) === size);
     });
 
+    if (explored.length === size * size) explored.fill(0);
+    else explored = new Uint8Array(size * size);
+    footTrail.length = 0;
+    pushFootprint(footTrail, 0);
+    timer.reset();
+    pathUsedThisRun = false;
+    stars.length = 0;
+    for (const p of placeStars(connections, seed, starCountFor(size))) {
+      stars.push({ row: p.row, col: p.col, collected: false });
+    }
+    starsCollected = 0;
+    stepCounter.reset();
+    bumpDetector.reset();
+    stepVariant = 0;
+    for (let i = 0; i < starMeshes.length; i++) {
+      const m = starMeshes[i];
+      if (i < stars.length) m.position.set(stars[i].col + 0.5, STAR_FLOAT.base, stars[i].row + 0.5);
+      m.visible = false;
+    }
+    updateHud();
+
     updateSceneFog();
     recomputeFog();
     updateGroundExtent();
@@ -596,6 +714,8 @@ function start() {
   // 唯一的迷雾重算入口：只在显示格变化、视野 / 开关 / 道路变化、重建迷宫时调用
   function recomputeFog() {
     fogRecomputeCount += 1;
+    markExplored(explored, size, display, fogRadius, fogOn);
+    applyStarVisibility();
     if (showPath) {
       const path = findPath(connections, display, { row: size - 1, col: size - 1 });
       pathSet = new Set(path.map(([r, c]) => r * size + c));
@@ -606,6 +726,14 @@ function start() {
     applyFloorColors();
     miniBaseDirty = true;
     drawMinimap();
+  }
+
+  // 星星与墙同一迷雾判定；已收集的一直隐藏
+  function applyStarVisibility() {
+    for (let i = 0; i < starMeshes.length; i++) {
+      const st = stars[i];
+      starMeshes[i].visible = i < stars.length && !st.collected && cellVisible(st.row, st.col);
+    }
   }
 
   function updateFogUi() {
@@ -629,6 +757,7 @@ function start() {
   $('fog-minus').addEventListener('click', () => setFog(fogOn, fogRadius - 1));
   $('fog-plus').addEventListener('click', () => setFog(fogOn, fogRadius + 1));
   $('show-path-btn').addEventListener('click', () => {
+    if (timer.started) pathUsedThisRun = true;
     showPath = true;
     recomputeFog();
   });
@@ -712,7 +841,7 @@ function start() {
       endHint.x = Math.min(W - HINT_INSET, Math.max(HINT_INSET, top.x));
       endHint.y = Math.min(H - HINT_INSET, Math.max(HINT_INSET, top.y));
     } else {
-      // 第一人称时右上角有小地图（z-index 更高），箭头落在它上面就沿边框移开
+      // 小地图可见时右上角有小地图（z-index 更高），箭头落在它上面就沿边框移开
       const at = avoidRect(arrow, minimap.hidden ? null : miniRect(), HINT_INSET);
       endHint.x = at.x;
       endHint.y = at.y;
@@ -884,12 +1013,10 @@ function start() {
     const first = view === 'first';
     pitch = first ? FIRST_PITCH.def : FOLLOW_PITCH.def;
     $('view-btn').textContent = first ? '切换到跟随视角' : '切换到第一人称';
-    $('minimap').hidden = !first;
     player.visible = !first;
     shadow.visible = !first;
     updateSceneFog();
     snapCamera();
-    if (first) drawMinimap();
   }
 
   $('view-btn').addEventListener('click', () => {
@@ -897,11 +1024,13 @@ function start() {
   });
 
   // ---------- 小地图 ----------
-  // 底图（地块、墙）只在迷雾重算时画进离屏 canvas；第一人称每帧贴底图再画小人与朝向
+  // 底图（地块、墙、脚印、星星标记）只在迷雾重算等时机画进离屏 canvas；
+  // 两种视角都显示，每帧贴底图再画小人与朝向，小人与底图都没变时跳过
   const minimap = $('minimap');
   const miniCtx = minimap.getContext('2d');
   const miniBase = document.createElement('canvas');
   let miniBaseDirty = true;
+  const miniLast = { x: NaN, z: NaN, yaw: NaN, px: NaN };
 
   function miniLayout() {
     const dpr = window.devicePixelRatio || 1;
@@ -917,16 +1046,42 @@ function start() {
     miniBase.height = px;
     const ctx = miniBase.getContext('2d');
     ctx.clearRect(0, 0, px, px);
-    ctx.fillStyle = '#f2efe6';
-    ctx.fillRect(pad, pad, cell * size, cell * size);
-    ctx.fillStyle = '#e53935';
+    // 底板：圆角半透明白底带柔和阴影（不用 CSS 圆角，见 index.html #minimap 的注释）
+    const inset = 2 * dpr;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowBlur = 3 * dpr;
+    ctx.shadowOffsetY = 1 * dpr;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.fill(roundRectPath(inset, inset, px - 2 * inset, px - 2 * inset, 6 * dpr));
+    ctx.restore();
+    // 视野内 / 已探索视野外 / 未探索，同色格子合成一条路径一次填充
+    const pFloor = new Path2D();
+    const pSeen = new Path2D();
+    const pFog = new Path2D();
+    for (let row = 0; row < size; row++) {
+      for (let col = 0; col < size; col++) {
+        const x = pad + col * cell;
+        const y = pad + row * cell;
+        if (cellVisible(row, col)) pFloor.rect(x, y, cell, cell);
+        else if (explored[row * size + col]) pSeen.rect(x, y, cell, cell);
+        else pFog.rect(x, y, cell, cell);
+      }
+    }
+    ctx.fillStyle = MINI_COLORS.floor;
+    ctx.fill(pFloor);
+    ctx.fillStyle = MINI_COLORS.seen;
+    ctx.fill(pSeen);
+    ctx.fillStyle = MINI_COLORS.fog;
+    ctx.fill(pFog);
+    ctx.fillStyle = MINI_COLORS.end;
     ctx.fillRect(pad + (size - 1) * cell, pad + (size - 1) * cell, cell, cell);
-    ctx.strokeStyle = '#7e57c2';
+    ctx.strokeStyle = MINI_COLORS.wall;
     ctx.lineWidth = Math.max(1, 1.5 * dpr);
     ctx.lineCap = 'round';
     ctx.beginPath();
     for (const seg of segments) {
-      if (fogOn && !wallInView(seg, display, fogRadius)) continue;
+      if (fogOn && !seg.cells.some(([r, c]) => explored[r * size + c])) continue;
       if (seg.along === 'x') {
         ctx.moveTo(pad + (seg.x - 0.5) * cell, pad + seg.z * cell);
         ctx.lineTo(pad + (seg.x + 0.5) * cell, pad + seg.z * cell);
@@ -936,13 +1091,69 @@ function start() {
       }
     }
     ctx.stroke();
+    // 脚印：越早越淡
+    const n = footTrail.length;
+    const fr = Math.max(1.5 * dpr, 0.12 * cell);
+    ctx.fillStyle = MINI_COLORS.foot;
+    for (let i = 0; i < n; i++) {
+      const k = footTrail[i];
+      const row = Math.floor(k / size);
+      const col = k % size;
+      ctx.globalAlpha = footprintAlpha(i, n);
+      ctx.beginPath();
+      ctx.arc(pad + (col + 0.5) * cell, pad + (row + 0.5) * cell, fr, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    drawStarMarkers(ctx, lay);
     miniBaseDirty = false;
   }
 
-  function drawMinimap() {
+  function roundRectPath(x, y, w, h, r) {
+    const p = new Path2D();
+    p.moveTo(x + r, y);
+    p.arcTo(x + w, y, x + w, y + h, r);
+    p.arcTo(x + w, y + h, x, y + h, r);
+    p.arcTo(x, y + h, x, y, r);
+    p.arcTo(x, y, x + w, y, r);
+    p.closePath();
+    return p;
+  }
+
+  // 星星标记（画在脚印之上）：未收集、所在格已探索的星星；未探索的不画，免得提前暴露位置
+  function drawStarMarkers(ctx, lay) {
+    const { dpr, pad, cell } = lay;
+    const r = Math.max(2 * dpr, 0.22 * cell);
+    ctx.fillStyle = MINI_COLORS.star;
+    ctx.strokeStyle = MINI_COLORS.starEdge;
+    ctx.lineWidth = Math.max(1, dpr);
+    for (const st of stars) {
+      if (st.collected || !explored[st.row * size + st.col]) continue;
+      ctx.beginPath();
+      ctx.arc(pad + (st.col + 0.5) * cell, pad + (st.row + 0.5) * cell, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
+  function drawMinimap(force = false) {
     if (minimap.hidden || !connections) return;
     const lay = miniLayout();
     const { dpr, px, pad, cell } = lay;
+    if (
+      !force &&
+      !miniBaseDirty &&
+      px === miniLast.px &&
+      Math.abs(playerState.x - miniLast.x) <= 1e-4 &&
+      Math.abs(playerState.z - miniLast.z) <= 1e-4 &&
+      Math.abs(yaw - miniLast.yaw) <= 1e-4
+    ) {
+      return;
+    }
+    miniLast.x = playerState.x;
+    miniLast.z = playerState.z;
+    miniLast.yaw = yaw;
+    miniLast.px = px;
     if (minimap.width !== px || minimap.height !== px) {
       minimap.width = px;
       minimap.height = px;
@@ -1100,20 +1311,39 @@ function start() {
     if (state !== 'won') {
       const input = currentInput();
       yaw += input.turn * TURN_SPEED * dt;
+      const px0 = playerState.x;
+      const pz0 = playerState.z;
       playerState = stepPlayer(playerState, input, yaw, dt, grid);
+      // 实际位移（不是输入）：推着墙走不动时为 0
+      const moved = Math.hypot(playerState.x - px0, playerState.z - pz0);
+      if (!timer.started && moved > 1e-6) {
+        timer.start();
+        pathUsedThisRun ||= showPath;
+      }
+      // 脚步：实际走过的距离每累计 0.5 格响一次，高低音交替
+      for (let n = stepCounter.add(moved); n > 0; n--) {
+        sfx.play('step', stepVariant);
+        stepVariant ^= 1;
+      }
+      // 撞墙：在推、却走不动，持续 0.15 秒响一次（之后要松开或走得动才再响）
+      const mag = Math.hypot(input.forward, input.strafe);
+      const wanted = MAX_SPEED * Math.min(1, mag) * dt;
+      if (bumpDetector.update(mag >= 0.5, moved, wanted, dt)) {
+        sfx.play('bump');
+        sfx.vibrate(25);
+      }
+      for (let i = 0; i < stars.length; i++) {
+        if (!stars[i].collected && starHit(playerState.x, playerState.z, stars[i])) collectStar(i);
+      }
       const c = cellOf(playerState);
       c.row = Math.min(size - 1, Math.max(0, c.row));
       c.col = Math.min(size - 1, Math.max(0, c.col));
       if (c.row !== display.row || c.col !== display.col) {
         display.row = c.row;
         display.col = c.col;
+        pushFootprint(footTrail, c.row * size + c.col);
         recomputeFog();
-        if (c.row === size - 1 && c.col === size - 1) {
-          state = 'won';
-          playerState = { ...playerState, vx: 0, vz: 0 };
-          $('win').hidden = false;
-          startConfetti();
-        }
+        if (c.row === size - 1 && c.col === size - 1) onWin();
       }
     }
     player.position.set(playerState.x, 0, playerState.z);
@@ -1129,6 +1359,74 @@ function start() {
       bodyGroup.position.y = 0;
     }
     updateShadow();
+  }
+
+  // 判胜那一刻：停止计时、结算最佳成绩、填写通关层
+  function onWin() {
+    state = 'won';
+    playerState = { ...playerState, vx: 0, vz: 0 };
+    timer.stop();
+    const timeMs = Math.round(timer.elapsedMs);
+    const eligible = !pathUsedThisRun;
+    const key = 'maze3d.best.' + size;
+    const r = updateBest(storageGet(key), timeMs, eligible);
+    if (r.write) storageSet(key, r.write);
+    const total = stars.length;
+    lastResult = { timeMs, bestMs: r.best, isNew: r.isNew, eligible, stars: starsCollected, total };
+    $('win-stars').textContent =
+      starsCollected === total
+        ? `⭐ 全部 ${total} 颗星星都收集到了！`
+        : `⭐ 收集了 ${starsCollected} / ${total} 颗星星`;
+    $('win-time').textContent = `用时 ${formatTime(timeMs)}`;
+    const bestEl = $('win-best');
+    bestEl.hidden = r.best === null;
+    bestEl.textContent = r.best === null ? '' : `最佳 ${formatTime(r.best)}`;
+    $('win-record').hidden = !r.isNew;
+    $('win-path-note').hidden = eligible;
+    $('win').hidden = false;
+    sfx.play('win');
+    sfx.vibrate([80, 60, 80, 60, 200]);
+    startConfetti();
+  }
+
+  function collectStar(i) {
+    stars[i].collected = true;
+    starsCollected += 1;
+    starMeshes[i].visible = false;
+    miniBaseDirty = true;
+    sfx.play('star');
+    updateHud();
+  }
+
+  // 自转与浮动；暂停时停在基准高度、正面朝向相机
+  function updateStars(dt) {
+    if (!starsPaused) starTime += dt;
+    for (let i = 0; i < stars.length; i++) {
+      const m = starMeshes[i];
+      if (!m.visible) continue;
+      if (starsPaused) {
+        m.position.y = STAR_FLOAT.base;
+        m.rotation.y = Math.atan2(camera.position.x - m.position.x, camera.position.z - m.position.z);
+      } else {
+        m.rotation.y = STAR_FLOAT.spin * starTime + 0.9 * i;
+        m.position.y =
+          STAR_FLOAT.base + STAR_FLOAT.amp * Math.sin((2 * Math.PI * starTime) / STAR_FLOAT.period + 1.3 * i);
+      }
+    }
+  }
+
+  // 信息栏：文字变化才写 DOM（计时每秒最多写 10 次）
+  function updateHud() {
+    const t = '⏱ ' + formatTime(timer.elapsedMs);
+    if (t !== hudTimerText) {
+      timerEl.textContent = t;
+      hudTimerText = t;
+    }
+    const k = `⭐ ${starsCollected}/${stars.length}`;
+    if (k !== hudStarText) {
+      starCountEl.textContent = k;
+      hudStarText = k;
+    }
   }
 
   function updateShadow() {
@@ -1330,14 +1628,17 @@ function start() {
     const dt = Math.max(0, Math.min(now - lastTime, 100)) / 1000;
     lastTime = now;
     updatePlayer(dt);
+    timer.tick(dt);
+    updateHud();
     updateStick();
     star.rotation.y += dt;
     updateBeam(dt);
     updateCamera(dt);
+    updateStars(dt);
     syncGround();
     updateSceneFog();
     updateEndHint();
-    if (view === 'first') drawMinimap();
+    if (!minimap.hidden) drawMinimap();
     renderer.render(scene, camera);
     drawConfetti(dt);
     rafId = requestAnimationFrame(frame);
@@ -1356,7 +1657,9 @@ function start() {
       resetInput();
       if (rafId !== null) cancelAnimationFrame(rafId);
       rafId = null;
+      sfx.suspend();
     } else {
+      sfx.resume();
       startLoop();
     }
   });
@@ -1386,7 +1689,10 @@ function start() {
   // 不计入帧时间统计，避免启动时的一次性开销误触发降画质
   syncGround();
   updateSceneFog();
+  // 星星可能开局全在迷雾外：先全部显示渲染一次，让着色器在这里编译，再恢复可见性
+  for (const m of starMeshes) m.visible = true;
   renderer.render(scene, camera);
+  applyStarVisibility();
 
   // ---------- 调试对象 ----------
   function sampleDistinctColors() {
@@ -1437,26 +1743,37 @@ function start() {
       [0.3, 0.3],
     ];
     for (const [dx, dz] of offsets) {
-      const point = new THREE.Vector3(col + 0.5 + dx, 0.001, row + 0.5 + dz);
-      const ndc = point.clone().project(camera);
-      if (Math.abs(ndc.x) > 1 || Math.abs(ndc.y) > 1 || ndc.z > 1) continue;
-      const dist = camera.position.distanceTo(point);
-      const dir = point.clone().sub(camera.position).normalize();
-      raycaster.set(camera.position, dir);
-      raycaster.far = dist;
-      // 光柱是加法混合，会改变它后面地板的颜色：被光柱覆盖的点也不取样
-      const hits = raycaster.intersectObjects([walls, star, player, beam], true);
-      const blocked = hits.some((h) => {
-        if (h.distance >= dist - 0.01) return false;
-        if (h.object === beam && !beam.visible) return false;
-        if (!player.visible && isPlayerPart(h.object)) return false;
-        if (h.object === walls && h.instanceId !== undefined && instanceHidden(walls, h.instanceId)) return false;
-        return true;
-      });
-      if (blocked) continue;
-      out.push({ x: ((ndc.x + 1) / 2) * canvas.clientWidth, y: ((1 - ndc.y) / 2) * canvas.clientHeight });
+      const p = floorPointCss(col + 0.5 + dx, row + 0.5 + dz);
+      if (p) out.push(p);
     }
     return out;
+  }
+
+  // 地板上一点 (x, 0.001, z) 在画面内、且没被墙 / 终点星星 / 收集星星 / 小人 / 光柱挡住时，
+  // 返回相对 renderer canvas 左上角的 CSS 像素；否则 null
+  function floorPointCss(x, z) {
+    camera.updateMatrixWorld();
+    walls.boundingSphere = null;
+    const canvas = renderer.domElement;
+    const point = new THREE.Vector3(x, 0.001, z);
+    const ndc = point.clone().project(camera);
+    if (Math.abs(ndc.x) > 1 || Math.abs(ndc.y) > 1 || ndc.z > 1) return null;
+    const dist = camera.position.distanceTo(point);
+    const dir = point.clone().sub(camera.position).normalize();
+    raycaster.set(camera.position, dir);
+    raycaster.far = dist;
+    // 光柱是加法混合，会改变它后面地板的颜色：被光柱覆盖的点也不取样
+    const hits = raycaster.intersectObjects([walls, star, starGroup, player, beam], true);
+    const blocked = hits.some((h) => {
+      if (h.distance >= dist - 0.01) return false;
+      if (h.object === beam && !beam.visible) return false;
+      if (!h.object.visible) return false;
+      if (!player.visible && isPlayerPart(h.object)) return false;
+      if (h.object === walls && h.instanceId !== undefined && instanceHidden(walls, h.instanceId)) return false;
+      return true;
+    });
+    if (blocked) return null;
+    return { x: ((ndc.x + 1) / 2) * canvas.clientWidth, y: ((1 - ndc.y) / 2) * canvas.clientHeight };
   }
 
   // 画面上一点（相对 canvas 左上角的 CSS 像素）是否落在迷宫物体上：未隐藏的墙、地板、星星、可见的小人
@@ -1467,8 +1784,9 @@ function start() {
     const ndc = new THREE.Vector2((x / canvas.clientWidth) * 2 - 1, 1 - (y / canvas.clientHeight) * 2);
     raycaster.setFromCamera(ndc, camera);
     raycaster.far = Infinity;
-    const hits = raycaster.intersectObjects([walls, floor, star, player], true);
+    const hits = raycaster.intersectObjects([walls, floor, star, starGroup, player], true);
     return hits.some((h) => {
+      if (!h.object.visible) return false;
       if (!player.visible && isPlayerPart(h.object)) return false;
       if (h.object === walls && h.instanceId !== undefined && instanceHidden(walls, h.instanceId)) return false;
       return true;
@@ -1614,6 +1932,7 @@ function start() {
       return kindAt(row, col);
     },
     floorSamplePoints,
+    floorPointCss,
     wallContrast,
     get sceneFog() {
       if (!scene.fog) return null;
@@ -1677,6 +1996,57 @@ function start() {
     get fogRecomputeCount() {
       return fogRecomputeCount;
     },
+    get minimapVisible() {
+      return !minimap.hidden;
+    },
+    get minimapLayout() {
+      return miniLayout();
+    },
+    get explored() {
+      let n = 0;
+      for (let i = 0; i < explored.length; i++) n += explored[i];
+      return n;
+    },
+    exploredAt(row, col) {
+      return explored[row * size + col] === 1;
+    },
+    get stars() {
+      return stars.map((st, i) => ({
+        row: st.row,
+        col: st.col,
+        collected: st.collected,
+        visible: starMeshes[i].visible,
+      }));
+    },
+    get starsCollected() {
+      return starsCollected;
+    },
+    get starTotal() {
+      return stars.length;
+    },
+    get starMeshesVisible() {
+      return starMeshes.filter((m) => m.visible).length;
+    },
+    get soundOn() {
+      return sfx.enabled;
+    },
+    get audioState() {
+      return sfx.state;
+    },
+    get timer() {
+      return {
+        started: timer.started,
+        running: timer.running,
+        elapsedMs: timer.elapsedMs,
+        text: formatTime(timer.elapsedMs),
+      };
+    },
+    get lastResult() {
+      return lastResult ? { ...lastResult } : null;
+    },
+    get footprints() {
+      return footTrail.map((k) => [Math.floor(k / size), k % size]);
+    },
     frameStats() {
       return summarizeFrames(meter.deltas());
     },
@@ -1731,6 +2101,16 @@ function start() {
       if (typeof v.visible === 'boolean') beam.visible = v.visible;
       if (typeof v.paused === 'boolean') beamPaused = v.paused;
     };
+    Object.defineProperty(debugApi, 'sfxLog', {
+      get: () => sfxLog.map((e) => ({ ...e })),
+      enumerable: true,
+    });
+    debugApi.clearSfxLog = () => {
+      sfxLog.length = 0;
+    };
+    debugApi.setStarsForTest = (v = {}) => {
+      if (typeof v.paused === 'boolean') starsPaused = v.paused;
+    };
     debugApi.setZoomForTest = (z) => {
       cameraZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
     };
@@ -1754,14 +2134,75 @@ function start() {
     for (const el of endDistEls) el.textContent = on ? '0123456789 格' : '';
     shownHintMode = null;
     shownHintDist = null;
+    // 信息栏也在预热里完成首次光栅化（含 0–9 以外的字形）
+    if (on) {
+      timerEl.textContent = '⏱ 01:23.4';
+    } else {
+      hudTimerText = '';
+      updateHud();
+    }
   }
+
+  // 3. 浏览器进程里第一次 new AudioContext() 要同步等音频服务启动（软件渲染的测试环境约 150ms），
+  //    放在第一次按键里会卡一帧。让一个静音、不播放的 <audio> 预加载内存里生成的 64 个采样的 WAV：
+  //    不创建 AudioContext、不需要手势、不出声，却会异步启动音频服务，之后第一次手势里建
+  //    AudioContext 只要几毫秒。预热帧等它就绪（最多 2 秒）。
+  //    （enumerateDevices() 也能启动音频服务，但页面没有焦点时 Chrome 会一直挂起它，还会枚举摄像头）
+  let audioWarm = false;
+  try {
+    audioWarm = !warmAudioService(() => (audioWarm = true));
+  } catch {
+    audioWarm = true;
+  }
+
+  // 返回是否已开始预加载；结束（就绪或出错）时调用 done
+  function warmAudioService(done) {
+    if (typeof Audio !== 'function' || typeof Blob !== 'function' || !window.URL) return false;
+    const n = 64;
+    const buf = new ArrayBuffer(44 + n * 2); // 8kHz、16 位单声道、64 个 0 采样
+    const v = new DataView(buf);
+    const tag = (o, str) => {
+      for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i));
+    };
+    tag(0, 'RIFF');
+    v.setUint32(4, 36 + n * 2, true);
+    tag(8, 'WAVE');
+    tag(12, 'fmt ');
+    v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true);
+    v.setUint16(22, 1, true);
+    v.setUint32(24, 8000, true);
+    v.setUint32(28, 16000, true);
+    v.setUint16(32, 2, true);
+    v.setUint16(34, 16, true);
+    tag(36, 'data');
+    v.setUint32(40, n * 2, true);
+    const url = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+    const el = new Audio();
+    el.muted = true;
+    el.preload = 'auto';
+    const finish = () => {
+      el.removeEventListener('canplaythrough', finish);
+      el.removeEventListener('error', finish);
+      el.removeAttribute('src');
+      URL.revokeObjectURL(url);
+      done();
+    };
+    el.addEventListener('canplaythrough', finish);
+    el.addEventListener('error', finish);
+    el.src = url;
+    el.load();
+    return true;
+  }
+  const warmStart = performance.now();
 
   let warmDone = 0;
   function warmFrame() {
+    drawMinimap(true); // 小地图画布逐帧更新的首次开销也落在预热里
     renderer.render(scene, camera);
     warmDone += 1;
     if (warmDone === WARM_HINT_FRAMES) setWarmHint(false);
-    if (warmDone < WARM_FRAMES) {
+    if (warmDone < WARM_FRAMES || (!audioWarm && performance.now() - warmStart < 2000)) {
       requestAnimationFrame(warmFrame);
       return;
     }
