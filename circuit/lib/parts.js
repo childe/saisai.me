@@ -21,6 +21,12 @@ export const PHYS = Object.freeze({
   RHEO_R: 50,
   AMMETER_R: 0.01,
   VOLTMETER_R: 1e7,
+  RELAY_R: 30,
+  RELAY_PULL_A: 0.02,
+  RELAY_RELEASE_A: 0.01,
+  RELAY_DELAY: 0.05,
+  DISPLAY_R: 1000,
+  DISPLAY_ON_V: 0.75,
 });
 
 export const PART_TYPES = Object.freeze([
@@ -49,6 +55,23 @@ export const PARTS = Object.freeze({
   ammeter: { label: '电流表', ...two('p', 'n'), params: {}, lever: false },
   voltmeter: { label: '电压表', ...two('p', 'n'), params: {}, lever: false },
   fuse: { label: '保险丝', ...two('a', 'b'), params: { rating: { default: 1, options: [0.5, 1, 2] } }, lever: false },
+  // groups：元件内部互相连通的端点分组；没写就是全部端点一组。
+  relay: {
+    label: '继电器', terms: ['x', 'y', 'com', 'no', 'nc'],
+    termPos: { x: [-2, -1], y: [-2, 1], com: [2, 0], no: [2, -1], nc: [2, 1] },
+    groups: [['x', 'y'], ['com', 'no', 'nc']], params: {}, lever: false,
+  },
+  button: { label: '按钮', ...two('a', 'b'), params: { pressed: { default: false, options: [false, true] } }, lever: true },
+  dpdt: {
+    label: '双刀双掷开关', terms: ['c1', 'a1', 'b1', 'c2', 'a2', 'b2'],
+    termPos: { c1: [-2, -1], a1: [2, -2], b1: [2, -1], c2: [-2, 1], a2: [2, 1], b2: [2, 2] },
+    groups: [['c1', 'a1', 'b1'], ['c2', 'a2', 'b2']],
+    params: { to: { default: 'a', options: ['a', 'b'] } }, lever: true,
+  },
+  display: {
+    label: '数字显示器', terms: ['i1', 'i2', 'i4', 'i8', 'g'],
+    termPos: { i1: [-2, -2], i2: [-2, -1], i4: [-2, 0], i8: [-2, 1], g: [0, 2] }, params: {}, lever: false,
+  },
   // 连接点：只有一个端点、没有本体，不出现在元件栏里。
   node: { label: '连接点', terms: ['o'], termPos: { o: [0, 0] }, params: {}, lever: false },
 });
