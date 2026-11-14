@@ -43,9 +43,9 @@ function mediaBlock(query) {
 }
 
 const EXPECTED = [
-  ['pinyin',   'pinyin/index.html',                '学拼音'],
+  ['pinyin',   'pinyin/index.html',                '拼音学'],
   ['english',  'english-audio/index.html',         '英语听力'],
-  ['equation', 'solve-equation/index.html',        '解方程'],
+  ['equation', 'solve-equation/index.html',        '解方程学习'],
   ['plotter',  'x-y-line/coordinate-plotter.html', '坐标绘图器'],
   ['maze',     'maze-gen/maze.html',               '迷宫生成器'],
   ['jump',     'tiao-yi-tiao/game.html',           '跳一跳'],
