@@ -33,6 +33,7 @@ import {
 import { wallGroupLayout, applyWallUvs } from './wall-geometry.js';
 import {
   PLAYER_RADIUS,
+  MAX_SPEED,
   WALL_LENGTH,
   WALL_HEIGHT,
   WALL_THICKNESS,
@@ -97,7 +98,10 @@ import {
   STAR_COLORS,
   STAR_SHAPE,
   STAR_FLOAT,
+  createStepCounter,
+  createBumpDetector,
 } from './gameplay.js';
+import { createSfx } from './sound.js';
 
 const EYE_HEIGHT = 0.45;
 const STICK_RADIUS = 50; // 虚拟摇杆底座半径，CSS 像素
@@ -466,6 +470,48 @@ function start() {
   let hudStarText = '';
   const starCountEl = $('star-count');
 
+  // ---------- 音效与震动 ----------
+  // 页面加载时不建 AudioContext；第一次用户手势（且声音开着）时才建
+  const sfxLog = []; // ?debug=1 时最近 100 条播放记录
+  const sfx = createSfx({
+    win: window,
+    enabled: storageGet('maze3d.sound') !== '0',
+    log: debug
+      ? (name, variant) => {
+          sfxLog.push({ name, variant, t: performance.now() });
+          if (sfxLog.length > 100) sfxLog.shift();
+        }
+      : null,
+  });
+  const stepCounter = createStepCounter();
+  const bumpDetector = createBumpDetector();
+  let stepVariant = 0;
+  const UNLOCK_EVENTS = ['keydown', 'pointerdown', 'touchend'];
+
+  function onGesture() {
+    if (!sfx.enabled) return;
+    sfx.unlock();
+    if (sfx.state !== 'none') {
+      for (const type of UNLOCK_EVENTS) window.removeEventListener(type, onGesture, { capture: true });
+    }
+  }
+  for (const type of UNLOCK_EVENTS) {
+    window.addEventListener(type, onGesture, { capture: true, passive: true });
+  }
+
+  const soundBtn = $('sound-btn');
+  function updateSoundUi() {
+    soundBtn.textContent = sfx.enabled ? '声音：开' : '声音：关';
+  }
+  soundBtn.addEventListener('click', () => {
+    const on = !sfx.enabled;
+    sfx.setEnabled(on);
+    storageSet('maze3d.sound', on ? '1' : '0');
+    if (on) sfx.unlock();
+    updateSoundUi();
+  });
+  updateSoundUi();
+
   const tmpMatrix = new THREE.Matrix4();
   const tmpColor = new THREE.Color();
   const tmpDir = new THREE.Vector3();
@@ -639,6 +685,9 @@ function start() {
       stars.push({ row: p.row, col: p.col, collected: false });
     }
     starsCollected = 0;
+    stepCounter.reset();
+    bumpDetector.reset();
+    stepVariant = 0;
     for (let i = 0; i < starMeshes.length; i++) {
       const m = starMeshes[i];
       if (i < stars.length) m.position.set(stars[i].col + 0.5, STAR_FLOAT.base, stars[i].row + 0.5);
@@ -1281,6 +1330,18 @@ function start() {
         timer.start();
         pathUsedThisRun ||= showPath;
       }
+      // 脚步：实际走过的距离每累计 0.5 格响一次，高低音交替
+      for (let n = stepCounter.add(moved); n > 0; n--) {
+        sfx.play('step', stepVariant);
+        stepVariant ^= 1;
+      }
+      // 撞墙：在推、却走不动，持续 0.15 秒响一次（之后要松开或走得动才再响）
+      const mag = Math.hypot(input.forward, input.strafe);
+      const wanted = MAX_SPEED * Math.min(1, mag) * dt;
+      if (bumpDetector.update(mag >= 0.5, moved, wanted, dt)) {
+        sfx.play('bump');
+        sfx.vibrate(25);
+      }
       for (let i = 0; i < stars.length; i++) {
         if (!stars[i].collected && starHit(playerState.x, playerState.z, stars[i])) collectStar(i);
       }
@@ -1333,6 +1394,8 @@ function start() {
     $('win-record').hidden = !r.isNew;
     $('win-path-note').hidden = eligible;
     $('win').hidden = false;
+    sfx.play('win');
+    sfx.vibrate([80, 60, 80, 60, 200]);
     startConfetti();
   }
 
@@ -1341,6 +1404,7 @@ function start() {
     starsCollected += 1;
     starMeshes[i].visible = false;
     miniBaseDirty = true;
+    sfx.play('star');
     updateHud();
   }
 
@@ -1603,7 +1667,9 @@ function start() {
       resetInput();
       if (rafId !== null) cancelAnimationFrame(rafId);
       rafId = null;
+      sfx.suspend();
     } else {
+      sfx.resume();
       startLoop();
     }
   });
@@ -1971,6 +2037,12 @@ function start() {
     get starMeshesVisible() {
       return starMeshes.filter((m) => m.visible).length;
     },
+    get soundOn() {
+      return sfx.enabled;
+    },
+    get audioState() {
+      return sfx.state;
+    },
     get timer() {
       return {
         started: timer.started,
@@ -2039,6 +2111,13 @@ function start() {
       if (typeof v.visible === 'boolean') beam.visible = v.visible;
       if (typeof v.paused === 'boolean') beamPaused = v.paused;
     };
+    Object.defineProperty(debugApi, 'sfxLog', {
+      get: () => sfxLog.map((e) => ({ ...e })),
+      enumerable: true,
+    });
+    debugApi.clearSfxLog = () => {
+      sfxLog.length = 0;
+    };
     debugApi.setStarsForTest = (v = {}) => {
       if (typeof v.paused === 'boolean') starsPaused = v.paused;
     };
@@ -2074,13 +2153,32 @@ function start() {
     }
   }
 
+  // 3. 浏览器进程里第一次 new AudioContext() 要同步等音频服务启动（软件渲染的测试环境约 150ms），
+  //    放在第一次按键里会卡一帧。enumerateDevices() 是异步的，不创建音频、不需要手势、不弹权限，
+  //    却会提前启动音频服务，之后第一次手势里建 AudioContext 只要几毫秒。预热帧等它完成（最多 2 秒）
+  let audioWarm = false;
+  try {
+    const md = navigator.mediaDevices;
+    if (md && typeof md.enumerateDevices === 'function') {
+      md.enumerateDevices().then(
+        () => (audioWarm = true),
+        () => (audioWarm = true),
+      );
+    } else {
+      audioWarm = true;
+    }
+  } catch {
+    audioWarm = true;
+  }
+  const warmStart = performance.now();
+
   let warmDone = 0;
   function warmFrame() {
     drawMinimap(true); // 小地图画布逐帧更新的首次开销也落在预热里
     renderer.render(scene, camera);
     warmDone += 1;
     if (warmDone === WARM_HINT_FRAMES) setWarmHint(false);
-    if (warmDone < WARM_FRAMES) {
+    if (warmDone < WARM_FRAMES || (!audioWarm && performance.now() - warmStart < 2000)) {
       requestAnimationFrame(warmFrame);
       return;
     }

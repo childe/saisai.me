@@ -1065,13 +1065,9 @@ def check_8(browser, base):
         hud = box_of(page, "#hud") if page.locator("#hud").count() else None
         hud_ok = hud is not None and inside(hud, stage)
         hud_note = f"inside={hud_ok}"
-        if page.locator("#sound-btn").count():
-            sb = box_of(page, "#sound-btn")
-            sound_ok = sb is not None and not intersects(sb, stage)
-            sound_note = f"offStage={sound_ok}"
-        else:
-            sound_ok = True
-            sound_note = "n/a"
+        sb = box_of(page, "#sound-btn") if page.locator("#sound-btn").count() else None
+        sound_ok = sb is not None and not intersects(sb, stage)
+        sound_note = f"offStage={sound_ok}"
         details.append(
             f"follow: minimap={follow_mini} minimapOk={follow_mini_ok}"
             f" hud={hud_note} soundBtn={sound_note}"
@@ -5106,6 +5102,290 @@ def check_b13(browser, base):
     return ok and ok_err, (" ".join(details) + " " + msg).strip()
 
 
+VIBRATE_RECORD = """
+Object.defineProperty(Navigator.prototype, 'vibrate', { configurable: true, writable: true,
+  value: function (p) { (window.__vib = window.__vib || []).push(p); return true; } });
+"""
+
+NO_AUDIO = """
+delete window.AudioContext; delete window.webkitAudioContext; delete Navigator.prototype.vibrate;
+"""
+
+
+def sfx_log(page):
+    return m3(page, "sfxLog")
+
+
+def sfx_names(page):
+    return [e["name"] for e in sfx_log(page)]
+
+
+def clear_sfx(page):
+    page.evaluate("() => window.__maze3d.clearSfxLog()")
+
+
+def vib_log(page):
+    return page.evaluate("() => window.__vib || []")
+
+
+def straight_cell(page, n):
+    """从起点 BFS 找第一个「某方向连续 n 格可走」的格（路线与直线都不经过终点），返回 (cell, dir)。"""
+    r = logic(
+        page,
+        """(() => {
+          const N = arg; const end = M.size - 1;
+          const isEnd = (p) => p.row === end && p.col === end;
+          const seen = new Set(['0,0']);
+          const q = [{ row: 0, col: 0 }];
+          for (let i = 0; i < q.length; i++) {
+            const p = q[i];
+            for (const d of ['up', 'right', 'down', 'left']) {
+              const [dr, dc] = L.DIRS[d];
+              let ok = true; let a = p;
+              for (let k = 1; k <= N; k++) {
+                const b = { row: p.row + dr * k, col: p.col + dc * k };
+                if (!L.canMove(M.connections, a, b) || isEnd(b)) { ok = false; break; }
+                a = b;
+              }
+              if (ok) return [p, d];
+            }
+            for (const [dr, dc] of Object.values(L.DIRS)) {
+              const nb = { row: p.row + dr, col: p.col + dc };
+              if (!L.canMove(M.connections, p, nb) || isEnd(nb) || seen.has(nb.row + ',' + nb.col)) continue;
+              seen.add(nb.row + ',' + nb.col);
+              q.push(nb);
+            }
+          }
+          return [null, null];
+        })()""",
+        n,
+    )
+    return r[0], r[1]
+
+
+def walk_straight(page, n=2):
+    """走到 straight_cell 的起点、朝该方向，清空日志后沿直线走 n 格；返回是否到达。"""
+    cell, d = straight_cell(page, n)
+    if cell is None or not walk_to(page, cell["row"], cell["col"]):
+        return False
+    face_yaw(page, DIR_YAW[d])
+    clear_sfx(page)
+    dr, dc = DIRS[d]
+    return walk_to(page, cell["row"] + dr * n, cell["col"] + dc * n)
+
+
+def push_wall(page, seconds):
+    set_test_input(page, forward=1)
+    page.wait_for_timeout(int(seconds * 1000))
+    set_test_input(page)
+
+
+def check_b6(browser, base):
+    """声音调试日志：手势前不建 AudioContext；直线脚步 3–5 条且高低交替；顶墙只响一次、松开再顶再响一次、
+    顶墙期间无脚步；星星与通关各一条；通关后继续推不再响、计时不走；切到后台挂起音频。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    details = []
+    try:
+        wait_idle(page)
+        a0 = m3(page, "audioState")
+        page.keyboard.press("Shift")
+        page.wait_for_timeout(200)
+        a1 = m3(page, "audioState")
+        details.append(f"audio before={a0} afterShift={a1}")
+        if a0 != "none" or a1 == "none":
+            return False, " ".join(details)
+        ok_walk = walk_straight(page, 2)
+        steps = [e for e in sfx_log(page) if e["name"] == "step"]
+        variants = [e["variant"] for e in steps]
+        alt = all(variants[i] != variants[i - 1] for i in range(1, len(variants)))
+        details.append(
+            f"straight walk={ok_walk} steps={len(steps)} variants={variants}"
+        )
+        if not ok_walk or not (3 <= len(steps) <= 5) or not alt:
+            return False, " ".join(details)
+        d = find_wall_cell(page)
+        if d is None:
+            details.append("no wall cell")
+            return False, " ".join(details)
+        face_yaw(page, DIR_YAW[d])
+        clear_sfx(page)
+        push_wall(page, 2)
+        bumps1 = sfx_names(page).count("bump")
+        page.wait_for_timeout(700)
+        push_wall(page, 1)
+        log = sfx_log(page)
+        bump_t = [e["t"] for e in log if e["name"] == "bump"]
+        steps_after = [
+            e for e in log if e["name"] == "step" and bump_t and e["t"] > bump_t[0]
+        ]
+        details.append(
+            f"bump: first2s={bumps1} total={len(bump_t)} stepsAfterBump={len(steps_after)}"
+        )
+        if bumps1 != 1 or len(bump_t) != 2 or steps_after:
+            return False, " ".join(details)
+        star, path = first_clear_star(page)
+        page.evaluate("() => window.__maze3d.teleportForTest(0, 0)")
+        clear_sfx(page)
+        walk_to(page, star["row"], star["col"])
+        n_star = sfx_names(page).count("star")
+        clear_sfx(page)
+        won = walk_to_exit(page)
+        n_win = sfx_names(page).count("win")
+        details.append(f"star={n_star} won={won} win={n_win}")
+        if n_star != 1 or not won or n_win != 1:
+            return False, " ".join(details)
+        clear_sfx(page)
+        e0 = timer_of(page)["elapsedMs"]
+        push_wall(page, 1)
+        names = sfx_names(page)
+        e1 = timer_of(page)["elapsedMs"]
+        details.append(f"afterWin names={names} elapsed {e0:.1f}->{e1:.1f}")
+        if "step" in names or "bump" in names or e0 != e1:
+            return False, " ".join(details)
+        before = m3(page, "audioState")
+        set_visibility(page, "hidden")
+        page.wait_for_timeout(300)
+        hidden = m3(page, "audioState")
+        set_visibility(page, "visible")
+        details.append(f"background: {before}->{hidden}")
+        ok = before != "running" or hidden == "suspended"
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_b7(browser, base):
+    """震动：顶墙 2 秒恰好一次 25；通关时 [80, 60, 80, 60, 200]。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        init_script=VIBRATE_RECORD,
+    )
+    details = []
+    try:
+        wait_idle(page)
+        d = find_wall_cell(page)
+        if d is None:
+            return False, "no wall cell"
+        face_yaw(page, DIR_YAW[d])
+        v0 = len(vib_log(page))
+        push_wall(page, 2)
+        v1 = vib_log(page)[v0:]
+        details.append(f"bump vib={v1}")
+        if v1 != [25]:
+            return False, " ".join(details)
+        won = walk_to_exit(page)
+        vib = vib_log(page)
+        details.append(f"won={won} last={vib[-1] if vib else None}")
+        ok = won and [80, 60, 80, 60, 200] in vib
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_b8(browser, base):
+    """静音：按钮文字、存储、soundOn；静音时顶墙走路不记日志不震动；刷新后保持静音且按键不建 AudioContext；
+    再点恢复。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        init_script=VIBRATE_RECORD,
+    )
+    details = []
+
+    def stored():
+        return page.evaluate("() => localStorage.getItem('maze3d.sound')")
+
+    try:
+        wait_idle(page)
+        page.click("#sound-btn")
+        t1 = page.inner_text("#sound-btn")
+        s1 = stored()
+        on1 = m3(page, "soundOn")
+        details.append(f"off: text={t1!r} stored={s1} soundOn={on1}")
+        if t1 != "声音：关" or s1 != "0" or on1 is not False:
+            return False, " ".join(details)
+        n0 = len(sfx_log(page))
+        v0 = len(vib_log(page))
+        d = find_wall_cell(page)
+        if d is None:
+            return False, " ".join(details) + " no wall cell"
+        face_yaw(page, DIR_YAW[d])
+        push_wall(page, 2)
+        walk_straight(page, 2)
+        n1 = len(sfx_log(page))
+        v1 = len(vib_log(page))
+        details.append(f"muted log {n0}->{n1} vib {v0}->{v1}")
+        if n1 != n0 or v1 != v0:
+            return False, " ".join(details)
+        page.reload()
+        wait_idle(page)
+        t2 = page.inner_text("#sound-btn")
+        on2 = m3(page, "soundOn")
+        page.keyboard.press("Shift")
+        page.wait_for_timeout(200)
+        a2 = m3(page, "audioState")
+        details.append(f"reload: text={t2!r} soundOn={on2} audioAfterKey={a2}")
+        if t2 != "声音：关" or on2 is not False or a2 != "none":
+            return False, " ".join(details)
+        page.click("#sound-btn")
+        page.wait_for_timeout(200)
+        t3 = page.inner_text("#sound-btn")
+        s3 = stored()
+        a3 = m3(page, "audioState")
+        details.append(f"on: text={t3!r} stored={s3} audio={a3}")
+        ok = t3 == "声音：开" and s3 == "1" and a3 != "none"
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_b9(browser, base):
+    """没有 Web Audio、没有震动：按键、顶墙、收集星星、通关、点静音开关都不报错；状态 unsupported；
+    日志照常记录。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        init_script=NO_AUDIO,
+    )
+    details = []
+    try:
+        wait_idle(page)
+        page.keyboard.press("Shift")
+        d = find_wall_cell(page)
+        if d is None:
+            return False, "no wall cell"
+        face_yaw(page, DIR_YAW[d])
+        push_wall(page, 2)
+        star, path = first_clear_star(page)
+        page.evaluate("() => window.__maze3d.teleportForTest(0, 0)")
+        walk_to(page, star["row"], star["col"])
+        won = walk_to_exit(page)
+        # 通关层盖住了按钮行：直接派发 click 事件（走的仍是按钮的点击处理）
+        page.locator("#sound-btn").dispatch_event("click")
+        page.locator("#sound-btn").dispatch_event("click")
+        st = m3(page, "audioState")
+        names = sfx_names(page)
+        details.append(
+            f"won={won} audioState={st} bump={names.count('bump')} star={names.count('star')}"
+            f" win={names.count('win')}"
+        )
+        ok = (
+            won
+            and st == "unsupported"
+            and "bump" in names
+            and "star" in names
+            and "win" in names
+        )
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
 CHECKS = {
     "1": check_1,
     "10": check_10,
@@ -5163,6 +5443,10 @@ CHECKS = {
     "b3": check_b3,
     "b4": check_b4,
     "b5": check_b5,
+    "b6": check_b6,
+    "b7": check_b7,
+    "b8": check_b8,
+    "b9": check_b9,
     "b10": check_b10,
     "b11": check_b11,
     "b12": check_b12,
