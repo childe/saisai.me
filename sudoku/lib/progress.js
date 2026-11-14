@@ -4,6 +4,9 @@
 const STARS_KEY = 'sudoku.stars.v1';
 const INSTANT_CHECK_KEY = 'sudoku.instantCheck';
 
+// Resolve storage inside try to catch SecurityError when reading globalThis.localStorage
+const getStorage = s => s ?? globalThis.localStorage;
+
 /**
  * Load stars from storage.
  * Keys are formatted as `${chapterId}-${slotIndex}`, values are 1, 2, or 3.
@@ -11,12 +14,13 @@ const INSTANT_CHECK_KEY = 'sudoku.instantCheck';
  * @param {Storage} storage - defaults to globalThis.localStorage
  * @returns {Record<string, 1|2|3>}
  */
-export function loadStars(storage = globalThis.localStorage) {
+export function loadStars(storage) {
   try {
-    const json = storage.getItem(STARS_KEY);
+    const s = getStorage(storage);
+    const json = s.getItem(STARS_KEY);
     if (!json) return {};
     const parsed = JSON.parse(json);
-    return typeof parsed === 'object' && parsed !== null ? parsed : {};
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? parsed : {};
   } catch {
     return {};
   }
@@ -29,14 +33,15 @@ export function loadStars(storage = globalThis.localStorage) {
  * @param {1|2|3} stars
  * @param {Storage} storage - defaults to globalThis.localStorage
  */
-export function saveStars(chapterId, slotIndex, stars, storage = globalThis.localStorage) {
+export function saveStars(chapterId, slotIndex, stars, storage) {
   try {
+    const s = getStorage(storage);
     const key = `${chapterId}-${slotIndex}`;
     const current = loadStars(storage);
     const existing = current[key] ?? 0;
     if (stars > existing) {
       current[key] = stars;
-      storage.setItem(STARS_KEY, JSON.stringify(current));
+      s.setItem(STARS_KEY, JSON.stringify(current));
     }
   } catch {
     // Silently ignore errors
@@ -49,9 +54,10 @@ export function saveStars(chapterId, slotIndex, stars, storage = globalThis.loca
  * @param {Storage} storage - defaults to globalThis.localStorage
  * @returns {boolean}
  */
-export function loadInstantCheck(storage = globalThis.localStorage) {
+export function loadInstantCheck(storage) {
   try {
-    const value = storage.getItem(INSTANT_CHECK_KEY);
+    const s = getStorage(storage);
+    const value = s.getItem(INSTANT_CHECK_KEY);
     if (value === null) return true;
     return value !== '0';
   } catch {
@@ -65,9 +71,10 @@ export function loadInstantCheck(storage = globalThis.localStorage) {
  * @param {boolean} on
  * @param {Storage} storage - defaults to globalThis.localStorage
  */
-export function saveInstantCheck(on, storage = globalThis.localStorage) {
+export function saveInstantCheck(on, storage) {
   try {
-    storage.setItem(INSTANT_CHECK_KEY, on ? '1' : '0');
+    const s = getStorage(storage);
+    s.setItem(INSTANT_CHECK_KEY, on ? '1' : '0');
   } catch {
     // Silently ignore errors
   }

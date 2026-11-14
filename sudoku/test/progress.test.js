@@ -24,3 +24,28 @@ test('throwing storage falls back', () => {
   assert.doesNotThrow(() => { saveStars('hidden', 0, 3, broken); saveInstantCheck(false, broken); });
   assert.deepEqual(loadStars({ getItem: () => '{bad json', setItem() {} }), {});
 });
+
+test('throwing globalThis.localStorage falls back when no storage arg', () => {
+  const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  try {
+    Object.defineProperty(globalThis, 'localStorage', {
+      get() { throw new SecurityError('blocked'); },
+      configurable: true
+    });
+    assert.deepEqual(loadStars(), {});
+    assert.equal(loadInstantCheck(), true);
+    assert.doesNotThrow(() => { saveStars('hidden', 0, 3); saveInstantCheck(false); });
+  } finally {
+    if (originalStorage) {
+      Object.defineProperty(globalThis, 'localStorage', originalStorage);
+    } else {
+      delete globalThis.localStorage;
+    }
+  }
+});
+
+test('invalid stored values (null, number, array) fallback to {}', () => {
+  assert.deepEqual(loadStars({ getItem: () => 'null', setItem() {} }), {});
+  assert.deepEqual(loadStars({ getItem: () => '5', setItem() {} }), {});
+  assert.deepEqual(loadStars({ getItem: () => '[]', setItem() {} }), {});
+});
