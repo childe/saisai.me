@@ -15,6 +15,7 @@ import io
 import json
 import math
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -1061,13 +1062,9 @@ def check_8(browser, base):
             and inside(follow_mini, stage)
             and abs(follow_mini["width"] - 110) <= 0.5
         )
-        if page.locator("#hud").count():
-            hud = box_of(page, "#hud")
-            hud_ok = hud is not None and inside(hud, stage)
-            hud_note = f"inside={hud_ok}"
-        else:
-            hud_ok = True
-            hud_note = "n/a"
+        hud = box_of(page, "#hud") if page.locator("#hud").count() else None
+        hud_ok = hud is not None and inside(hud, stage)
+        hud_note = f"inside={hud_ok}"
         if page.locator("#sound-btn").count():
             sb = box_of(page, "#sound-btn")
             sound_ok = sb is not None and not intersects(sb, stage)
@@ -4493,6 +4490,305 @@ def check_b3(browser, base):
         close(page)
 
 
+def best_init(value):
+    """init script：只在 maze3d.best.10 缺失时写入 value（刷新不会覆盖）。"""
+    return (
+        "try { const k = 'maze3d.best.10';"
+        " if (localStorage.getItem(k) === null) localStorage.setItem(k, %s); } catch (e) {}"
+        % json.dumps(value)
+    )
+
+
+SET_VISIBILITY_JS = """(v) => {
+  Object.defineProperty(document, 'visibilityState', { value: v, configurable: true });
+  document.dispatchEvent(new Event('visibilitychange'));
+}"""
+
+
+def set_visibility(page, value):
+    """模拟页面切到后台 / 回到前台：改写 document.visibilityState 并派发 visibilitychange。"""
+    page.evaluate(SET_VISIBILITY_JS, value)
+
+
+def timer_of(page):
+    return m3(page, "timer")
+
+
+def check_b4(browser, base):
+    """计时：不动不走；只转视角不走；首次移动开始；后台暂停、回前台不补算；通关冻结；
+    再来一局与切换尺寸清零。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    details = []
+    try:
+        wait_idle(page)
+        page.wait_for_timeout(1000)
+        t0 = timer_of(page)
+        dom0 = page.inner_text("#timer")
+        details.append(f"idle: {t0} dom={dom0!r}")
+        if t0["started"] or t0["text"] != "00:00.0" or "00:00.0" not in dom0:
+            return False, " ".join(details)
+        set_test_input(page, turn=1)
+        page.wait_for_timeout(500)
+        set_test_input(page)
+        t1 = timer_of(page)
+        details.append(f"turn: started={t1['started']}")
+        if t1["started"]:
+            return False, " ".join(details)
+        face_open(page)
+        set_test_input(page, forward=1)
+        page.wait_for_timeout(200)
+        t2 = timer_of(page)
+        page.wait_for_timeout(1000)
+        t3 = timer_of(page)
+        set_test_input(page)
+        details.append(
+            f"forward: started@200ms={t2['started']} elapsed@1.2s={t3['elapsedMs']:.0f}"
+        )
+        if not t2["started"] or not (800 <= t3["elapsedMs"] <= 1400):
+            return False, " ".join(details)
+        # 后台：渲染循环停止，计时不走；回到前台 dt 不含后台时长
+        set_visibility(page, "hidden")
+        h0 = timer_of(page)["elapsedMs"]
+        page.wait_for_timeout(1000)
+        h1 = timer_of(page)["elapsedMs"]
+        set_visibility(page, "visible")
+        page.wait_for_timeout(500)
+        h2 = timer_of(page)["elapsedMs"]
+        details.append(f"hidden: {h0:.0f}->{h1:.0f} visible+500ms: {h2:.0f}")
+        if h1 != h0 or not (h0 < h2 <= h0 + 900):
+            return False, " ".join(details)
+        if not walk_to_exit(page):
+            details.append("walk_to_exit failed")
+            return False, " ".join(details)
+        w0 = timer_of(page)
+        page.wait_for_timeout(500)
+        w1 = timer_of(page)
+        want = gameplay(page, "G.formatTime(M.lastResult.timeMs)")
+        win_time = page.inner_text("#win-time")
+        details.append(
+            f"won: running={w0['running']} {w0['elapsedMs']:.1f}->{w1['elapsedMs']:.1f}"
+            f" winTime={win_time!r} want={want}"
+        )
+        if w0["running"] or w0["elapsedMs"] != w1["elapsedMs"] or want not in win_time:
+            return False, " ".join(details)
+        page.click("#again-btn")
+        wait_idle(page)
+        a = timer_of(page)
+        details.append(f"again: {a['elapsedMs']} started={a['started']}")
+        if a["elapsedMs"] != 0 or a["started"]:
+            return False, " ".join(details)
+        face_open(page)
+        set_test_input(page, forward=1)
+        page.wait_for_timeout(400)
+        set_test_input(page)
+        moved_t = timer_of(page)
+        page.click("#size-15")
+        wait_idle(page)
+        z = timer_of(page)
+        details.append(
+            f"size15: before={moved_t['started']} after={z['elapsedMs']} started={z['started']}"
+        )
+        ok = moved_t["started"] and z["elapsedMs"] == 0 and not z["started"]
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+WIN_DOM_JS = """() => {
+  const vis = (id) => { const el = document.getElementById(id); return !!el && !el.hidden && getComputedStyle(el).display !== 'none'; };
+  const txt = (id) => document.getElementById(id).textContent;
+  let b10 = null, b15 = null;
+  try { b10 = localStorage.getItem('maze3d.best.10'); b15 = localStorage.getItem('maze3d.best.15'); } catch (e) {}
+  return { r: window.__maze3d.lastResult, record: vis('win-record'), recordText: txt('win-record'),
+    best: vis('win-best'), bestText: txt('win-best'), note: vis('win-path-note'), b10, b15 };
+}"""
+
+
+def win_dom(page):
+    return page.evaluate(WIN_DOM_JS)
+
+
+def int_ok(w):
+    """整数毫秒：lastResult.timeMs 是整数；存储（如有）是正整数串。"""
+    r = w["r"] or {}
+    t = r.get("timeMs")
+    store_ok = w["b10"] is None or bool(re.fullmatch(r"[1-9]\d*", w["b10"]))
+    return isinstance(t, int) and store_ok
+
+
+def forward_half_second(page):
+    face_open(page)
+    set_test_input(page, forward=1)
+    page.wait_for_timeout(500)
+    set_test_input(page)
+
+
+def b5_case(browser, base, name, init, run):
+    """一个子场景：新上下文、init script、执行 run(page) → (ok, detail)。"""
+    page, errors = open_page(
+        browser, f"{base}{PAGE}?seed={S}&size=10&debug=1", init_script=init
+    )
+    try:
+        wait_idle(page)
+        ok, detail = run(page)
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, f"[{name}] {detail} {msg}".strip()
+    finally:
+        close(page)
+
+
+def check_b5(browser, base):
+    """最佳成绩：新纪录、跨刷新保留、更慢不刷新、非法记录、看了道路不计入（三种路径）、
+    开始前看过再隐藏仍计入、整数毫秒、存储被禁用时照常显示新纪录。"""
+    results = []
+
+    def record_then_reload(page):
+        if not walk_to_exit(page):
+            return False, "walk1 failed"
+        w = win_dom(page)
+        r = w["r"]
+        ok1 = (
+            r["isNew"]
+            and w["record"]
+            and w["recordText"] == "新纪录!"
+            and w["b10"] == str(r["timeMs"])
+            and w["b15"] is None
+            and int_ok(w)
+        )
+        d = f"first: isNew={r['isNew']} record={w['record']} b10={w['b10']} timeMs={r['timeMs']} b15={w['b15']}"
+        if not ok1:
+            return False, d
+        prev = int(w["b10"])
+        page.reload()
+        wait_idle(page)
+        if not walk_to_exit(page):
+            return False, d + " walk2 failed"
+        w2 = win_dom(page)
+        r2 = w2["r"]
+        want = gameplay(page, "G.formatTime(M.lastResult.bestMs)")
+        ok2 = (
+            r2["bestMs"] is not None
+            and r2["bestMs"] <= prev
+            and w2["best"]
+            and want in w2["bestText"]
+            and int_ok(w2)
+        )
+        return (
+            ok2,
+            d + f" reload: bestMs={r2['bestMs']} prev={prev} best={w2['bestText']!r}",
+        )
+
+    results.append(
+        b5_case(browser, base, "new", best_init("9999999"), record_then_reload)
+    )
+
+    def slower(page):
+        if not walk_to_exit(page):
+            return False, "walk failed"
+        w = win_dom(page)
+        r = w["r"]
+        ok = (
+            not r["isNew"]
+            and not w["record"]
+            and w["b10"] == "1"
+            and w["best"]
+            and "00:00.0" in w["bestText"]
+            and int_ok(w)
+        )
+        return (
+            ok,
+            f"isNew={r['isNew']} record={w['record']} b10={w['b10']} best={w['bestText']!r}",
+        )
+
+    results.append(b5_case(browser, base, "slower", best_init("1"), slower))
+
+    def invalid(page):
+        if not walk_to_exit(page):
+            return False, "walk failed"
+        w = win_dom(page)
+        r = w["r"]
+        ok = r["isNew"] and w["b10"] == str(r["timeMs"]) and int_ok(w)
+        return ok, f"isNew={r['isNew']} b10={w['b10']} timeMs={r['timeMs']}"
+
+    results.append(b5_case(browser, base, "abc", best_init("abc"), invalid))
+
+    def not_counted(w):
+        r = w["r"]
+        ok = (
+            r["eligible"] is False
+            and not r["isNew"]
+            and w["b10"] == "9999999"
+            and w["note"]
+            and int_ok(w)
+        )
+        return (
+            ok,
+            f"eligible={r['eligible']} isNew={r['isNew']} b10={w['b10']} note={w['note']}",
+        )
+
+    def path_mid(page):
+        forward_half_second(page)
+        page.click("#show-path-btn")
+        if not walk_to_exit(page):
+            return False, "walk failed"
+        return not_counted(win_dom(page))
+
+    results.append(b5_case(browser, base, "pathMid", best_init("9999999"), path_mid))
+
+    def path_before(page):
+        page.click("#show-path-btn")
+        if not walk_to_exit(page):
+            return False, "walk failed"
+        return not_counted(win_dom(page))
+
+    results.append(
+        b5_case(browser, base, "pathBefore", best_init("9999999"), path_before)
+    )
+
+    def path_carry(page):
+        page.click("#show-path-btn")
+        if not walk_to_exit(page):
+            return False, "walk1 failed"
+        page.click("#again-btn")
+        wait_idle(page)
+        if not walk_to_exit(page):
+            return False, "walk2 failed"
+        return not_counted(win_dom(page))
+
+    results.append(
+        b5_case(browser, base, "pathCarry", best_init("9999999"), path_carry)
+    )
+
+    def path_hidden(page):
+        page.click("#show-path-btn")
+        page.click("#hide-path-btn")
+        if not walk_to_exit(page):
+            return False, "walk failed"
+        w = win_dom(page)
+        r = w["r"]
+        ok = r["eligible"] is True and not w["note"] and int_ok(w)
+        return ok, f"eligible={r['eligible']} note={w['note']} isNew={r['isNew']}"
+
+    results.append(
+        b5_case(browser, base, "pathHidden", best_init("9999999"), path_hidden)
+    )
+
+    def blocked(page):
+        if not walk_to_exit(page):
+            return False, "walk failed"
+        w = win_dom(page)
+        r = w["r"]
+        st = m3(page, "state")
+        ok = st == "won" and r["isNew"] and w["record"]
+        return ok, f"state={st} isNew={r['isNew']} record={w['record']}"
+
+    results.append(b5_case(browser, base, "blocked", BLOCK_STORAGE, blocked))
+
+    ok = all(r[0] for r in results)
+    return ok, " ".join(r[1] for r in results)
+
+
 CHECKS = {
     "1": check_1,
     "10": check_10,
@@ -4548,6 +4844,8 @@ CHECKS = {
     "b1": check_b1,
     "b2": check_b2,
     "b3": check_b3,
+    "b4": check_b4,
+    "b5": check_b5,
 }
 
 

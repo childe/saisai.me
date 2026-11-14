@@ -83,7 +83,15 @@ import {
   edgeArrow,
   endHintMode,
 } from './effects.js';
-import { markExplored, pushFootprint, footprintAlpha, MINI_COLORS } from './gameplay.js';
+import {
+  markExplored,
+  pushFootprint,
+  footprintAlpha,
+  MINI_COLORS,
+  formatTime,
+  updateBest,
+  createGameTimer,
+} from './gameplay.js';
 
 const EYE_HEIGHT = 0.45;
 const STICK_RADIUS = 50; // 虚拟摇杆底座半径，CSS 像素
@@ -413,6 +421,13 @@ function start() {
   let explored = new Uint8Array(0); // 本局进入过迷雾视野的格子（迷雾关时全部）
   const footTrail = []; // 走过的格子 row * size + col，按最近一次走过排序，最旧在前
 
+  // ---------- 本局：计时与成绩 ----------
+  const timer = createGameTimer();
+  let pathUsedThisRun = false; // 本局计时开始后道路开过（成绩不计入最佳）
+  let lastResult = null; // 最近一次通关的结算
+  let hudTimerText = ''; // #timer 当前显示的文字，变化才写 DOM
+  const timerEl = $('timer');
+
   const tmpMatrix = new THREE.Matrix4();
   const tmpColor = new THREE.Color();
   const tmpDir = new THREE.Vector3();
@@ -576,6 +591,9 @@ function start() {
     else explored = new Uint8Array(size * size);
     footTrail.length = 0;
     pushFootprint(footTrail, 0);
+    timer.reset();
+    pathUsedThisRun = false;
+    updateHud();
 
     updateSceneFog();
     recomputeFog();
@@ -640,6 +658,7 @@ function start() {
   $('fog-minus').addEventListener('click', () => setFog(fogOn, fogRadius - 1));
   $('fog-plus').addEventListener('click', () => setFog(fogOn, fogRadius + 1));
   $('show-path-btn').addEventListener('click', () => {
+    if (timer.started) pathUsedThisRun = true;
     showPath = true;
     recomputeFog();
   });
@@ -928,6 +947,15 @@ function start() {
     miniBase.height = px;
     const ctx = miniBase.getContext('2d');
     ctx.clearRect(0, 0, px, px);
+    // 底板：圆角半透明白底带柔和阴影（不用 CSS 圆角，见 index.html #minimap 的注释）
+    const inset = 2 * dpr;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowBlur = 3 * dpr;
+    ctx.shadowOffsetY = 1 * dpr;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.fill(roundRectPath(inset, inset, px - 2 * inset, px - 2 * inset, 6 * dpr));
+    ctx.restore();
     // 视野内 / 已探索视野外 / 未探索，同色格子合成一条路径一次填充
     const pFloor = new Path2D();
     const pSeen = new Path2D();
@@ -980,6 +1008,17 @@ function start() {
     ctx.globalAlpha = 1;
     drawStarMarkers(ctx, lay);
     miniBaseDirty = false;
+  }
+
+  function roundRectPath(x, y, w, h, r) {
+    const p = new Path2D();
+    p.moveTo(x + r, y);
+    p.arcTo(x + w, y, x + w, y + h, r);
+    p.arcTo(x + w, y + h, x, y + h, r);
+    p.arcTo(x, y + h, x, y, r);
+    p.arcTo(x, y, x + w, y, r);
+    p.closePath();
+    return p;
   }
 
   // 星星标记（画在脚印之上）；星星接入之前为空
@@ -1161,7 +1200,15 @@ function start() {
     if (state !== 'won') {
       const input = currentInput();
       yaw += input.turn * TURN_SPEED * dt;
+      const px0 = playerState.x;
+      const pz0 = playerState.z;
       playerState = stepPlayer(playerState, input, yaw, dt, grid);
+      // 实际位移（不是输入）：推着墙走不动时为 0
+      const moved = Math.hypot(playerState.x - px0, playerState.z - pz0);
+      if (!timer.started && moved > 1e-6) {
+        timer.start();
+        pathUsedThisRun ||= showPath;
+      }
       const c = cellOf(playerState);
       c.row = Math.min(size - 1, Math.max(0, c.row));
       c.col = Math.min(size - 1, Math.max(0, c.col));
@@ -1170,12 +1217,7 @@ function start() {
         display.col = c.col;
         pushFootprint(footTrail, c.row * size + c.col);
         recomputeFog();
-        if (c.row === size - 1 && c.col === size - 1) {
-          state = 'won';
-          playerState = { ...playerState, vx: 0, vz: 0 };
-          $('win').hidden = false;
-          startConfetti();
-        }
+        if (c.row === size - 1 && c.col === size - 1) onWin();
       }
     }
     player.position.set(playerState.x, 0, playerState.z);
@@ -1191,6 +1233,36 @@ function start() {
       bodyGroup.position.y = 0;
     }
     updateShadow();
+  }
+
+  // 判胜那一刻：停止计时、结算最佳成绩、填写通关层
+  function onWin() {
+    state = 'won';
+    playerState = { ...playerState, vx: 0, vz: 0 };
+    timer.stop();
+    const timeMs = Math.round(timer.elapsedMs);
+    const eligible = !pathUsedThisRun;
+    const key = 'maze3d.best.' + size;
+    const r = updateBest(storageGet(key), timeMs, eligible);
+    if (r.write) storageSet(key, r.write);
+    lastResult = { timeMs, bestMs: r.best, isNew: r.isNew, eligible, stars: 0, total: 0 };
+    $('win-time').textContent = `用时 ${formatTime(timeMs)}`;
+    const bestEl = $('win-best');
+    bestEl.hidden = r.best === null;
+    bestEl.textContent = r.best === null ? '' : `最佳 ${formatTime(r.best)}`;
+    $('win-record').hidden = !r.isNew;
+    $('win-path-note').hidden = eligible;
+    $('win').hidden = false;
+    startConfetti();
+  }
+
+  // 信息栏：文字变化才写 DOM（计时每秒最多写 10 次）
+  function updateHud() {
+    const t = '⏱ ' + formatTime(timer.elapsedMs);
+    if (t !== hudTimerText) {
+      timerEl.textContent = t;
+      hudTimerText = t;
+    }
   }
 
   function updateShadow() {
@@ -1392,6 +1464,8 @@ function start() {
     const dt = Math.max(0, Math.min(now - lastTime, 100)) / 1000;
     lastTime = now;
     updatePlayer(dt);
+    timer.tick(dt);
+    updateHud();
     updateStick();
     star.rotation.y += dt;
     updateBeam(dt);
@@ -1753,6 +1827,17 @@ function start() {
     exploredAt(row, col) {
       return explored[row * size + col] === 1;
     },
+    get timer() {
+      return {
+        started: timer.started,
+        running: timer.running,
+        elapsedMs: timer.elapsedMs,
+        text: formatTime(timer.elapsedMs),
+      };
+    },
+    get lastResult() {
+      return lastResult ? { ...lastResult } : null;
+    },
     get footprints() {
       return footTrail.map((k) => [Math.floor(k / size), k % size]);
     },
@@ -1833,6 +1918,13 @@ function start() {
     for (const el of endDistEls) el.textContent = on ? '0123456789 格' : '';
     shownHintMode = null;
     shownHintDist = null;
+    // 信息栏也在预热里完成首次光栅化（含 0–9 以外的字形）
+    if (on) {
+      timerEl.textContent = '⏱ 01:23.4';
+    } else {
+      hudTimerText = '';
+      updateHud();
+    }
   }
 
   let warmDone = 0;
