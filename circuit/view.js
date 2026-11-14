@@ -5,6 +5,9 @@ import { GRID, wirePoints, LEVER_RECT } from './lib/geometry.js';
 import { partVisual, wireFlow } from './lib/viewmodel.js';
 import { drawPart } from './lib/drawings.js';
 import { TASKS, remainingPalette } from './lib/tasks.js';
+import { taskbarHtml, taskbarCacheKey } from './lib/taskbar.js';
+
+export { taskListHtml, taskbarHtml, parseAnswer } from './lib/taskbar.js';
 
 let last = null;
 const wireCache = new Map();
@@ -216,18 +219,11 @@ function renderTaskbar(dom, state) {
     return;
   }
   const t = state.task;
-  const task = TASKS[t.index];
-  const key = JSON.stringify([t.index, t.hint, t.passed]);
+  const key = taskbarCacheKey(state);
   dom.taskbar.hidden = false;
   if (key === taskbarKey) return;
   taskbarKey = key;
-  const pass = t.passed
-    ? `<div class="passed">🎉 完成啦！${t.index < TASKS.length - 1 ? '<button class="btn on" data-task-action="next">下一关 →</button>' : ''}</div>`
-    : '';
-  dom.taskbar.innerHTML =
-    `<div class="task-row"><span class="task-title">第 ${task.id} 关 · ${task.name}：${task.goal}</span>` +
-    `<button class="btn" data-task-action="list">选关</button></div>` +
-    (t.hint ? `<div class="hint">💡 ${t.hint}</div>` : '') + pass;
+  dom.taskbar.innerHTML = taskbarHtml(state);
   if (dom.tasklist) {
     for (const b of dom.tasklist.querySelectorAll('[data-task]')) b.classList.toggle('on', Number(b.dataset.task) === t.index);
   }
@@ -245,5 +241,9 @@ export function render(dom, state) {
   dom.board.classList.toggle('stale', !space.result.ok);
   dom.banner.hidden = space.result.ok;
   dom.confirm.hidden = !state.confirmClear;
+  const task = state.mode === 'task';
+  if (dom.clearBtn) dom.clearBtn.textContent = task ? '↺ 重来' : '🗑 清空';
+  if (dom.confirmText) dom.confirmText.textContent = task ? '重来这一关？' : '清空画布？';
+  if (dom.confirmYes) dom.confirmYes.textContent = task ? '重来' : '清空';
   renderPanel(dom, state, space);
 }
