@@ -1150,6 +1150,8 @@ def perf_round(
         return {
             "endPos": m3(page, "playerPos"),
             "wins": wins,
+            # walk_route 驱动记录的换格次数；其他驱动为 None
+            "walkCells": page.evaluate("() => window.__walkCells ?? null"),
             "count": stats["count"],
             "avg": round(stats["avg"], 1),
             "p95": round(stats["p95"], 1),
@@ -1930,12 +1932,51 @@ def fmt_perf(name, r):
         f"{name}: avg={r['avg']} p95={r['p95']} quality={r['quality']}"
         f" downgradeCount={r['downgradeCount']} renderer={r['renderer']!r} textureMs={ms_s}"
         f" endPos={ep_s} wins={r.get('wins')}"
+        + ("" if r.get("walkCells") is None else f" walkCells={r['walkCells']}")
     )
 
 
 # 基线（3aa67ab）跟随视角的默认俯角与缩放：movement.js FOLLOW_PITCH.def = 40°，main.js cameraZoom = 1
 BASELINE_FOLLOW_PITCH = math.radians(40)
 BASELINE_ZOOM = 1.0
+
+
+WALK_ROUTE_JS = """async ([ms]) => {
+  const L = await import('/maze-3d/game-logic.js');
+  const M = window.__maze3d;
+  window.__walkCells = 0;
+  return await new Promise((resolve) => {
+    const t0 = performance.now();
+    let prev = M.playerCell;
+    const end = { row: M.size - 1, col: M.size - 1 };
+    const done = (won) => { M.setInputForTest(null); resolve(won ? 1 : 0); };
+    const tick = () => {
+      if (M.state === 'won') return done(true);
+      if (performance.now() - t0 > ms) return done(false);
+      const cell = M.playerCell;
+      if (cell.row !== prev.row || cell.col !== prev.col) { window.__walkCells++; prev = cell; }
+      const path = L.findPath(M.connections, cell, end);
+      const [tr, tc] = path.length >= 2 ? path[1] : [cell.row, cell.col];
+      const p = M.playerPos;
+      const yaw = Math.atan2(tc + 0.5 - p.x, -(tr + 0.5 - p.z));
+      M.setInputForTest({ forward: 1, strafe: 0, turn: 0, yaw });
+      requestAnimationFrame(tick);
+    };
+    tick();
+  });
+}"""
+
+
+def walk_route(page, seconds=8):
+    """perf_round 的移动驱动：沿 findPath 朝终点持续走 seconds 秒，每帧换格计入 window.__walkCells。
+    只用基线也有的钩子（connections、playerCell、playerPos、setInputForTest）。返回通关次数（0 或 1）。"""
+    return page.evaluate(WALK_ROUTE_JS, [int(seconds * 1000)])
+
+
+def perf_moving_start(page):
+    """移动轮次的起始条件：同 perf_fixed_start，再按一次 Shift 作为用户手势，让新代码真实创建 AudioContext。"""
+    perf_fixed_start(page)
+    page.keyboard.press("Shift")
 
 
 def perf_fixed_start(page):
@@ -1951,9 +1992,17 @@ def check_t7(browser, base):
     return perf_compare(browser, base)
 
 
-def perf_compare(browser, base, extra=None):
-    """check_t7 的主体：GPU、iPhone SE、4 倍 CPU 降速，基线与四个主题各跑一轮 play_continuous。
-    extra(name, round) 对每个新代码轮次返回 (ok, msg)，不通过即 FAIL。"""
+def perf_compare(
+    browser,
+    base,
+    extra=None,
+    driver=play_continuous,
+    prepare=perf_fixed_start,
+    each=None,
+):
+    """check_t7 的主体：GPU、iPhone SE、4 倍 CPU 降速，基线与四个主题各跑一轮 driver（默认 play_continuous）。
+    extra(name, round) 对每个新代码轮次返回 (ok, msg)，不通过即 FAIL；
+    each(name, round) 对包括基线在内的每一轮返回 (ok, msg)，不通过即 FAIL（用来确认驱动真的按预期跑了）。"""
     if not BASELINE_ROOT:
         return None, "need --baseline-root"
     bt = browser.browser_type
@@ -1971,7 +2020,12 @@ def perf_compare(browser, base, extra=None):
                     (
                         "baseline",
                         perf_round(
-                            gb, bbase, mobile=True, debug=True, prepare=perf_fixed_start
+                            gb,
+                            bbase,
+                            mobile=True,
+                            debug=True,
+                            prepare=prepare,
+                            driver=driver,
                         ),
                     )
                 ]
@@ -1990,7 +2044,8 @@ def perf_compare(browser, base, extra=None):
                                 mobile=True,
                                 init_script=theme_init(tid),
                                 debug=True,
-                                prepare=perf_fixed_start,
+                                prepare=prepare,
+                                driver=driver,
                             ),
                         )
                     )
@@ -2006,6 +2061,14 @@ def perf_compare(browser, base, extra=None):
             errs = [e for _, r in runs for e in r["errors"]]
             if errs:
                 return False, detail + " | errors=" + " | ".join(errs[:3])
+            if each:
+                bad = []
+                for n, r in runs:
+                    e_ok, e_msg = each(n, r)
+                    if not e_ok:
+                        bad.append(f"{n}: {e_msg}")
+                if bad:
+                    return False, detail + " | FAIL " + "; ".join(bad)
             bl = runs[0][1]
             # 轨迹一致性：同样的按键序列下，各主题与基线的通关次数、结束位置应一致
             for tid, r in runs[1:]:
@@ -5273,6 +5336,86 @@ def check_b6(browser, base):
         close(page)
 
 
+# 按 HTML 标准的激活规则限制 AudioContext：最近 5 秒内有过激活事件，新建的才是 running、resume 才生效。
+# 激活事件只算 keydown（非 Esc）、mousedown、鼠标 pointerdown、非鼠标 pointerup、touchend——触屏 pointerdown 不算。
+# 这里自己判定而不用 navigator.userActivation：当前 Chromium 在触屏 pointerdown 就给激活，比标准宽，测不出问题。
+# init script 的捕获监听先于页面注册，所以页面处理同一事件时激活已经记上。createOscillator 计数放在 window.__osc
+GATED_AUDIO = """
+(() => {
+  const Real = window.AudioContext || window.webkitAudioContext;
+  if (!Real) return;
+  let last = -Infinity;
+  const mark = (e) => {
+    const t = e.type;
+    const pt = e.pointerType;
+    if ((t === 'keydown' && e.key !== 'Escape') || t === 'mousedown' || t === 'touchend'
+        || (t === 'pointerdown' && pt === 'mouse') || (t === 'pointerup' && pt !== 'mouse')) {
+      last = performance.now();
+    }
+  };
+  for (const t of ['keydown', 'mousedown', 'pointerdown', 'pointerup', 'touchend']) {
+    window.addEventListener(t, mark, { capture: true, passive: true });
+  }
+  const active = () => performance.now() - last < 5000;
+  window.__osc = 0;
+  window.__gate = [];
+  class Gated extends Real {
+    constructor(...a) {
+      super(...a);
+      this.__blocked = !active();
+      window.__gate.push('create:' + (this.__blocked ? 'blocked' : 'ok'));
+      if (this.__blocked) super.suspend();
+    }
+    get state() { return this.__blocked ? 'suspended' : super.state; }
+    resume() {
+      const ok = active();
+      window.__gate.push('resume:' + (ok ? 'ok' : 'blocked'));
+      if (!ok) return Promise.resolve();
+      this.__blocked = false;
+      return super.resume();
+    }
+    createOscillator() { window.__osc++; return super.createOscillator(); }
+  }
+  window.AudioContext = Gated;
+  window.webkitAudioContext = Gated;
+})();
+"""
+
+
+def check_b17(browser, base):
+    """触屏首次操作解锁音频：不按键、不点按钮，第一次就触摸舞台；AudioContext 按激活规则受限，
+    抬手后应进入 running，之后走路真的建出振荡器节点。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        has_touch=True,
+        viewport={"width": 375, "height": 667},
+        init_script=GATED_AUDIO,
+    )
+    details = []
+    try:
+        wait_idle(page)
+        a0 = m3(page, "audioState")
+        box = page.locator("#stage").bounding_box()
+        page.touchscreen.tap(box["x"] + box["width"] / 2, box["y"] + box["height"] / 3)
+        page.wait_for_timeout(300)
+        a1 = m3(page, "audioState")
+        gate = page.evaluate("() => window.__gate")
+        details.append(f"audio before={a0} afterTap={a1} gate={gate}")
+        if a0 != "none" or a1 != "running":
+            return False, " ".join(details)
+        o0 = page.evaluate("() => window.__osc")
+        ok_walk = walk_straight(page, 2)
+        o1 = page.evaluate("() => window.__osc")
+        steps = sfx_names(page).count("step")
+        details.append(f"walk={ok_walk} steps={steps} oscillators {o0}->{o1}")
+        ok = ok_walk and steps >= 1 and o1 - o0 >= steps
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
 def check_b7(browser, base):
     """震动：顶墙 2 秒恰好一次 25；通关时 [80, 60, 80, 60, 200]。"""
     page, errors = open_page(
@@ -5406,7 +5549,9 @@ def check_b9(browser, base):
 
 def check_b14(browser, base):
     """性能：t7 的方法，新代码轮次里小地图在跟随视角显示、星星在场（20×20 共 7 颗）、声音开启且已创建
-    AudioContext；各主题平均帧时间 ≤ 基线 1.3 倍且不降画质。"""
+    AudioContext；各主题平均帧时间 ≤ 基线 1.3 倍且不降画质。
+    跑两组：[still] 与 t7 相同的 play_continuous（开局格附近转圈）；[moving] 沿最短路持续走 8 秒，
+    每轮（含基线）换格 ≥ 5 次、离开局格心 ≥ 2 格，覆盖换格时的已探索、脚印与小地图更新。"""
 
     def extra(name, r):
         x = r.get("extras") or {}
@@ -5418,7 +5563,27 @@ def check_b14(browser, base):
         )
         return ok, f"extras={x}"
 
-    return perf_compare(browser, base, extra=extra)
+    def walked(name, r):
+        ep = r.get("endPos") or {"x": 0.5, "z": 0.5}
+        dist = math.hypot(ep["x"] - 0.5, ep["z"] - 0.5)
+        cells = r.get("walkCells") or 0
+        return cells >= 5 and dist >= 2, f"walkCells={cells} travel={dist:.2f}"
+
+    still_ok, still = perf_compare(browser, base, extra=extra)
+    move_ok, move = perf_compare(
+        browser,
+        base,
+        extra=extra,
+        driver=walk_route,
+        prepare=perf_moving_start,
+        each=walked,
+    )
+    detail = f"[still] {still} || [moving] {move}"
+    if still_ok is False or move_ok is False:
+        return False, detail
+    if still_ok is None or move_ok is None:
+        return None, detail
+    return True, detail
 
 
 def check_b15(browser, base):
@@ -5596,6 +5761,7 @@ CHECKS = {
     "b13": check_b13,
     "b14": check_b14,
     "b15": check_b15,
+    "b17": check_b17,
 }
 
 

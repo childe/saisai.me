@@ -101,7 +101,7 @@ import {
   createStepCounter,
   createBumpDetector,
 } from './gameplay.js';
-import { createSfx } from './sound.js';
+import { createSfx, installGestureUnlock } from './sound.js';
 
 const EYE_HEIGHT = 0.45;
 const STICK_RADIUS = 50; // 虚拟摇杆底座半径，CSS 像素
@@ -486,18 +486,8 @@ function start() {
   const stepCounter = createStepCounter();
   const bumpDetector = createBumpDetector();
   let stepVariant = 0;
-  const UNLOCK_EVENTS = ['keydown', 'pointerdown', 'touchend'];
-
-  function onGesture() {
-    if (!sfx.enabled) return;
-    sfx.unlock();
-    if (sfx.state !== 'none') {
-      for (const type of UNLOCK_EVENTS) window.removeEventListener(type, onGesture, { capture: true });
-    }
-  }
-  for (const type of UNLOCK_EVENTS) {
-    window.addEventListener(type, onGesture, { capture: true, passive: true });
-  }
+  // 手势解锁：确认 AudioContext 进入 running 后才移除监听（触屏 pointerdown 里建的会停在 suspended）
+  installGestureUnlock(window, sfx);
 
   const soundBtn = $('sound-btn');
   function updateSoundUi() {

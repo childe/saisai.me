@@ -136,3 +136,28 @@ export function createSfx({ win = globalThis, enabled = true, log = null } = {})
     },
   };
 }
+
+// 用户手势解锁音频。触屏的 pointerdown 不是浏览器认可的激活事件（触屏在 pointerup / touchend 才激活），
+// 在它里面新建或 resume 的 AudioContext 会停在 suspended。所以：
+// 每次手势都调用 unlock()（已建好但 suspended 时它会再 resume 一次），
+// 只有确认 running（或浏览器不支持 Web Audio）之后才移除监听。返回移除全部监听的函数。
+export const UNLOCK_EVENTS = ['keydown', 'pointerdown', 'pointerup', 'touchend'];
+
+export function installGestureUnlock(win, sfx, events = UNLOCK_EVENTS) {
+  const opts = { capture: true, passive: true };
+  function remove() {
+    for (const type of events) win.removeEventListener(type, onGesture, opts);
+  }
+  function settled() {
+    const s = sfx.state;
+    return s === 'running' || s === 'unsupported';
+  }
+  function onGesture() {
+    if (settled()) return remove();
+    if (!sfx.enabled) return;
+    sfx.unlock();
+    if (settled()) remove();
+  }
+  for (const type of events) win.addEventListener(type, onGesture, opts);
+  return remove;
+}

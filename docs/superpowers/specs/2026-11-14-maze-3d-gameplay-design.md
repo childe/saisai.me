@@ -98,7 +98,7 @@
 
 **AudioContext 生命周期**
 
-- 页面加载时不创建 `AudioContext`。在 `window` 上监听 `keydown`、`pointerdown`、`touchend`（捕获阶段、`passive`）；第一次用户手势且声音开着时，创建 `new (window.AudioContext || window.webkitAudioContext)()`，状态为 `suspended` 就调用 `resume()`。创建成功后移除这三个监听。
+- 页面加载时不创建 `AudioContext`。在 `window` 上监听 `keydown`、`pointerdown`、`pointerup`、`touchend`（捕获阶段、`passive`）；第一次用户手势且声音开着时，创建 `new (window.AudioContext || window.webkitAudioContext)()`，状态为 `suspended` 就调用 `resume()`。触屏的 `pointerdown` 不是浏览器认可的激活事件，在它里面创建的 `AudioContext` 会停在 `suspended`，所以之后每次手势都再调用一次 `resume()`；确认状态为 `running`（或不支持 Web Audio）之后才移除这些监听。
 - 声音关着时不创建。之后点「声音：开」本身是一次用户手势，这时创建。
 - 页面切到后台（`visibilitychange` 为 hidden）时 `suspend()`；回到前台时，如果之前已经创建，就 `resume()`。
 - 环境不支持 Web Audio（没有构造函数，或构造抛异常）：记为 `'unsupported'`，之后所有播放都是空操作，不抛异常，不在控制台报错。
@@ -351,10 +351,11 @@
 11. **b11 收集星星**：用 `walk_to` 走到第一颗星星的格子：`starsCollected === 1`，`#star-count` 为「⭐ 1/3」，该星星 `collected` 为真、`visible` 为假；小地图该格心不再有星星标记色（与 `#ffb300` 的距离 > 60）。在该格来回走：计数不再增加。走到终点：`#win-stars` 含「1 / 3」。「再来一局」：`starsCollected === 0`。
 12. **b12 星星与迷雾**：迷雾开、视野 1：视野外的星星 `visible` 为假，小地图该格无星星标记（格子为雾色）。`teleportForTest` 到星星相邻格：该星星 `visible` 为真，小地图出现星星标记。再瞬移走：3D 中星星 `visible` 为假，小地图标记仍在（格子已探索、星星未收集）。
 13. **b13 星星可见度**：四个主题各一次。迷雾关，`setStarsForTest({ paused: true })`，瞬移到星星相邻格，跟随视角朝向星星。用 `cameraState` 和 `project_css` 求星星中心的屏幕位置，取该点 3×3 平均色，与星星周围 0.6 格处地板点的颜色距离 ≥ 60。再点「显示道路」，若星星所在格在道路上，与道路色也 ≥ 60；不在道路上时，取最近的道路格作为对照点。
-14. **b14 性能**：沿用 t7 的方法（GPU、iPhone SE、4 倍 CPU 降速、`perf_fixed_start`、`play_continuous`），基线为 merge-base 代码。新代码中小地图在跟随视角显示、星星在场、声音开启（驱动按键是用户手势，会真实创建 `AudioContext`）。各主题平均帧时间 ≤ 基线的 1.3 倍，且不触发降画质。t7 本身继续通过。
+14. **b14 性能**：沿用 t7 的方法（GPU、iPhone SE、4 倍 CPU 降速、`perf_fixed_start`、`play_continuous`），基线为 merge-base 代码。新代码中小地图在跟随视角显示、星星在场、声音开启（驱动按键是用户手势，会真实创建 `AudioContext`）。各主题平均帧时间 ≤ 基线的 1.3 倍，且不触发降画质。t7 本身继续通过。另跑一组移动轮次：先按一次 Shift，再用 `setInputForTest` 沿最短路朝终点持续走 8 秒；每轮（含基线）换格 ≥ 5 次、离开局格心 ≥ 2 格，判定规则同上，覆盖换格时已探索、脚印和小地图的更新。
 15. **b15 截图**：保存到 `<repo>/.xdev/20261114-103742-maze-3d-gameplay/screenshots/`（脚本用 `--shots` 传入）：
     - 四个主题各一张 `gameplay-{主题}-play.png`：迷雾开、视野 2，走过 ≥ 6 格之后，跟随视角下画面里能看到至少一颗星星，小地图有脚印和未探索区。
     - `gameplay-first-person.png`：第一人称，小地图有脚印和星星标记。
     - `gameplay-win.png`：新纪录通关层，含用时、最佳、新纪录、星星数。
     - 全部文件存在且非空才 PASS；`--write` 时在结果文件头写明请用户人工查看这些截图。
 16. **b16 无报错**：以上所有新检查都用 `no_errors(errors)` 收尾：没有 `pageerror`，没有控制台 error。
+17. **b17 触屏首次操作解锁音频**：`init_script` 按 HTML 标准的激活规则限制 `AudioContext`（最近 5 秒内有过 `touchend`、非鼠标 `pointerup`、鼠标 `pointerdown`、`mousedown` 或非 Esc 的 `keydown`，新建的才是 `running`、`resume()` 才生效；触屏 `pointerdown` 不算），并给 `createOscillator` 计数。不按键、不点按钮，直接在舞台上触摸一次：`audioState` 从 `'none'` 变为 `'running'`。之后直线走 2 格：至少 1 条 `step`，振荡器新建数 ≥ `step` 条数。
