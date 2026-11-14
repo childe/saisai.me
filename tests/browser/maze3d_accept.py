@@ -1138,7 +1138,18 @@ def perf_round(
             init_script=init_script,
         )
     try:
-        wait_idle(page, timeout=15000)
+        try:
+            wait_idle(page, timeout=15000)
+        except Exception as exc:
+            # 页面没就绪时带上现场，便于判断是 WebGL 不可用、脚本报错还是单纯加载慢
+            state = page.evaluate(
+                "() => ({ ready: window.__maze3d !== undefined,"
+                " noWebgl: !document.getElementById('no-webgl')?.hidden,"
+                " readyState: document.readyState })"
+            )
+            raise RuntimeError(
+                f"page not ready url={url} state={state} errors={errors[:3]}: {exc}"
+            ) from exc
         if prepare:
             prepare(page)
             page.wait_for_timeout(800)
