@@ -125,7 +125,7 @@ function hint(g) {
   if (hintsLeft(g) === 0) return g;
   const cur = g.hint;
   if (cur && cur.step) {
-    if (cur.layer >= MAX_LAYER) return g;
+    if (cur.layer >= MAX_LAYER) return cur.step.eliminations ? refreshed(g) : g;
     const layer = cur.layer + 1;
     const view = hintView(cur.step, layer, g.values, g.spec, g.eliminated);
     const next = { ...g, hintsUsed: g.hintsUsed + 1, hint: { step: cur.step, layer, view } };

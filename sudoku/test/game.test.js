@@ -136,8 +136,28 @@ test('locked/pair hint at layer 3 eliminates candidates; undo restores', () => {
     assert.ok(g.eliminated.has(`${e.cell}:${e.digit}`));
     assert.equal(g.notes[e.cell] & (1 << e.digit), 0);
   }
+  const used = g.hintsUsed;
+  const g4 = act(g, { type: 'hint' });
+  assert.notEqual(g4, g);
+  assert.equal(g4.hint.layer, 1);
+  assert.notEqual(g4.hint.step, step);
+  assert.equal(g4.hintsUsed, used + 1);
+  assert.equal(hintsLeft(g4), hintsLeft(g) - 1);
   g = act(g, { type: 'undo' });
+  assert.equal(g.hintsUsed, used);
   assert.equal(g.eliminated.size, 0);
   assert.deepEqual(g.notes, notes0);
   assert.equal(g.hint, null);
+});
+test('restart keeps settings and re-initialises auto notes', () => {
+  let g = createGame({ size: 6, puzzle: PUZ6, solution: SOL6, instantCheck: false, autoCandidates: true });
+  const notes0 = g.notes.slice();
+  g = run(g, { type: 'tapCell', cell: 0 }, { type: 'digit', digit: 1 }, { type: 'hint' });
+  g = act(g, { type: 'restart' });
+  assert.deepEqual([g.instantCheck, g.autoCandidates, g.hintsUsed, g.history.length], [false, true, 0, 0]);
+  assert.deepEqual(g.notes, notes0);
+});
+test('undo does not refund hintsUsed', () => {
+  const g = run(g0(), { type: 'hint' }, { type: 'tapCell', cell: 0 }, { type: 'digit', digit: 1 }, { type: 'undo' });
+  assert.equal(g.hintsUsed, 1);
 });
