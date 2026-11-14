@@ -48,7 +48,7 @@ test('naked layers never name the digit', () => {
   for (const layer of [1, 2, 3]) assert.equal(hintView(step, layer, v, s, none()).digit, null);
   const l1 = hintView(step, 1, v, s, none());
   assert.equal(l1.focusCells.length, 21);
-  assert.ok(l1.focusCells.includes(0) && l1.focusCells.includes(80 - 80 + 4) && l1.focusCells.includes(36));
+  assert.ok(l1.focusCells.includes(0) && l1.focusCells.includes(4) && l1.focusCells.includes(36));
   assert.equal(hintView(step, 2, v, s, none()).flashCell, 0);
   const l3 = hintView(step, 3, v, s, none());
   assert.equal(l3.flashCell, 0);
