@@ -46,3 +46,23 @@ test('resistor color bands', () => {
     ['brown', 'black', 'black'], ['yellow', 'violet', 'black'], ['brown', 'black', 'brown'],
     ['red', 'red', 'brown'], ['yellow', 'violet', 'brown'], ['brown', 'black', 'red']]);
 });
+
+test('display text: digit, E above 9, - when invalid', () => {
+  const disp = { id: 'D', type: 'display', params: {} };
+  const r = value => ({ v: 0, i: 0, p: 0, value });
+  assert.equal(partVisual(disp, r(5), d, true).text, '5');
+  assert.equal(partVisual(disp, r(0), d, true).text, '0');
+  assert.equal(partVisual(disp, r(9), d, true).text, '9');
+  assert.equal(partVisual(disp, r(12), d, true).text, 'E');
+  assert.equal(partVisual(disp, undefined, d, false).text, '-');
+});
+
+test('relay vis.on follows relays state', () => {
+  const relay = { id: 'K', type: 'relay', params: {} };
+  const r = { v: 0, i: 0, p: 0 };
+  assert.equal(partVisual(relay, r, d, true, { on: { K: true }, hold: {}, flips: 1 }).on, true);
+  assert.equal(partVisual(relay, r, d, true, { on: {}, hold: {}, flips: 0 }).on, false);
+  assert.equal(partVisual(relay, r, d, true).on, false);
+  // 求解失败时铁片照旧停在当前位置。
+  assert.equal(partVisual(relay, undefined, d, false, { on: { K: true } }).on, true);
+});

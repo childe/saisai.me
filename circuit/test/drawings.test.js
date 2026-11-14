@@ -23,6 +23,14 @@ test('state shows up in drawing', () => {
   assert.notEqual(drawPart(mk('switch', { closed: true }), 'symbol', vis()), drawPart(mk('switch'), 'symbol', vis()));
   assert.notEqual(drawPart(mk('spdt', { to: 'b' }), 'cartoon', vis()), drawPart(mk('spdt'), 'cartoon', vis()));
   assert.match(drawPart(mk('resistor', { ohms: 220 }), 'cartoon', vis()), /red/);
+  assert.notEqual(drawPart(mk('relay'), 'cartoon', vis({ on: true })), drawPart(mk('relay'), 'cartoon', vis()));
+  assert.notEqual(drawPart(mk('relay'), 'symbol', vis({ on: true })), drawPart(mk('relay'), 'symbol', vis()));
+  assert.notEqual(drawPart(mk('button', { pressed: true }), 'symbol', vis()), drawPart(mk('button'), 'symbol', vis()));
+  assert.notEqual(drawPart(mk('button', { pressed: true }), 'cartoon', vis()), drawPart(mk('button'), 'cartoon', vis()));
+  assert.notEqual(drawPart(mk('dpdt', { to: 'b' }), 'cartoon', vis()), drawPart(mk('dpdt'), 'cartoon', vis()));
+  assert.notEqual(drawPart(mk('dpdt', { to: 'b' }), 'symbol', vis()), drawPart(mk('dpdt'), 'symbol', vis()));
+  assert.match(drawPart(mk('display'), 'symbol', vis({ text: '7' })), />7</);
+  assert.match(drawPart(mk('display'), 'cartoon', vis({ text: 'E' })), />E</);
 });
 
 test('text stays upright when the part is rotated', () => {
@@ -38,6 +46,35 @@ test('text stays upright when the part is rotated', () => {
     for (const t of texts) assert.match(t, new RegExp(`transform="[^"]*rotate\\(${-rot * 90} `), t);
   }
   assert.doesNotMatch(drawPart(mk('battery'), 'cartoon', vis({ alarm: true })), /<text[^>]*transform=/);
+  // 新元件上的字（显示器数字、继电器常开常闭）也跟着转回来。
+  for (const t of ['relay', 'display']) for (const style of ['cartoon', 'symbol']) {
+    const s = drawPart({ ...mk(t), rot: 1 }, style, vis({ text: '5' }));
+    const texts = s.match(/<text\b[^>]*>/g);
+    assert.ok(texts?.length >= 2, `${t}/${style}`);
+    for (const x of texts) assert.match(x, /transform="[^"]*rotate\(-90 /, `${t}/${style}`);
+  }
+});
+
+test('relay contacts are labelled 常开 / 常闭, display inputs 1 2 4 8', () => {
+  for (const style of ['cartoon', 'symbol']) {
+    const r = drawPart(mk('relay'), style, vis());
+    assert.match(r, />常开</);
+    assert.match(r, />常闭</);
+    const d = drawPart(mk('display'), style, vis({ text: '-' }));
+    for (const k of ['1', '2', '4', '8']) assert.match(d, new RegExp(`>${k}<`), `${style}/${k}`);
+  }
+});
+
+test('tagged switch and relay draw their tag upright, untagged ones and other types do not', () => {
+  for (const type of ['switch', 'relay']) for (const style of ['cartoon', 'symbol']) for (const rot of [0, 1, 2, 3]) {
+    const tagged = drawPart({ ...mk(type), rot, tag: 'A7' }, style, vis());
+    const t = tagged.match(/<text\b[^>]*class="label tag"[^>]*>A7</);
+    assert.ok(t, `${type}/${style}/${rot}`);
+    if (rot) assert.match(t[0], new RegExp(`rotate\\(${-rot * 90} `), `${type}/${style}/${rot} upright`);
+    assert.doesNotMatch(tagged, /NaN|undefined|Infinity/);
+    assert.doesNotMatch(drawPart({ ...mk(type), rot }, style, vis()), /class="label tag"/);
+  }
+  assert.doesNotMatch(drawPart({ ...mk('lamp'), tag: 'L' }, 'cartoon', vis()), />L</);
 });
 
 test('node renders as a dot in both styles and stays out of the palette', () => {
@@ -48,4 +85,17 @@ test('node renders as a dot in both styles and stays out of the palette', () => 
     assert.doesNotMatch(s, /NaN|undefined|Infinity|class="term"/);
   }
   assert.equal(PART_TYPES.includes('node'), false);
+});
+
+test('dpdt lever knob is drawn in its own lever rect, clear of the upper blade', () => {
+  for (const style of ['cartoon', 'symbol']) {
+    const s = drawPart(mk('dpdt'), style, vis());
+    const rect = s.match(/<g class="lever"><rect x="([-\d.]+)" y="([-\d.]+)" width="([\d.]+)" height="([\d.]+)"/);
+    assert.ok(rect, style);
+    const [x, y, w, h] = rect.slice(1).map(Number);
+    assert.deepEqual([x, y, w, h], [PARTS.dpdt.leverRect.x0 * 40, PARTS.dpdt.leverRect.y0 * 40,
+      (PARTS.dpdt.leverRect.x1 - PARTS.dpdt.leverRect.x0) * 40, (PARTS.dpdt.leverRect.y1 - PARTS.dpdt.leverRect.y0) * 40]);
+    // 上下两组触点都在 y = ±40 以外，拨片区不碰到它们。
+    assert.ok(y > -40 && y + h < 40, style);
+  }
 });

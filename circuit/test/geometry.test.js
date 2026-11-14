@@ -68,3 +68,23 @@ test('a wire across one part detours around the body so it stays selectable', ()
   c.parts[0].rot = 1;
   assert.deepEqual(hitTest(c, [4.5, 8]), { kind: 'wire', id: 'w1' });
 });
+
+test('tall parts are selectable anywhere on their drawn body; dpdt lever sits between the two poles', () => {
+  const c = build({ parts: { K: ['relay'], D: ['display'], P: ['dpdt'] }, wires: [] });
+  const [k, d, p] = c.parts;
+  k.x = 5; k.y = 8; d.x = 12; d.y = 8; p.x = 19; p.y = 8;
+  assert.deepEqual(hitTest(c, [5.5, 9]), { kind: 'part', id: 'K' });
+  assert.deepEqual(hitTest(c, [4.5, 6.8]), { kind: 'part', id: 'K' });
+  assert.deepEqual(hitTest(c, [12, 6.5]), { kind: 'part', id: 'D' });
+  assert.deepEqual(hitTest(c, [12.5, 9.2]), { kind: 'part', id: 'D' });
+  assert.deepEqual(hitTest(c, [19.8, 9.6]), { kind: 'part', id: 'P' });
+  assert.deepEqual(hitTest(c, [19, 6.8]), { kind: 'part', id: 'P' });
+  assert.deepEqual(hitTest(c, [19, 8]), { kind: 'lever', id: 'P' });
+  // 小比例下拨片触控区也撑到 44 px（往四周均匀撑开）。
+  assert.deepEqual(hitTest(c, [19.85, 8], 0.6), { kind: 'lever', id: 'P' });
+  p.rot = 1;
+  assert.deepEqual(hitTest(c, [20.2, 8]), { kind: 'part', id: 'P' }); // 本地 (0, -1.2)
+  assert.deepEqual(hitTest(c, [19, 8]), { kind: 'lever', id: 'P' });
+  // 普通元件不受影响。
+  assert.equal(hitTest(build({ parts: { L: ['lamp'] }, wires: [] }), [3, 6]), null);
+});

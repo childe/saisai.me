@@ -1,7 +1,8 @@
 // 关卡判定工具：亮灭判断、开关组合表、预置电路构造。
 import { PHYS, PARTS } from './parts.js';
 import { terminalPoint } from './geometry.js';
-import { solve } from './solve.js';
+import { solve, relayKeyOf } from './solve.js';
+import { wantOn } from './relay.js';
 import { brokenSet } from './damage.js';
 import { createCircuit, addPart, addWire, cloneCircuit } from './circuit.js';
 
@@ -185,3 +186,37 @@ export function faultTask({ id, chapter, name, goal, palette, variants, preset }
     },
   };
 }
+
+// 继电器关卡的稳态求解：force 为 'off' / 'on' 时全部释放 / 吸合，直接解一次。
+// 否则从全部释放开始，每轮同时更新所有继电器，直到状态不变（稳定）；状态重复（振荡）、超过 32 轮或解不出都算不稳定。
+export function stableSolve(circuit, broken, force = null) {
+  const ids = circuit.parts.filter(p => p.type === 'relay').map(p => p.id);
+  if (force) {
+    const result = solve(circuit, broken, { on: new Set(force === 'on' ? ids : []) });
+    return result.ok ? { stable: true, result } : { stable: false };
+  }
+  let on = new Set();
+  const seen = new Set();
+  for (let n = 0; n < 32; n++) {
+    const result = solve(circuit, broken, { on });
+    if (!result.ok) return { stable: false };
+    const next = wantOn(circuit, result, on);
+    if (relayKeyOf(next) === relayKeyOf(on)) return { stable: true, result, on };
+    if (seen.has(relayKeyOf(next))) return { stable: false };
+    seen.add(relayKeyOf(on));
+    on = next;
+  }
+  return { stable: false };
+}
+
+// 继电器有没有用：任一输入组合下，把继电器全部释放或全部吸合，输出和真实稳态不同，就算有用。
+export function relayMatters(circuits, broken, output) {
+  return circuits.some(c => {
+    const real = stableSolve(c, broken);
+    const key = r => (r.stable ? output(r.result) : null);
+    return ['off', 'on'].some(f => key(stableSolve(c, broken, f)) !== key(real));
+  });
+}
+
+// 显示器读数（0–15）；没有这个元件返回 null。
+export const displayValue = (result, broken, id) => result?.parts?.[id]?.value ?? null;

@@ -11,13 +11,15 @@ export function formatReading(x, unit) {
   return `${s} ${unit}`;
 }
 
-export function partVisual(part, reading, damage, ok) {
+// relays：工作区的继电器状态，只用来画铁片位置（vis.on）。
+export function partVisual(part, reading, damage, ok, relays) {
   const burnt = !!damage?.broken?.[part.id];
   const alarm = !!damage?.alarm?.[part.id];
-  const vis = { glow: 0, burnt, alarm, spin: 0, volume: 0, text: null, stale: !ok };
+  const vis = { glow: 0, burnt, alarm, spin: 0, volume: 0, text: null, stale: !ok, on: !!relays?.on?.[part.id] };
   const isMeter = part.type === 'ammeter' || part.type === 'voltmeter';
   if (!ok || !reading) {
     if (isMeter) vis.text = '--';
+    if (part.type === 'display') vis.text = '-';
     return vis;
   }
   const v = fin(reading.v), i = fin(reading.i), p = fin(reading.p);
@@ -39,6 +41,9 @@ export function partVisual(part, reading, damage, ok) {
       break;
     case 'voltmeter':
       vis.text = formatReading(reading.v, 'V');
+      break;
+    case 'display': // 0–9 显示数字，10–15 显示 E
+      vis.text = !Number.isFinite(reading.value) ? '-' : reading.value > 9 ? 'E' : String(reading.value);
       break;
     default:
   }

@@ -7,9 +7,19 @@ export function brokenKeyOf(broken) {
   return [...broken].sort().join(',');
 }
 
+// 吸合的继电器集合的键，和 brokenKeyOf 一样。
+export function relayKeyOf(on) {
+  return [...on].sort().join(',');
+}
+
 const key = (id, term) => `${id}.${term}`;
 
-// 每类元件贡献的电导：返回 [[term0, term1, g], ...]。断开、未选、损坏的不出现。
+const DISPLAY_INPUTS = [['i1', 1], ['i2', 2], ['i4', 4], ['i8', 8]];
+
+// 元件内部连通的端点分组：继电器线圈和触点、双刀双掷两组互不相连。
+const groupsOf = type => PARTS[type].groups ?? [PARTS[type].terms];
+
+// 每类元件贡献的电导：返回 [[term0, term1, g], ...]。断开、未选、损坏的不出现。on：吸合的继电器 id。
 const CONDUCTANCES = {
   battery: p => [['p', 'n', 1 / (p.params.cells * PHYS.R_CELL)]],
   lamp: () => [['a', 'b', 1 / PHYS.LAMP_R]],
@@ -26,12 +36,22 @@ const CONDUCTANCES = {
   ammeter: () => [['p', 'n', 1 / PHYS.AMMETER_R]],
   voltmeter: () => [['p', 'n', 1 / PHYS.VOLTMETER_R]],
   fuse: () => [['a', 'b', 1 / PHYS.R_CLOSED]],
+  relay: (p, on) => [
+    ['x', 'y', 1 / PHYS.RELAY_R],
+    ['com', on.has(p.id) ? 'no' : 'nc', 1 / PHYS.R_CLOSED],
+  ],
+  button: p => (p.params.pressed ? [['a', 'b', 1 / PHYS.R_CLOSED]] : []),
+  dpdt: p => [
+    ['c1', `${p.params.to}1`, 1 / PHYS.R_CLOSED],
+    ['c2', `${p.params.to}2`, 1 / PHYS.R_CLOSED],
+  ],
+  display: () => DISPLAY_INPUTS.map(([t]) => [t, 'g', 1 / PHYS.DISPLAY_R]),
 };
 
-function conductancesOf(part, broken) {
+function conductancesOf(part, broken, on) {
   if (broken.has(part.id) || part.fault === 'open') return [];
   if (part.type === 'spdt' && part.fault === `open-${part.params.to}`) return []; // 故障只废掉这一掷
-  return CONDUCTANCES[part.type]?.(part) ?? [];
+  return CONDUCTANCES[part.type]?.(part, on) ?? [];
 }
 
 function emfOf(part, broken) {
@@ -39,8 +59,8 @@ function emfOf(part, broken) {
   return part.params.cells * PHYS.V_CELL;
 }
 
-function failed(circuit, bk) {
-  return { ok: false, rev: circuit.rev, topoRev: circuit.topoRev, brokenKey: bk, nodes: {}, parts: {}, wires: {} };
+function failed(circuit, bk, rk) {
+  return { ok: false, rev: circuit.rev, topoRev: circuit.topoRev, brokenKey: bk, relayKey: rk, nodes: {}, parts: {}, wires: {} };
 }
 
 // 画在同一格点上的端点看起来接在一起，也就当作接在一起：补一根看不见的导线。
@@ -58,7 +78,7 @@ function junctionWires(circuit) {
   return out;
 }
 
-// 并查集分量。wires 含隐含导线。
+// 并查集分量。wires 含隐含导线。元件内部按 groups 分组连通。
 function components(circuit, wires) {
   const parent = new Map();
   const find = x => {
@@ -70,8 +90,7 @@ function components(circuit, wires) {
   const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); };
   for (const p of circuit.parts) for (const t of PARTS[p.type].terms) parent.set(key(p.id, t), key(p.id, t));
   for (const p of circuit.parts) {
-    const ts = PARTS[p.type].terms;
-    for (let i = 1; i < ts.length; i++) union(key(p.id, ts[0]), key(p.id, ts[i]));
+    for (const ts of groupsOf(p.type)) for (let i = 1; i < ts.length; i++) union(key(p.id, ts[0]), key(p.id, ts[i]));
   }
   for (const w of wires) {
     const a = key(w.a.part, w.a.term), b = key(w.b.part, w.b.term);
@@ -101,7 +120,9 @@ function pnjlim(vnew, vold, vt, vcrit) {
 }
 
 // 求解一个含电池的分量。ledVd：LED id → 线性化工作点。返回 {nodeKey: V} 或 null。
-function solveComponent(nodeKeys, parts, wires, broken, ref, ledVd) {
+// 跨两个分量的元件（继电器）只盖两端都在本分量里的电导：不在 idx 里的端点会被当成参考地。
+function solveComponent(nodeKeys, parts, wires, broken, on, ref, ledVd) {
+  const inside = new Set(nodeKeys);
   const idx = new Map();
   for (const k of nodeKeys) if (k !== ref) idx.set(k, idx.size);
   const m = idx.size;
@@ -123,7 +144,10 @@ function solveComponent(nodeKeys, parts, wires, broken, ref, ledVd) {
   const nodeTerms = new Set(parts.filter(p => p.type === 'node').map(p => key(p.id, 'o')));
   for (const [k, i] of idx) if (!nodeTerms.has(k)) G[i][i] += PHYS.GMIN;
   for (const p of parts) {
-    for (const [t0, t1, g] of conductancesOf(p, broken)) stampG(key(p.id, t0), key(p.id, t1), g);
+    for (const [t0, t1, g] of conductancesOf(p, broken, on)) {
+      const a = key(p.id, t0), b = key(p.id, t1);
+      if (inside.has(a) && inside.has(b)) stampG(a, b, g);
+    }
     const emf = emfOf(p, broken);
     if (emf) stampI(key(p.id, 'n'), key(p.id, 'p'), emf / (p.params.cells * PHYS.R_CELL));
     if (ledVd.has(p.id)) {
@@ -143,12 +167,12 @@ function solveComponent(nodeKeys, parts, wires, broken, ref, ledVd) {
 }
 
 // LED 牛顿迭代；没有 LED 时只解一次。未收敛返回 null。
-function solveWithLeds(nodeKeys, parts, wires, broken, ref, maxIter) {
+function solveWithLeds(nodeKeys, parts, wires, broken, on, ref, maxIter) {
   const leds = parts.filter(p => p.type === 'led' && !broken.has(p.id));
   const ledVd = new Map(leds.map(p => [p.id, 0]));
-  if (!leds.length) return solveComponent(nodeKeys, parts, wires, broken, ref, ledVd);
+  if (!leds.length) return solveComponent(nodeKeys, parts, wires, broken, on, ref, ledVd);
   for (let it = 0; it < maxIter; it++) {
-    const V = solveComponent(nodeKeys, parts, wires, broken, ref, ledVd);
+    const V = solveComponent(nodeKeys, parts, wires, broken, on, ref, ledVd);
     if (!V) return null;
     let converged = true;
     for (const p of leds) {
@@ -164,9 +188,9 @@ function solveWithLeds(nodeKeys, parts, wires, broken, ref, maxIter) {
   return null;
 }
 
-function readPart(p, V, broken) {
+function readPart(p, V, broken, on) {
   const v = t => V[key(p.id, t)] ?? 0;
-  const gs = conductancesOf(p, broken);
+  const gs = conductancesOf(p, broken, on);
   const gOf = (a, b) => gs.find(([x, y]) => x === a && y === b)?.[2] ?? 0;
   switch (p.type) {
     case 'battery': {
@@ -191,7 +215,17 @@ function readPart(p, V, broken) {
       const i = gOf('c', p.params.to) * vv;
       return { v: vv, i, p: vv * i };
     }
-    default: {
+    case 'dpdt': { // 读第一组
+      const to = `${p.params.to}1`;
+      const vv = v('c1') - v(to);
+      const i = gOf('c1', to) * vv;
+      return { v: vv, i, p: vv * i };
+    }
+    case 'display': { // 输入比公共端高出阈值才算 1
+      const lit = broken.has(p.id) ? [] : DISPLAY_INPUTS.filter(([t]) => v(t) - v('g') >= PHYS.DISPLAY_ON_V);
+      return { v: 0, i: 0, p: 0, value: lit.reduce((s, [, w]) => s + w, 0) };
+    }
+    default: { // 继电器读线圈 x→y
       const [t0, t1] = PARTS[p.type].terms;
       const vv = v(t0) - v(t1);
       const i = gOf(t0, t1) * vv;
@@ -200,15 +234,33 @@ function readPart(p, V, broken) {
   }
 }
 
-export function solve(circuit, broken = new Set(), opts = { maxIter: 100 }) {
-  const bk = brokenKeyOf(broken);
+// 求解和 connectivity 共用的分量划分。断线视为不存在，重合端点补隐含导线。
+function split(circuit) {
   const allWires = [...circuit.wires.filter(w => w.fault !== 'open'), ...junctionWires(circuit)];
-  const { groups, find } = components(circuit, allWires);
+  return { allWires, ...components(circuit, allWires) };
+}
+
+// 按导线、重合端点和元件内部连通，返回 'partId.term' → 所在分量的根。
+// 电路里没有的端点键返回 undefined。
+export function connectivity(circuit) {
+  const { find } = split(circuit);
+  return find;
+}
+
+// opts.on：吸合的继电器 id 集合；opts.maxIter：LED 迭代上限。
+export function solve(circuit, broken = new Set(), opts = {}) {
+  const bk = brokenKeyOf(broken);
+  const on = opts.on ?? new Set();
+  const rk = relayKeyOf(on);
+  const { allWires, groups, find } = split(circuit);
+  // 元件挂到它每一组端点所在的分量下；继电器可能同时挂在两个分量。
   const partsByRoot = new Map();
   for (const p of circuit.parts) {
-    const r = find(key(p.id, PARTS[p.type].terms[0]));
-    if (!partsByRoot.has(r)) partsByRoot.set(r, []);
-    partsByRoot.get(r).push(p);
+    const roots = new Set(groupsOf(p.type).map(ts => find(key(p.id, ts[0]))));
+    for (const r of roots) {
+      if (!partsByRoot.has(r)) partsByRoot.set(r, []);
+      partsByRoot.get(r).push(p);
+    }
   }
   const wiresByRoot = new Map();
   for (const w of allWires) {
@@ -224,21 +276,21 @@ export function solve(circuit, broken = new Set(), opts = { maxIter: 100 }) {
     const ps = partsByRoot.get(root) ?? [];
     const bat = ps.find(p => p.type === 'battery' && !broken.has(p.id));
     if (!bat) { for (const k of g) nodes[k] = 0; continue; }
-    const V = solveWithLeds(g, ps, wiresByRoot.get(root) ?? [], broken, key(bat.id, 'n'), opts.maxIter ?? 100);
-    if (!V) return failed(circuit, bk);
+    const V = solveWithLeds(g, ps, wiresByRoot.get(root) ?? [], broken, on, key(bat.id, 'n'), opts.maxIter ?? 100);
+    if (!V) return failed(circuit, bk, rk);
     for (const k of g) {
-      if (!Number.isFinite(V[k])) return failed(circuit, bk);
+      if (!Number.isFinite(V[k])) return failed(circuit, bk, rk);
       nodes[k] = V[k];
     }
   }
   const parts = {};
-  for (const p of circuit.parts) parts[p.id] = readPart(p, nodes, broken);
+  for (const p of circuit.parts) parts[p.id] = readPart(p, nodes, broken, on);
   const wires = {};
   for (const w of circuit.wires) {
     if (w.fault === 'open') { wires[w.id] = { i: 0 }; continue; } // 断线：视为不存在
     const va = nodes[key(w.a.part, w.a.term)] ?? 0, vb = nodes[key(w.b.part, w.b.term)] ?? 0;
     wires[w.id] = { i: (va - vb) / wireR(w) };
   }
-  for (const r of Object.values(parts)) if (![r.v, r.i, r.p].every(Number.isFinite)) return failed(circuit, bk);
-  return { ok: true, rev: circuit.rev, topoRev: circuit.topoRev, brokenKey: bk, nodes, parts, wires };
+  for (const r of Object.values(parts)) if (![r.v, r.i, r.p].every(Number.isFinite)) return failed(circuit, bk, rk);
+  return { ok: true, rev: circuit.rev, topoRev: circuit.topoRev, brokenKey: bk, relayKey: rk, nodes, parts, wires };
 }

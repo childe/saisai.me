@@ -107,7 +107,7 @@ body {
   align-content: start;
   gap: 6px;
 }
-/* 两列小卡片，12 个元件一屏放得下；按住卡片拖动时不触发列表滚动 */
+/* 两列小卡片，16 个元件一屏放不下时在面板内滚动；按住卡片拖动时不触发列表滚动 */
 .pal-item {
   position: relative;
   border: 2px solid var(--line);
@@ -159,9 +159,11 @@ body {
 .part .sel { fill: none; stroke: var(--accent); stroke-width: 3; stroke-dasharray: 8 6; }
 .part text { font-family: inherit; fill: var(--ink); }
 .part .label { font-size: 15px; }
+.part .tag { font-size: 18px; font-weight: bold; }
 .part .pol { font-size: 18px; font-weight: bold; }
 .part .sym { font-size: 22px; font-weight: bold; }
 .part .reading { font-size: 18px; font-weight: bold; font-family: ui-monospace, Menlo, monospace; }
+.part .digit, .part .ghost { font-size: 60px; font-weight: bold; font-family: ui-monospace, Menlo, monospace; }
 .burnt { filter: grayscale(1); }
 .preview { fill: none; stroke: var(--accent); stroke-width: 4; stroke-dasharray: 10 8; }
 

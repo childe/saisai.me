@@ -24,7 +24,7 @@ test('node part is a hidden one-terminal type', () => {
   assert.deepEqual(PARTS.node.terms, ['o']);
   assert.deepEqual(PARTS.node.termPos.o, [0, 0]);
   assert.equal(PART_TYPES.includes('node'), false);
-  assert.equal(PART_TYPES.length, 12);
+  assert.equal(PART_TYPES.length, 16);
 });
 
 test('wire resistance defaults to R_WIRE and r is used by the solver', () => {

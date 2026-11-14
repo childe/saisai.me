@@ -45,3 +45,13 @@ test('effects and task UI are wired', () => {
   const html = read('index.html');
   assert.match(html, /暂时无法计算/);
 });
+
+test('button press gesture and relay click are wired', () => {
+  const app = read('app.js');
+  assert.match(app, /type:\s*'press'/);
+  assert.match(app, /type:\s*'release'/);
+  assert.match(app, /relays\.flips/);
+  assert.match(app, /'lostpointercapture',\s*e => endGesture\(e, true\)/);
+  assert.match(app, /\.click\(state\.muted\)/);
+  assert.match(read('sound.js'), /function click\(muted\)/);
+});
