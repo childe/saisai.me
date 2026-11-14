@@ -6,12 +6,13 @@ import {
 import { wirePoints, nearestOnRoute } from './geometry.js';
 import { createDamage, repair } from './damage.js';
 import { settle, tick } from './engine.js';
+import { createRelays } from './relay.js';
 import { TASKS, evaluateTask, remainingPalette } from './tasks.js';
 
 const HISTORY_MAX = 100;
 
 function makeSpace(circuit, damage = createDamage()) {
-  return { ...settle(circuit, damage), history: [] };
+  return { ...settle(circuit, damage, createRelays()), history: [] };
 }
 
 // 从 n 个变体里均匀选一个，排除上一个（prev），让「重来」换一道题。
@@ -69,7 +70,7 @@ function commit(state, circuit, { coalesce = false, extra = {}, damage } = {}) {
     history = [...history, space.circuit];
     if (history.length > HISTORY_MAX) history = history.slice(history.length - HISTORY_MAX);
   }
-  const ws = settle(circuit, damage ?? space.damage);
+  const ws = settle(circuit, damage ?? space.damage, space.relays);
   return withSpace(state, { ...space, ...ws, history }, extra);
 }
 
@@ -88,7 +89,7 @@ function restartTask(state, space, task) {
   const base = task.preset(variant);
   const fresh = { ...base, rev: c.rev + 1, topoRev: c.topoRev + 1, nextId: Math.max(base.nextId, c.nextId) };
   const next = {
-    ...space, ...settle(fresh, createDamage()), history: [],
+    ...space, ...settle(fresh, createDamage(), createRelays()), history: [],
     variantIndex, variant, progress: task.initProgress(), passed: false, hint: null,
   };
   return withSpace(state, next, { confirmClear: false, selection: null });
@@ -150,8 +151,16 @@ export function reduce(state, action) {
     case 'toggle': {
       const p = findPart(c, action.id);
       if (p?.type === 'switch') return commit(state, setParam(c, p.id, 'closed', !p.params.closed));
+      if (p?.type === 'dpdt') return commit(state, setParam(c, p.id, 'to', p.params.to === 'a' ? 'b' : 'a'));
       if (p?.type === 'spdt') return commit(state, setParam(c, p.id, 'to', p.params.to === 'a' ? 'b' : 'a'));
       return state;
+    }
+    case 'press':
+    case 'release': {
+      // 按钮按住不进撤销历史；预置锁定的按钮也能按
+      const p = findPart(c, action.id);
+      if (p?.type !== 'button') return state;
+      return commit(state, setParam(c, p.id, 'pressed', action.type === 'press'), { coalesce: true });
     }
     case 'setParam': {
       const p = findPart(c, action.id);
@@ -172,7 +181,7 @@ export function reduce(state, action) {
     case 'repair': {
       const d = repair(space.damage, action.id);
       if (d === space.damage) return state;
-      return withSpace(state, { ...space, ...settle(c, d) });
+      return withSpace(state, { ...space, ...settle(c, d, space.relays) });
     }
     case 'select': {
       const target = action.target ? { kind: action.target.kind, id: action.target.id } : null;
@@ -182,8 +191,10 @@ export function reduce(state, action) {
     case 'undo': {
       if (!space.history.length) return state;
       const snap = space.history[space.history.length - 1];
-      const restored = { ...snap, rev: c.rev + 1, topoRev: c.topoRev + 1, nextId: Math.max(snap.nextId, c.nextId) };
-      const ws = settle(restored, space.damage);
+      // 按钮不跟着撤销走：恢复出来的快照里一律是松开的
+      const released = snap.parts.map(p => (p.type === 'button' && p.params.pressed ? { ...p, params: { ...p.params, pressed: false } } : p));
+      const restored = { ...snap, parts: released, rev: c.rev + 1, topoRev: c.topoRev + 1, nextId: Math.max(snap.nextId, c.nextId) };
+      const ws = settle(restored, space.damage, space.relays);
       return withSpace(state, { ...space, ...ws, history: space.history.slice(0, -1) }, { selection: null });
     }
     case 'askClear':
@@ -196,7 +207,7 @@ export function reduce(state, action) {
       const base = createCircuit();
       const fresh = { ...base, rev: c.rev + 1, topoRev: c.topoRev + 1, nextId: Math.max(base.nextId, c.nextId) };
       const history = [...space.history, c].slice(-HISTORY_MAX);
-      return withSpace(state, { ...space, ...settle(fresh, createDamage()), history }, { confirmClear: false, selection: null });
+      return withSpace(state, { ...space, ...settle(fresh, createDamage(), createRelays()), history }, { confirmClear: false, selection: null });
     }
     case 'submitAnswer': {
       if (space.passed) return state; // 过关后再答不改结果
