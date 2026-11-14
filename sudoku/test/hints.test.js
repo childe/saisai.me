@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getSpec } from '../lib/grid.js';
-import { findSteps } from '../lib/techniques.js';
+import { findSteps, findStep, applyStep } from '../lib/techniques.js';
 import { MAX_LAYER, hintView, wrongView, stuckView } from '../lib/hints.js';
+import { parse } from '../lib/grid.js';
+import { CHAPTERS } from '../data/drills.js';
 import { board9 as board } from './fixtures.js';
 
 const s = getSpec(9);
@@ -149,4 +151,31 @@ test('hidden layer 3 shading leaves only the target open (box, row, column)', ()
     const open = step.unit.cells.filter(c => !v[c] && !l3.shadeCells.includes(c));
     assert.deepEqual(open, [step.cell]);
   }
+});
+
+test('hidden layer 3 leaves only the target cell when the single comes from eliminations', () => {
+  let checked = 0;
+  for (const slot of CHAPTERS[2].slots) for (const d of slot) {
+    const sp = getSpec(d.size);
+    let values = parse(d.puzzle);
+    let eliminated = new Set();
+    for (let guard = 0; guard < 200; guard++) {
+      const step = findStep(values, sp, eliminated);
+      if (!step) break;
+      if (step.technique === 'hidden' && step.unit.cells.some(c => !values[c] && c !== step.cell && eliminated.has(`${c}:${step.digit}`))) {
+        const v = hintView(step, 3, values, sp, eliminated);
+        const struck = new Set(v.strike.map(e => e.cell));
+        assert.ok(!struck.has(step.cell));
+        assert.ok(v.strike.every(e => e.digit === step.digit));
+        const open = step.unit.cells.filter(c => !values[c] && !v.shadeCells.includes(c) && !struck.has(c));
+        assert.deepEqual(open, [step.cell]);
+        for (const e of v.strike) assert.ok(v.showCandidates.some(x => x.cell === e.cell));
+        assert.equal(v.flashCell, null);
+        checked++;
+      }
+      ({ values, eliminated } = applyStep(values, eliminated, step));
+    }
+    if (checked >= 5) break;
+  }
+  assert.ok(checked > 0);
 });

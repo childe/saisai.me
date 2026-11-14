@@ -28,7 +28,7 @@ function candList(cells, values, spec, eliminated) {
   return [...new Set(cells)].map(cell => ({ cell, digits: bits(cand[cell]) }));
 }
 
-function hiddenView(step, layer, values, spec) {
+function hiddenView(step, layer, values, spec, eliminated) {
   if (layer === 1) {
     return view({ text: `这${unitName(step.unit.kind)}里有个数能确定`, icon: '🔍', focusCells: step.unit.cells.slice() });
   }
@@ -40,7 +40,13 @@ function hiddenView(step, layer, values, spec) {
   for (const c of digitCells) for (const p of spec.peers[c]) peers.add(p);
   const shadeCells = [];
   values.forEach((v, cell) => { if (!v && peers.has(cell)) shadeCells.push(cell); });
-  return view({ ...base, text: `${step.digit} 不能填在灰格里`, shadeCells });
+  const shaded = new Set(shadeCells);
+  const struck = step.unit.cells.filter(c => !values[c] && !shaded.has(c) && c !== step.cell && eliminated.has(`${c}:${step.digit}`));
+  return view({
+    ...base, text: `${step.digit} 不能填在灰格里`, shadeCells,
+    strike: struck.map(cell => ({ cell, digit: step.digit })),
+    showCandidates: candList(struck, values, spec, eliminated),
+  });
 }
 
 function nakedView(step, layer, values, spec, eliminated) {
