@@ -71,6 +71,8 @@ test('page has all controls', () => {
     'id="win-best"',
     'id="win-record"',
     'id="win-path-note"',
+    'id="star-count"',
+    'id="win-stars"',
   ];
   for (const n of needles) assert.ok(html.includes(n), n);
   assert.match(html, /id="fog-minus"[^>]*>−</);

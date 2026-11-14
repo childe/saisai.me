@@ -319,7 +319,8 @@
         #win-time,
         #win-best,
         #win-record,
-        #win-path-note {
+        #win-path-note,
+        #win-stars {
             margin: 0 0 8px;
         }
 
@@ -448,7 +449,7 @@
 
         <div id="stage">
             <canvas id="minimap"></canvas>
-            <span id="hud"><span id="timer">⏱ 00:00.0</span></span>
+            <span id="hud"><span id="timer">⏱ 00:00.0</span><span id="star-count">⭐ 0/3</span></span>
             <span id="end-arrow" hidden><span class="end-arrow-head"></span><span class="end-dist"></span></span>
             <span id="end-marker" hidden><span class="end-dot"></span><span class="end-dist"></span></span>
             <div id="stick" hidden><div id="stick-knob"></div></div>
@@ -473,6 +474,7 @@
             <p id="win-best" hidden></p>
             <p id="win-record" hidden>新纪录!</p>
             <p id="win-path-note" hidden>这局看了道路，不计入最佳成绩</p>
+            <p id="win-stars"></p>
             <button id="again-btn">再来一局</button>
         </div>
     </div>

@@ -4789,6 +4789,323 @@ def check_b5(browser, base):
     return ok, " ".join(r[1] for r in results)
 
 
+def star_cells(page):
+    return [[st["row"], st["col"]] for st in m3(page, "stars")]
+
+
+def first_clear_star(page):
+    """第一颗「从起点出发的最短路不经过其他星星格」的星星，返回 (star, path)。"""
+    return logic(
+        page,
+        """(() => {
+          const S = M.stars;
+          for (const s of S) {
+            const p = L.findPath(M.connections, {row: 0, col: 0}, s);
+            const others = S.filter((o) => o !== s && p.some(([r, c]) => r === o.row && c === o.col));
+            if (p.length && !others.length) return [s, p];
+          }
+          return [null, []];
+        })()""",
+    )
+
+
+def check_b10(browser, base):
+    """星星数量 3 / 5 / 7、信息栏计数文字；同 seed 刷新位置不变；与页面里调用 placeStars 一致；
+    20 → 10 后多出来的星星网格隐藏。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    details = []
+    try:
+        wait_idle(page)
+        for n, want in [(10, 3), (15, 5), (20, 7)]:
+            page.click(f"#size-{n}")
+            wait_idle(page)
+            total = m3(page, "starTotal")
+            text = page.inner_text("#star-count")
+            details.append(f"{n}: total={total} text={text!r}")
+            if total != want or text != f"⭐ 0/{want}":
+                return False, " ".join(details)
+        before = star_cells(page)
+        page.reload()
+        wait_idle(page)
+        after = star_cells(page)
+        ref = gameplay(
+            page,
+            "G.placeStars(M.connections, M.seed, G.starCountFor(M.size)).map((s) => [s.row, s.col])",
+        )
+        details.append(f"reload same={before == after} placeStars same={after == ref}")
+        if before != after or after != ref:
+            return False, " ".join(details)
+        errs = list(errors)
+    finally:
+        close(page)
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=20&debug=1",
+        init_script=preset_storage("0", "5"),
+    )
+    try:
+        wait_idle(page)
+        v20 = m3(page, "starMeshesVisible")
+        page.click("#size-10")
+        wait_idle(page)
+        v10 = m3(page, "starMeshesVisible")
+        details.append(f"fogOff meshesVisible 20={v20} ->10={v10}")
+        ok = v20 == 7 and v10 == 3
+        ok_err, msg = no_errors(errs + errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_b11(browser, base):
+    """收集星星：计数、隐藏、小地图标记消失；来回走不重复计数；通关层显示 1 / 3；再来一局清零。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    details = []
+    try:
+        wait_idle(page)
+        star, path = first_clear_star(page)
+        details.append(f"star={star} path={len(path)}")
+        if not star:
+            return False, " ".join(details)
+        idx = [
+            i
+            for i, st in enumerate(m3(page, "stars"))
+            if st["row"] == star["row"] and st["col"] == star["col"]
+        ][0]
+        ok_walk = walk_to(page, star["row"], star["col"])
+        n1 = m3(page, "starsCollected")
+        text = page.inner_text("#star-count")
+        st = m3(page, "stars")[idx]
+        details.append(f"walk={ok_walk} collected={n1} text={text!r} star={st}")
+        if not (
+            ok_walk
+            and n1 == 1
+            and text == "⭐ 1/3"
+            and st["collected"]
+            and not st["visible"]
+        ):
+            return False, " ".join(details)
+        prev = path[-2]
+        walk_to(page, *prev)
+        walk_to(page, star["row"], star["col"])
+        walk_to(page, *prev)
+        n2 = m3(page, "starsCollected")
+        wait_frames(page, 3)
+        lay = m3(page, "minimapLayout")
+        px = px_at(minimap_image(page), mini_px(lay, star["row"], star["col"]))
+        d = rgb_dist(px, hex_rgb("#ffb300"))
+        details.append(f"back&forth collected={n2} miniCenter={px} distStar={d:.1f}")
+        if n2 != 1 or d <= 60:
+            return False, " ".join(details)
+        cur = m3(page, "playerCell")
+        p = logic(
+            page,
+            "L.findPath(M.connections, arg, {row: M.size - 1, col: M.size - 1})",
+            cur,
+        )
+        page.evaluate(
+            "([r, c]) => window.__maze3d.teleportForTest(r, c)", [p[-2][0], p[-2][1]]
+        )
+        won = walk_to_exit(page)
+        ws = page.inner_text("#win-stars")
+        details.append(f"won={won} winStars={ws!r}")
+        if not won or "1 / 3" not in ws:
+            return False, " ".join(details)
+        page.click("#again-btn")
+        wait_idle(page)
+        n3 = m3(page, "starsCollected")
+        details.append(f"again collected={n3}")
+        ok = n3 == 0
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_b12(browser, base):
+    """星星与迷雾：视野外隐藏、小地图不暴露；到相邻格后显示并出现标记；离开后 3D 隐藏、标记保留。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        init_script=preset_storage("1", "1"),
+    )
+    details = []
+    try:
+        wait_idle(page)
+        star = m3(page, "stars")[0]
+        r, c = star["row"], star["col"]
+        colors = mini_colors(page)
+
+        def center_px():
+            wait_frames(page, 3)
+            lay = m3(page, "minimapLayout")
+            return px_at(minimap_image(page), mini_px(lay, r, c))
+
+        p0 = center_px()
+        d0 = rgb_dist(p0, colors["fog"])
+        details.append(
+            f"star=({r},{c}) visible={star['visible']} center={p0} distFog={d0:.1f}"
+        )
+        if star["visible"] or d0 > 20:
+            return False, " ".join(details)
+        nb = next(
+            (r + dr, c + dc)
+            for dr in (-1, 0, 1)
+            for dc in (-1, 0, 1)
+            if (dr or dc) and 0 <= r + dr < 10 and 0 <= c + dc < 10
+        )
+        page.evaluate("([r, c]) => window.__maze3d.teleportForTest(r, c)", list(nb))
+        v1 = m3(page, "stars")[0]["visible"]
+        p1 = center_px()
+        d1 = rgb_dist(p1, colors["star"])
+        details.append(f"near {nb}: visible={v1} center={p1} distStar={d1:.1f}")
+        if not v1 or d1 > 40:
+            return False, " ".join(details)
+        page.evaluate("() => window.__maze3d.teleportForTest(0, 0)")
+        v2 = m3(page, "stars")[0]["visible"]
+        p2 = center_px()
+        d2 = rgb_dist(p2, colors["star"])
+        details.append(f"away: visible={v2} center={p2} distStar={d2:.1f}")
+        ok = not v2 and d2 <= 40
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def avg3(img, x, y):
+    """(x, y)（设备像素）周围 3×3 平均色。"""
+    px = img.load()
+    acc = [0, 0, 0]
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            xx = min(img.size[0] - 1, max(0, int(x) + dx))
+            yy = min(img.size[1] - 1, max(0, int(y) + dy))
+            v = px[xx, yy]
+            for k in range(3):
+                acc[k] += v[k]
+    return tuple(a / 9 for a in acc)
+
+
+def check_b13(browser, base):
+    """星星可见度：四个主题，星星中心颜色与周围 0.6 格的地板、与道路都相差 ≥ 60。"""
+    details = []
+    ok = True
+    errs = []
+    for tid in THEME_IDS:
+        page, errors = open_page(
+            browser,
+            f"{base}{PAGE}?seed={S}&size=10&debug=1",
+            viewport={"width": 1280, "height": 800},
+            init_script=theme_init(tid) + preset_storage("0", "5"),
+        )
+        try:
+            wait_idle(page)
+            page.evaluate("() => window.__maze3d.setStarsForTest({ paused: true })")
+            star = m3(page, "stars")[0]
+            r, c = star["row"], star["col"]
+            nb = logic(
+                page,
+                "Object.values(L.DIRS).map(([dr, dc]) => ({row: arg.row + dr, col: arg.col + dc}))"
+                ".find((n) => L.canMove(M.connections, arg, n))",
+                {"row": r, "col": c},
+            )
+            page.evaluate(
+                "([r, c]) => window.__maze3d.teleportForTest(r, c)",
+                [nb["row"], nb["col"]],
+            )
+            face_yaw(page, math.atan2(c - nb["col"], -(r - nb["row"])))
+            wait_camera_still(page)
+            wait_frames(page, 3)
+            cam = m3(page, "cameraState")
+            cw, ch = page.evaluate(
+                f"() => {{ const c = document.querySelector('{CANVAS_SEL}'); return [c.clientWidth, c.clientHeight]; }}"
+            )
+            sp = project_css(cam, (c + 0.5, 0.35, r + 0.5), cw, ch)
+            img = canvas_image(page)
+            ratio = img.size[0] / cw
+
+            def color_at(pt):
+                return avg3(img, pt[0] * ratio, pt[1] * ratio)
+
+            if sp is None or not (0 <= sp[0] < cw and 0 <= sp[1] < ch):
+                details.append(f"{tid}: star off screen {sp}")
+                ok = False
+                continue
+            sc = color_at(sp)
+
+            def ring(kind):
+                out = []
+                for k in range(8):
+                    a = k * math.pi / 4
+                    x = c + 0.5 + 0.6 * math.cos(a)
+                    z = r + 0.5 + 0.6 * math.sin(a)
+                    cell = (math.floor(z), math.floor(x))
+                    if not (0 <= cell[0] < 10 and 0 <= cell[1] < 10):
+                        continue
+                    if m3(page, f"floorKindAt({cell[0]}, {cell[1]})") != kind:
+                        continue
+                    pt = page.evaluate(
+                        "([x, z]) => window.__maze3d.floorPointCss(x, z)", [x, z]
+                    )
+                    if pt:
+                        out.append((pt["x"], pt["y"]))
+                return out
+
+            floor_pts = ring("floor")
+            floor_d = [rgb_dist(sc, color_at(pt)) for pt in floor_pts]
+            page.click("#show-path-btn")
+            wait_frames(page, 3)
+            img2 = canvas_image(page)
+
+            def color2(pt):
+                return avg3(img2, pt[0] * ratio, pt[1] * ratio)
+
+            sc2 = color2(sp)
+            if m3(page, f"floorKindAt({r}, {c})") == "path":
+                path_pts = ring("path")
+                src = "ring"
+            else:
+                cell = logic(
+                    page,
+                    """(() => { let best = null, bd = 1e9;
+                      for (let rr = 0; rr < M.size; rr++) for (let cc = 0; cc < M.size; cc++) {
+                        if (M.floorKindAt(rr, cc) !== 'path') continue;
+                        if (!M.floorSamplePoints(rr, cc).length) continue;
+                        const d = Math.hypot(rr - arg.row, cc - arg.col);
+                        if (d < bd) { bd = d; best = [rr, cc]; } }
+                      return best; })()""",
+                    {"row": r, "col": c},
+                )
+                path_pts = (
+                    [
+                        (q["x"], q["y"])
+                        for q in m3(page, f"floorSamplePoints({cell[0]}, {cell[1]})")
+                    ]
+                    if cell
+                    else []
+                )
+                src = f"cell{cell}"
+            path_d = [rgb_dist(sc2, color2(pt)) for pt in path_pts]
+            good = (
+                len(floor_d) >= 1
+                and min(floor_d) >= 60
+                and len(path_d) >= 1
+                and min(path_d) >= 60
+            )
+            ok = ok and good
+            details.append(
+                f"{tid}: star={tuple(round(v) for v in sc)} floor n={len(floor_d)}"
+                f" min={min(floor_d) if floor_d else None!s:.5} path({src}) n={len(path_d)}"
+                f" min={min(path_d) if path_d else None!s:.5} ok={good}"
+            )
+            errs += errors
+        finally:
+            close(page)
+    ok_err, msg = no_errors(errs)
+    return ok and ok_err, (" ".join(details) + " " + msg).strip()
+
+
 CHECKS = {
     "1": check_1,
     "10": check_10,
@@ -4846,6 +5163,10 @@ CHECKS = {
     "b3": check_b3,
     "b4": check_b4,
     "b5": check_b5,
+    "b10": check_b10,
+    "b11": check_b11,
+    "b12": check_b12,
+    "b13": check_b13,
 }
 
 

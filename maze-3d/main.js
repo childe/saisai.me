@@ -91,6 +91,12 @@ import {
   formatTime,
   updateBest,
   createGameTimer,
+  placeStars,
+  starCountFor,
+  starHit,
+  STAR_COLORS,
+  STAR_SHAPE,
+  STAR_FLOAT,
 } from './gameplay.js';
 
 const EYE_HEIGHT = 0.45;
@@ -392,6 +398,30 @@ function start() {
   const star = buildStar();
   scene.add(star);
 
+  // 可收集的星星：启动时按最大数量建好网格，共用一份几何与材质；buildMaze 只设位置和 visible
+  const MAX_STARS = 7;
+  const starGroup = new THREE.Group();
+  const starMeshes = [];
+  {
+    const geo = new THREE.ExtrudeGeometry(starShape(STAR_SHAPE.outer, STAR_SHAPE.inner), {
+      depth: STAR_SHAPE.depth,
+      bevelEnabled: false,
+    });
+    geo.center();
+    // ExtrudeGeometry 组 0 为正反面、组 1 为侧面
+    const mats = [
+      new THREE.MeshLambertMaterial({ color: STAR_COLORS.face, emissive: STAR_COLORS.emissive }),
+      new THREE.MeshLambertMaterial({ color: STAR_COLORS.side }),
+    ];
+    for (let i = 0; i < MAX_STARS; i++) {
+      const m = new THREE.Mesh(geo, mats);
+      m.visible = false;
+      starMeshes.push(m);
+      starGroup.add(m);
+    }
+  }
+  scene.add(starGroup);
+
   let connections = null;
   let segments = [];
   let boxes = [];
@@ -427,6 +457,14 @@ function start() {
   let lastResult = null; // 最近一次通关的结算
   let hudTimerText = ''; // #timer 当前显示的文字，变化才写 DOM
   const timerEl = $('timer');
+
+  // ---------- 本局：星星 ----------
+  const stars = []; // { row, col, collected }
+  let starsCollected = 0;
+  let starTime = 0;
+  let starsPaused = false; // setStarsForTest 用：停止自转与浮动
+  let hudStarText = '';
+  const starCountEl = $('star-count');
 
   const tmpMatrix = new THREE.Matrix4();
   const tmpColor = new THREE.Color();
@@ -465,10 +503,9 @@ function start() {
     return { player: g, bodyGroup: body };
   }
 
-  function buildStar() {
+  // 五角星轮廓（XY 平面，尖朝 +y）；终点星星与可收集的星星共用
+  function starShape(outer, inner) {
     const shape = new THREE.Shape();
-    const outer = 0.25;
-    const inner = 0.1;
     for (let i = 0; i < 10; i++) {
       const r = i % 2 === 0 ? outer : inner;
       const a = Math.PI / 2 + (i * Math.PI) / 5;
@@ -478,7 +515,11 @@ function start() {
       else shape.lineTo(x, y);
     }
     shape.closePath();
-    const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.06, bevelEnabled: false });
+    return shape;
+  }
+
+  function buildStar() {
+    const geo = new THREE.ExtrudeGeometry(starShape(0.25, 0.1), { depth: 0.06, bevelEnabled: false });
     geo.center();
     return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: COLORS.star }));
   }
@@ -593,6 +634,16 @@ function start() {
     pushFootprint(footTrail, 0);
     timer.reset();
     pathUsedThisRun = false;
+    stars.length = 0;
+    for (const p of placeStars(connections, seed, starCountFor(size))) {
+      stars.push({ row: p.row, col: p.col, collected: false });
+    }
+    starsCollected = 0;
+    for (let i = 0; i < starMeshes.length; i++) {
+      const m = starMeshes[i];
+      if (i < stars.length) m.position.set(stars[i].col + 0.5, STAR_FLOAT.base, stars[i].row + 0.5);
+      m.visible = false;
+    }
     updateHud();
 
     updateSceneFog();
@@ -625,6 +676,7 @@ function start() {
   function recomputeFog() {
     fogRecomputeCount += 1;
     markExplored(explored, size, display, fogRadius, fogOn);
+    applyStarVisibility();
     if (showPath) {
       const path = findPath(connections, display, { row: size - 1, col: size - 1 });
       pathSet = new Set(path.map(([r, c]) => r * size + c));
@@ -635,6 +687,14 @@ function start() {
     applyFloorColors();
     miniBaseDirty = true;
     drawMinimap();
+  }
+
+  // 星星与墙同一迷雾判定；已收集的一直隐藏
+  function applyStarVisibility() {
+    for (let i = 0; i < starMeshes.length; i++) {
+      const st = stars[i];
+      starMeshes[i].visible = i < stars.length && !st.collected && cellVisible(st.row, st.col);
+    }
   }
 
   function updateFogUi() {
@@ -1021,9 +1081,21 @@ function start() {
     return p;
   }
 
-  // 星星标记（画在脚印之上）；星星接入之前为空
-  // eslint-disable-next-line no-unused-vars
-  function drawStarMarkers(ctx, lay) {}
+  // 星星标记（画在脚印之上）：未收集、所在格已探索的星星；未探索的不画，免得提前暴露位置
+  function drawStarMarkers(ctx, lay) {
+    const { dpr, pad, cell } = lay;
+    const r = Math.max(2 * dpr, 0.22 * cell);
+    ctx.fillStyle = MINI_COLORS.star;
+    ctx.strokeStyle = MINI_COLORS.starEdge;
+    ctx.lineWidth = Math.max(1, dpr);
+    for (const st of stars) {
+      if (st.collected || !explored[st.row * size + st.col]) continue;
+      ctx.beginPath();
+      ctx.arc(pad + (st.col + 0.5) * cell, pad + (st.row + 0.5) * cell, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
 
   function drawMinimap(force = false) {
     if (minimap.hidden || !connections) return;
@@ -1209,6 +1281,9 @@ function start() {
         timer.start();
         pathUsedThisRun ||= showPath;
       }
+      for (let i = 0; i < stars.length; i++) {
+        if (!stars[i].collected && starHit(playerState.x, playerState.z, stars[i])) collectStar(i);
+      }
       const c = cellOf(playerState);
       c.row = Math.min(size - 1, Math.max(0, c.row));
       c.col = Math.min(size - 1, Math.max(0, c.col));
@@ -1245,7 +1320,12 @@ function start() {
     const key = 'maze3d.best.' + size;
     const r = updateBest(storageGet(key), timeMs, eligible);
     if (r.write) storageSet(key, r.write);
-    lastResult = { timeMs, bestMs: r.best, isNew: r.isNew, eligible, stars: 0, total: 0 };
+    const total = stars.length;
+    lastResult = { timeMs, bestMs: r.best, isNew: r.isNew, eligible, stars: starsCollected, total };
+    $('win-stars').textContent =
+      starsCollected === total
+        ? `⭐ 全部 ${total} 颗星星都收集到了！`
+        : `⭐ 收集了 ${starsCollected} / ${total} 颗星星`;
     $('win-time').textContent = `用时 ${formatTime(timeMs)}`;
     const bestEl = $('win-best');
     bestEl.hidden = r.best === null;
@@ -1256,12 +1336,42 @@ function start() {
     startConfetti();
   }
 
+  function collectStar(i) {
+    stars[i].collected = true;
+    starsCollected += 1;
+    starMeshes[i].visible = false;
+    miniBaseDirty = true;
+    updateHud();
+  }
+
+  // 自转与浮动；暂停时停在基准高度、正面朝向相机
+  function updateStars(dt) {
+    if (!starsPaused) starTime += dt;
+    for (let i = 0; i < stars.length; i++) {
+      const m = starMeshes[i];
+      if (!m.visible) continue;
+      if (starsPaused) {
+        m.position.y = STAR_FLOAT.base;
+        m.rotation.y = Math.atan2(camera.position.x - m.position.x, camera.position.z - m.position.z);
+      } else {
+        m.rotation.y = STAR_FLOAT.spin * starTime + 0.9 * i;
+        m.position.y =
+          STAR_FLOAT.base + STAR_FLOAT.amp * Math.sin((2 * Math.PI * starTime) / STAR_FLOAT.period + 1.3 * i);
+      }
+    }
+  }
+
   // 信息栏：文字变化才写 DOM（计时每秒最多写 10 次）
   function updateHud() {
     const t = '⏱ ' + formatTime(timer.elapsedMs);
     if (t !== hudTimerText) {
       timerEl.textContent = t;
       hudTimerText = t;
+    }
+    const k = `⭐ ${starsCollected}/${stars.length}`;
+    if (k !== hudStarText) {
+      starCountEl.textContent = k;
+      hudStarText = k;
     }
   }
 
@@ -1470,6 +1580,7 @@ function start() {
     star.rotation.y += dt;
     updateBeam(dt);
     updateCamera(dt);
+    updateStars(dt);
     syncGround();
     updateSceneFog();
     updateEndHint();
@@ -1522,7 +1633,10 @@ function start() {
   // 不计入帧时间统计，避免启动时的一次性开销误触发降画质
   syncGround();
   updateSceneFog();
+  // 星星可能开局全在迷雾外：先全部显示渲染一次，让着色器在这里编译，再恢复可见性
+  for (const m of starMeshes) m.visible = true;
   renderer.render(scene, camera);
+  applyStarVisibility();
 
   // ---------- 调试对象 ----------
   function sampleDistinctColors() {
@@ -1573,26 +1687,37 @@ function start() {
       [0.3, 0.3],
     ];
     for (const [dx, dz] of offsets) {
-      const point = new THREE.Vector3(col + 0.5 + dx, 0.001, row + 0.5 + dz);
-      const ndc = point.clone().project(camera);
-      if (Math.abs(ndc.x) > 1 || Math.abs(ndc.y) > 1 || ndc.z > 1) continue;
-      const dist = camera.position.distanceTo(point);
-      const dir = point.clone().sub(camera.position).normalize();
-      raycaster.set(camera.position, dir);
-      raycaster.far = dist;
-      // 光柱是加法混合，会改变它后面地板的颜色：被光柱覆盖的点也不取样
-      const hits = raycaster.intersectObjects([walls, star, player, beam], true);
-      const blocked = hits.some((h) => {
-        if (h.distance >= dist - 0.01) return false;
-        if (h.object === beam && !beam.visible) return false;
-        if (!player.visible && isPlayerPart(h.object)) return false;
-        if (h.object === walls && h.instanceId !== undefined && instanceHidden(walls, h.instanceId)) return false;
-        return true;
-      });
-      if (blocked) continue;
-      out.push({ x: ((ndc.x + 1) / 2) * canvas.clientWidth, y: ((1 - ndc.y) / 2) * canvas.clientHeight });
+      const p = floorPointCss(col + 0.5 + dx, row + 0.5 + dz);
+      if (p) out.push(p);
     }
     return out;
+  }
+
+  // 地板上一点 (x, 0.001, z) 在画面内、且没被墙 / 终点星星 / 收集星星 / 小人 / 光柱挡住时，
+  // 返回相对 renderer canvas 左上角的 CSS 像素；否则 null
+  function floorPointCss(x, z) {
+    camera.updateMatrixWorld();
+    walls.boundingSphere = null;
+    const canvas = renderer.domElement;
+    const point = new THREE.Vector3(x, 0.001, z);
+    const ndc = point.clone().project(camera);
+    if (Math.abs(ndc.x) > 1 || Math.abs(ndc.y) > 1 || ndc.z > 1) return null;
+    const dist = camera.position.distanceTo(point);
+    const dir = point.clone().sub(camera.position).normalize();
+    raycaster.set(camera.position, dir);
+    raycaster.far = dist;
+    // 光柱是加法混合，会改变它后面地板的颜色：被光柱覆盖的点也不取样
+    const hits = raycaster.intersectObjects([walls, star, starGroup, player, beam], true);
+    const blocked = hits.some((h) => {
+      if (h.distance >= dist - 0.01) return false;
+      if (h.object === beam && !beam.visible) return false;
+      if (!h.object.visible) return false;
+      if (!player.visible && isPlayerPart(h.object)) return false;
+      if (h.object === walls && h.instanceId !== undefined && instanceHidden(walls, h.instanceId)) return false;
+      return true;
+    });
+    if (blocked) return null;
+    return { x: ((ndc.x + 1) / 2) * canvas.clientWidth, y: ((1 - ndc.y) / 2) * canvas.clientHeight };
   }
 
   // 画面上一点（相对 canvas 左上角的 CSS 像素）是否落在迷宫物体上：未隐藏的墙、地板、星星、可见的小人
@@ -1603,8 +1728,9 @@ function start() {
     const ndc = new THREE.Vector2((x / canvas.clientWidth) * 2 - 1, 1 - (y / canvas.clientHeight) * 2);
     raycaster.setFromCamera(ndc, camera);
     raycaster.far = Infinity;
-    const hits = raycaster.intersectObjects([walls, floor, star, player], true);
+    const hits = raycaster.intersectObjects([walls, floor, star, starGroup, player], true);
     return hits.some((h) => {
+      if (!h.object.visible) return false;
       if (!player.visible && isPlayerPart(h.object)) return false;
       if (h.object === walls && h.instanceId !== undefined && instanceHidden(walls, h.instanceId)) return false;
       return true;
@@ -1750,6 +1876,7 @@ function start() {
       return kindAt(row, col);
     },
     floorSamplePoints,
+    floorPointCss,
     wallContrast,
     get sceneFog() {
       if (!scene.fog) return null;
@@ -1827,6 +1954,23 @@ function start() {
     exploredAt(row, col) {
       return explored[row * size + col] === 1;
     },
+    get stars() {
+      return stars.map((st, i) => ({
+        row: st.row,
+        col: st.col,
+        collected: st.collected,
+        visible: starMeshes[i].visible,
+      }));
+    },
+    get starsCollected() {
+      return starsCollected;
+    },
+    get starTotal() {
+      return stars.length;
+    },
+    get starMeshesVisible() {
+      return starMeshes.filter((m) => m.visible).length;
+    },
     get timer() {
       return {
         started: timer.started,
@@ -1894,6 +2038,9 @@ function start() {
     debugApi.setBeamForTest = (v = {}) => {
       if (typeof v.visible === 'boolean') beam.visible = v.visible;
       if (typeof v.paused === 'boolean') beamPaused = v.paused;
+    };
+    debugApi.setStarsForTest = (v = {}) => {
+      if (typeof v.paused === 'boolean') starsPaused = v.paused;
     };
     debugApi.setZoomForTest = (z) => {
       cameraZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
