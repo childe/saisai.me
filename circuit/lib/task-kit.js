@@ -49,7 +49,7 @@ export function presetCircuit(parts, wires) {
     const [pa, ta] = a.split('.'), [pb, tb] = b.split('.');
     const r = addWire(c, { part: ids[pa], term: ta }, { part: ids[pb], term: tb });
     if (!r) throw new Error(`presetCircuit: 导线 ${a} - ${b} 加不上`);
-    c ={ ...r.circuit, wires: r.circuit.wires.map(w => (w.id === r.id ? { ...w, ...extra, preset: true } : w)) };
+    c = { ...r.circuit, wires: r.circuit.wires.map(w => (w.id === r.id ? { ...w, ...extra, preset: true } : w)) };
   }
   return c;
 }
@@ -64,6 +64,7 @@ export function presetReading(circuit, closeIds, partId, field) {
 export const withinTolerance = (guess, actual) => Math.abs(guess - actual) <= Math.max(0.1 * Math.abs(actual), 0.01);
 
 const NEED_SWITCH = '合上开关看看！';
+const PEEKED = '你已经看过读数了，点「重来」再猜';
 const presetSwitches = c => ofType(c, 'switch').filter(p => p.preset);
 
 // 预测题：预置电路里的总开关一开始断开，孩子先猜读数，再合上开关核对。
@@ -74,11 +75,15 @@ export function predictTask({ id, chapter, name, goal, variants, preset, target,
     answer: { kind: 'predict', question, unit }, target,
     initProgress: () => ({ answer: null, wrong: false }),
     submit(progress, value, ws) {
-      if (progress.answer != null || presetSwitches(ws.circuit).some(s => s.params.closed)) return null;
+      if (progress.answer != null || progress.peeked || presetSwitches(ws.circuit).some(s => s.params.closed)) return null;
       return { progress: { ...progress, answer: value }, hint: NEED_SWITCH };
     },
     check(progress, ws) {
-      if (progress.answer == null) return result(false, progress);
+      if (progress.answer == null) {
+        // 没猜就合过开关，等于偷看了读数；锁住，只能重来。
+        if (!progress.peeked && !presetSwitches(ws.circuit).some(s => s.params.closed)) return result(false, progress);
+        return result(false, progress.peeked ? progress : { ...progress, peeked: true }, PEEKED);
+      }
       const sw = presetSwitches(ws.circuit);
       if (!sw.length || !sw.every(s => s.params.closed)) return result(false, progress, NEED_SWITCH);
       if (!ws.result.ok) return result(false, progress);

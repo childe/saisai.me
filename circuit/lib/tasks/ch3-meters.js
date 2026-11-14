@@ -1,6 +1,7 @@
 // 第 3 章：电表。
 import { brokenSet } from '../damage.js';
 import { createCircuit } from '../circuit.js';
+import { PHYS } from '../parts.js';
 import { lampLit, ofType, result, noProgress, predictTask, presetCircuit, presetReading } from '../task-kit.js';
 
 // presetCircuit 逐个加元件，元件按列出顺序编号 p1、p2……，读数按名字取。
@@ -78,7 +79,7 @@ export const CH3 = [
   predictTask({
     id: 13, chapter: 3, name: '串联分压', goal: '猜一猜，电压表会读多少伏？', variants: [2, 3, 4], preset: dividerPreset, unit: 'V',
     target: ws => Math.abs(ws.result.parts[V_ID].v),
-    question: cells => `电池是 ${cells * 1.5} V，两盏一样的灯串联。猜猜电压表读多少？`,
+    question: cells => `电池是 ${cells * PHYS.V_CELL} V，两盏一样的灯串联。猜猜电压表读多少？`,
   }),
   predictTask({
     id: 14, chapter: 3, name: '并联干路', goal: '猜一猜，A2 会读多少电流？',

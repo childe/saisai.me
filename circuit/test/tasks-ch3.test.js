@@ -147,3 +147,7 @@ test('task 16: burned without an ammeter in series does not count', () => {
 test('chapter 3 lists tasks 11..16 in order', () => {
   assert.deepEqual(TASKS.filter(t => t.chapter === 3).map(t => t.id), [11, 12, 13, 14, 15, 16]);
 });
+
+test('task 13 question uses the physical cell voltage', () => {
+  assert.equal(T(13).answer.question(2), `电池是 ${2 * PHYS.V_CELL} V，两盏一样的灯串联。猜猜电压表读多少？`);
+});
