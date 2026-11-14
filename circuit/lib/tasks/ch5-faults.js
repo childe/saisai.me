@@ -11,17 +11,18 @@ const lampsPreset = bad => presetCircuit([
   ['B.p', 'L1.a'], ['L1.b', 'L2.a'], ['L2.b', 'L3.a'], ['L3.b', 'B.n', { via: [[21, 5], [21, 16], [7, 16]] }],
 ]);
 
-// 22：电池 → 开关(合上) → L1 一路；另一路经连接点 N1、N2 到 L2。N1、N2 之间的导线和开关到 N1 的导线是两个候选
+// 22：电池 → 开关(合上) → L1 一路；另一路经连接点 N1、N2、N3 到 L2。开关到 N1、N1–N2、N2–N3 三根导线是候选
 const branchPreset = bad => presetCircuit([
   ['B', 'battery', 5, 12, { cells: 2 }], ['S', 'switch', 5, 5, { closed: true }],
-  ['L1', 'lamp', 11, 5], ['L2', 'lamp', 11, 12],
-  ['N1', 'node', 9, 8], ['N2', 'node', 9, 10],
+  ['L1', 'lamp', 11, 5], ['L2', 'lamp', 11, 13],
+  ['N1', 'node', 9, 7], ['N2', 'node', 9, 9], ['N3', 'node', 9, 11],
 ], [
   ['B.p', 'S.a'], ['S.b', 'L1.a'],
-  ['S.b', 'N1.o', { via: [[7, 8]], ...(bad === 0 ? { fault: 'open' } : {}) }],
+  ['S.b', 'N1.o', { via: [[7, 7]], ...(bad === 0 ? { fault: 'open' } : {}) }],
   ['N1.o', 'N2.o', bad === 1 ? { fault: 'open' } : {}],
-  ['N2.o', 'L2.a'],
-  ['L1.b', 'B.n', { via: [[15, 5], [15, 16], [7, 16]] }], ['L2.b', 'B.n', { via: [[15, 12], [15, 16], [7, 16]] }],
+  ['N2.o', 'N3.o', bad === 2 ? { fault: 'open' } : {}],
+  ['N3.o', 'L2.a'],
+  ['L1.b', 'B.n', { via: [[15, 5], [15, 16], [7, 16]] }], ['L2.b', 'B.n', { via: [[15, 13], [15, 16], [7, 16]] }],
 ]);
 
 // 23：楼梯灯，故障是某个开关的某一掷接触不良。variant 如 'S1.a' 表示 S1 的 a 掷
@@ -48,7 +49,7 @@ export const CH5 = [
   }),
   faultTask({
     id: 22, chapter: 5, name: '断掉的导线', goal: '有一盏灯不亮，找出断掉的那根导线',
-    palette: { voltmeter: 1, ammeter: 1 }, variants: [0, 1], preset: branchPreset,
+    palette: { voltmeter: 1, ammeter: 1 }, variants: [0, 1, 2], preset: branchPreset,
   }),
   faultTask({
     id: 23, chapter: 5, name: '失灵的开关', goal: '楼梯灯有时不亮，找出哪个开关坏了',

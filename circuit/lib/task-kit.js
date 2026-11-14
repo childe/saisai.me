@@ -1,5 +1,6 @@
 // 关卡判定工具：亮灭判断、开关组合表、预置电路构造。
-import { PHYS } from './parts.js';
+import { PHYS, PARTS } from './parts.js';
+import { terminalPoint } from './geometry.js';
 import { solve } from './solve.js';
 import { brokenSet } from './damage.js';
 import { createCircuit, addPart, addWire, cloneCircuit } from './circuit.js';
@@ -132,20 +133,52 @@ export function metersRead(ws) {
 }
 
 const MEASURE_FIRST = '先用电表量一量';
+const endKey = e => `${e.part}.${e.term}`;
+
+// 只走导线和重合端点（不穿过元件）的连通关系，返回 find(端点键) → 所在网络；skip 是不走的那根导线。
+function wireNets(c, skip = null) {
+  const up = {};
+  const find = k => (up[k] && up[k] !== k ? (up[k] = find(up[k])) : k);
+  const join = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) up[ra] = rb; };
+  const at = {};
+  for (const p of c.parts) for (const term of PARTS[p.type].terms) {
+    const pt = terminalPoint(p, term).join(','), k = `${p.id}.${term}`;
+    if (at[pt]) join(k, at[pt]); else at[pt] = k;
+  }
+  for (const w of c.wires) if (w.id !== skip) join(endKey(w.a), endKey(w.b));
+  return find;
+}
+
+// 哪些预置元件、导线被电压表量过两端：电压表两头各连到目标的一个端点，且两头不在同一网络。
+// 导线目标算连通时不走它自己。返回 'part:id' / 'wire:id' 列表。
+export function probedItems(c) {
+  const vms = ofType(c, 'voltmeter');
+  if (!vms.length) return [];
+  const hits = (net, ends) => vms.some(v => {
+    const p = net(`${v.id}.p`), n = net(`${v.id}.n`);
+    return p !== n && ends.some(e => net(e) === p) && ends.some(e => net(e) === n);
+  });
+  const net = wireNets(c);
+  const parts = c.parts.filter(p => p.preset && hits(net, PARTS[p.type].terms.map(t => `${p.id}.${t}`))).map(p => `part:${p.id}`);
+  const wires = c.wires.filter(w => w.preset && hits(wireNets(c, w.id), [endKey(w.a), endKey(w.b)])).map(w => `wire:${w.id}`);
+  return [...parts, ...wires];
+}
 
 // 找故障：预置电路里藏着一处故障（元件或导线带 fault），孩子用电表量，再指认。
-// 指认由编辑器处理：accuse 只判对错，found 由编辑器写进 progress。
+// 只能指认用电压表量过两端的东西（probed，拆掉电压表后仍算）。指认由编辑器处理：accuse 只判对错，found 由编辑器写进 progress。
 export function faultTask({ id, chapter, name, goal, palette, variants, preset }) {
   return {
     id, chapter, name, goal, palette, variants, preset, lockPreset: true,
-    initProgress: () => ({ measured: false, found: false }),
+    initProgress: () => ({ measured: false, found: false, probed: [] }),
     check(progress, ws) {
       const measured = progress.measured || metersRead(ws);
-      const next = measured === progress.measured ? progress : { ...progress, measured };
+      const old = progress.probed ?? [];
+      const fresh = probedItems(ws.circuit).filter(k => !old.includes(k));
+      const next = measured === progress.measured && !fresh.length ? progress : { ...progress, measured, probed: [...old, ...fresh] };
       return result(next.found, next, measured ? null : MEASURE_FIRST);
     },
     accuse(progress, target, ws) {
-      if (!progress.measured) return null;
+      if (!progress.measured || !(progress.probed ?? []).includes(`${target.kind}:${target.id}`)) return null;
       const item = (target.kind === 'wire' ? ws.circuit.wires : ws.circuit.parts).find(x => x.id === target.id);
       if (!item?.preset) return null;
       return item.fault ? 'right' : 'wrong';

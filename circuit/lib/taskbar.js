@@ -25,10 +25,14 @@ const selectedIsPreset = (state, circuit) => {
   return !!list.find(x => x.id === sel.id)?.preset;
 };
 
+// 选中的东西量过两端没有（找故障只能指认量过的）。
+const selectedProbed = (state, t) => !!state.selection && (t.progress.probed ?? []).includes(`${state.selection.kind}:${state.selection.id}`);
+const PROBE_FIRST = '先把电压表接在它两端量一量';
+
 export function taskbarCacheKey(state) {
   const t = state.task;
   return JSON.stringify([t.index, t.variantIndex, t.hint, t.passed, t.progress.answer, !!t.progress.measured,
-    selectedIsPreset(state, t.circuit)]);
+    selectedIsPreset(state, t.circuit), selectedProbed(state, t)]);
 }
 
 export function taskbarHtml(state) {
@@ -41,15 +45,18 @@ export function taskbarHtml(state) {
     `<button class="btn" data-task-action="list">选关</button></div>`;
   if (task.answer) {
     const { kind, question, unit } = task.answer;
-    const off = lockInput ? ' disabled' : '';
+    const off = lockInput || t.passed ? ' disabled' : '';
     const value = answered ? ` value="${Number(t.progress.answer)}"` : '';
     html += `<div class="task-row answer-row"><span>${question(t.variant)}</span>` +
       `<input id="answerInput" type="number" step="0.01" min="0" inputmode="decimal"${value}${off}> ${unit} ` +
       `<button class="btn" data-task-action="submit"${off}>${kind === 'predict' ? '我猜好了' : '提交答案'}</button></div>`;
   }
   if (task.accuse) {
-    const ok = t.progress.measured && selectedIsPreset(state, t.circuit);
-    html += `<div class="task-row"><button class="btn" data-task-action="accuse"${ok ? '' : ' disabled'}>就是它坏了！</button></div>`;
+    const preset = selectedIsPreset(state, t.circuit), probed = preset && selectedProbed(state, t);
+    const ok = !t.passed && t.progress.measured && probed;
+    const tip = preset && !probed && !t.passed ? PROBE_FIRST : '';
+    html += `<div class="task-row"><button class="btn" data-task-action="accuse"${ok ? '' : ' disabled'}${tip ? ` title="${tip}"` : ''}>就是它坏了！</button>` +
+      `${tip ? `<span>${tip}</span>` : ''}</div>`;
   }
   if (t.hint) html += `<div class="hint">💡 ${t.hint}</div>`;
   if (t.passed) {

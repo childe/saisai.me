@@ -88,15 +88,37 @@ test('accuse: ignored before measuring and without a target', () => {
   assert.equal(play(s, { type: 'accuse', target: null }), s);
 });
 
+// 把电压表（没有就放一个）改接到 e1、e2 两个端点上：先拆掉孩子自己接的导线。
+const probe = (s, e1, e2) => {
+  if (!T(s).circuit.parts.some(p => p.type === 'voltmeter')) s = play(s, { type: 'place', partType: 'voltmeter', x: 12, y: 18 });
+  for (const w of T(s).circuit.wires.filter(x => !x.preset)) s = play(s, { type: 'deleteWire', id: w.id });
+  const m = T(s).circuit.parts.find(p => p.type === 'voltmeter');
+  return play(s,
+    { type: 'connect', from: { part: m.id, term: 'p' }, to: e1 },
+    { type: 'connect', from: { part: m.id, term: 'n' }, to: e2 });
+};
+const probeLamp = (s, l) => probe(s, { part: l.id, term: 'a' }, { part: l.id, term: 'b' });
+const probeWire = (s, w) => probe(s, w.a, w.b);
+
+test('accuse: an unprobed item is ignored even after a meter read (level 21)', () => {
+  const s = placeAcrossBattery(enter(21));
+  assert.equal(T(s).progress.measured, true);
+  assert.equal(play(s, { type: 'accuse', target: { kind: 'part', id: faultyLamp(s).id } }), s);
+  assert.equal(play(s, { type: 'accuse', target: { kind: 'part', id: goodLamp(s).id } }), s);
+});
+
 test('accuse: wrong restarts, right passes', () => {
   let s = placeAcrossBattery(enter(21));
+  s = probeLamp(s, goodLamp(s));
   assert.equal(T(s).progress.measured, true);
   const v = T(s).variantIndex;
   s = play(s, { type: 'accuse', target: { kind: 'part', id: goodLamp(s).id } });
   assert.notEqual(T(s).variantIndex, v);
   assert.equal(T(s).hint, '不对哦，这关重来');
   assert.equal(T(s).passed, false);
-  s = placeAcrossBattery(s);
+  s = probeLamp(s, faultyLamp(s));
+  // 拆掉电压表后仍然记得量过
+  s = play(s, { type: 'deletePart', id: T(s).circuit.parts.find(p => p.type === 'voltmeter').id });
   s = play(s, { type: 'accuse', target: { kind: 'part', id: faultyLamp(s).id } });
   assert.equal(T(s).passed, true);
 });
@@ -139,14 +161,10 @@ test('wrong accuse cannot be undone back to the old variant (level 22)', () => {
   let s = enter(22);
   const faultId = () => T(s).circuit.wires.find(w => w.fault).id;
   const oldFault = faultId();
-  s = play(s, { type: 'place', partType: 'voltmeter', x: 20, y: 18 });
-  const m = T(s).circuit.parts.find(p => p.type === 'voltmeter');
-  const b = T(s).circuit.parts.find(p => p.type === 'battery');
-  s = play(s,
-    { type: 'connect', from: { part: m.id, term: 'p' }, to: { part: b.id, term: 'p' } },
-    { type: 'connect', from: { part: m.id, term: 'n' }, to: { part: b.id, term: 'n' } });
+  s = placeAcrossBattery(s);
   assert.equal(T(s).progress.measured, true);
   const good = T(s).circuit.wires.find(w => w.preset && !w.fault);
+  s = probeWire(s, good);
   s = play(s, { type: 'accuse', target: { kind: 'wire', id: good.id } });
   assert.ok(!T(s).circuit.wires.find(w => w.id === oldFault).fault);
   assert.equal(T(s).history.length, 0);
