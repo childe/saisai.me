@@ -25,6 +25,7 @@ const result = (passed, progress, hint = null) => ({ progress, passed, hint });
 const noProgress = () => ({});
 
 // 用给定元件和导线搭一个预置电路，全部元件标 preset。
+// 元件上下错开摆放：同一行时导线会直线穿过元件本体、互相重叠。
 function presetCircuit(parts, wires) {
   let c = createCircuit();
   const ids = {};
@@ -133,7 +134,7 @@ export const TASKS = [
   },
   {
     id: 7, name: '让风扇反转', goal: '让风扇反着转', palette: {},
-    preset: () => presetCircuit([['B', 'battery', 6, 8], ['M', 'motor', 14, 8]], [['B.p', 'M.a'], ['M.b', 'B.n']]),
+    preset: () => presetCircuit([['B', 'battery', 9, 12], ['M', 'motor', 9, 5]], [['B.p', 'M.a'], ['M.b', 'B.n']]),
     initProgress: noProgress,
     check(progress, ws) {
       return result(ofType(ws.circuit, 'motor').some(m => ws.result.parts[m.id]?.v < -0.5), progress);
@@ -188,7 +189,7 @@ export const TASKS = [
   },
   {
     id: 10, name: '保险丝救场', goal: '用保险丝保护短路的电池', palette: { fuse: 1 },
-    preset: () => presetCircuit([['B', 'battery', 6, 8], ['L', 'lamp', 14, 8]], [['B.p', 'L.a'], ['L.b', 'B.n'], ['B.p', 'B.n']]),
+    preset: () => presetCircuit([['B', 'battery', 9, 12], ['L', 'lamp', 9, 5]], [['B.p', 'L.a'], ['L.b', 'B.n'], ['B.p', 'B.n']]),
     initProgress: () => ({ pre: null }),
     check(progress, ws) {
       const f = ofType(ws.circuit, 'fuse')[0];
