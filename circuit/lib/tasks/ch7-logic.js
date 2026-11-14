@@ -119,7 +119,7 @@ export const CH7 = [
     },
   },
   {
-    id: 31, chapter: 7, name: '半加器', goal: '两个开关代表 A、B，显示器显示 A+B', palette: { battery: 1, dpdt: 2, display: 1 },
+    id: 31, chapter: 7, name: '半加器', goal: '两个开关代表 A、B：拨到 a 是 0，拨到 b 是 1。让显示器显示 A+B', palette: { battery: 1, dpdt: 2, display: 1 },
     preset: () => createCircuit(), initProgress: noProgress,
     check: (progress, ws) => result(halfAdderOk(ws), progress),
   },
@@ -164,7 +164,7 @@ export const CH7 = [
     },
   },
   {
-    id: 36, chapter: 7, name: '全加器', goal: '三个开关 A、B、C，显示器显示 A+B+C', palette: {}, lockPreset: true,
+    id: 36, chapter: 7, name: '全加器', goal: '三个开关 A、B、C：断开是 0，合上是 1。让显示器显示 A+B+C', palette: {}, lockPreset: true,
     preset: fullAdderPreset, initProgress: noProgress,
     check: (progress, ws) => result(fullAdderOk(ws), progress),
   },
