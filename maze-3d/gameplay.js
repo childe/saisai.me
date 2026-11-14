@@ -95,3 +95,170 @@ export function starHit(px, pz, star) {
 export const STAR_COLORS = { face: 0xffb300, emissive: 0x553300, side: 0x8d5a00 };
 export const STAR_SHAPE = { outer: 0.16, inner: 0.07, depth: 0.05 };
 export const STAR_FLOAT = { base: 0.35, amp: 0.05, period: 2, spin: 2 };
+
+// ---------- 小地图：已探索格子与脚印 ----------
+// 迷雾开时标以 center 为中心、半径 radius 的正方形（夹到迷宫内）；迷雾关时全部。返回本次新置 1 的格数
+export function markExplored(explored, size, center, radius, fogOn) {
+  let added = 0;
+  if (!fogOn) {
+    for (let i = 0; i < size * size; i++) {
+      if (!explored[i]) {
+        explored[i] = 1;
+        added++;
+      }
+    }
+    return added;
+  }
+  const r0 = Math.max(0, center.row - radius);
+  const r1 = Math.min(size - 1, center.row + radius);
+  const c0 = Math.max(0, center.col - radius);
+  const c1 = Math.min(size - 1, center.col + radius);
+  for (let r = r0; r <= r1; r++) {
+    for (let c = c0; c <= c1; c++) {
+      const i = r * size + c;
+      if (!explored[i]) {
+        explored[i] = 1;
+        added++;
+      }
+    }
+  }
+  return added;
+}
+
+// 原地：与末尾相同不变；已存在则移到末尾；否则追加。长度不超过格子数
+export function pushFootprint(trail, index) {
+  const n = trail.length;
+  if (n > 0 && trail[n - 1] === index) return trail;
+  const at = trail.indexOf(index);
+  if (at >= 0) trail.splice(at, 1);
+  trail.push(index);
+  return trail;
+}
+
+export const FOOTPRINT_ALPHA = [0.35, 0.9];
+
+// 第 i 个（0 = 最旧）脚印的不透明度
+export function footprintAlpha(i, n) {
+  const [lo, hi] = FOOTPRINT_ALPHA;
+  if (n <= 1) return hi;
+  return lo + ((hi - lo) * i) / (n - 1);
+}
+
+export const MINI_COLORS = {
+  floor: '#f2efe6',
+  seen: '#d9d3c4',
+  fog: '#5b6270',
+  end: '#e53935',
+  wall: '#7e57c2',
+  foot: '#8d6e63',
+  star: '#ffb300',
+  starEdge: '#8d5a00',
+};
+
+// ---------- 计时与最佳成绩 ----------
+const MAX_TENTHS = 99 * 600 + 599; // 99:59.9
+
+// 'mm:ss.t'，向下取整到十分之一秒，夹到 99:59.9
+export function formatTime(ms) {
+  const t = Math.min(MAX_TENTHS, Math.floor(Math.max(0, ms) / 100));
+  const mm = Math.floor(t / 600);
+  const ss = Math.floor((t % 600) / 10);
+  const d = t % 10;
+  return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.${d}`;
+}
+
+// 正整数毫秒字符串才算有记录
+export function parseBest(str) {
+  if (typeof str !== 'string' || !/^[1-9]\d*$/.test(str)) return null;
+  return Number(str);
+}
+
+export function updateBest(prevStr, timeMs, eligible) {
+  const t = Math.round(timeMs);
+  const prev = parseBest(prevStr);
+  if (!eligible) return { best: prev, isNew: false, write: null };
+  if (prev === null || t < prev) return { best: t, isNew: true, write: String(t) };
+  return { best: prev, isNew: false, write: null };
+}
+
+export function createGameTimer() {
+  let started = false;
+  let running = false;
+  let elapsedMs = 0;
+  return {
+    start() {
+      if (started) return;
+      started = true;
+      running = true;
+    },
+    tick(dt) {
+      if (running) elapsedMs += dt * 1000;
+    },
+    stop() {
+      running = false;
+    },
+    reset() {
+      started = false;
+      running = false;
+      elapsedMs = 0;
+    },
+    get started() {
+      return started;
+    },
+    get running() {
+      return running;
+    },
+    get elapsedMs() {
+      return elapsedMs;
+    },
+  };
+}
+
+// ---------- 脚步与撞墙 ----------
+// add(dist) 返回本次触发的脚步数；余量留到下一次
+export function createStepCounter(stride = 0.5) {
+  let acc = 0;
+  return {
+    add(dist) {
+      acc += dist;
+      const n = Math.floor(acc / stride + 1e-9);
+      acc -= n * stride;
+      return n;
+    },
+    reset() {
+      acc = 0;
+    },
+  };
+}
+
+// 「在推」且「走不动」（实际位移 < ratio × 期望位移）持续 hold 秒触发一次；
+// 触发后要松开或走得动才重新武装，两次触发至少隔 cooldown 秒
+export function createBumpDetector({ hold = 0.15, cooldown = 0.6, ratio = 0.5 } = {}) {
+  let held = 0;
+  let armed = true;
+  let since = Infinity;
+  return {
+    update(pushing, moved, wanted, dt) {
+      since += dt;
+      const free = moved >= ratio * wanted;
+      const stuck = pushing && !free;
+      if (!armed && (!pushing || free)) {
+        armed = true;
+        held = 0;
+      }
+      held = stuck ? held + dt : 0;
+      if (armed && held + 1e-9 >= hold && since + 1e-9 >= cooldown) {
+        armed = false;
+        since = 0;
+        held = 0;
+        return true;
+      }
+      return false;
+    },
+    reset() {
+      held = 0;
+      armed = true;
+      since = Infinity;
+    },
+  };
+}

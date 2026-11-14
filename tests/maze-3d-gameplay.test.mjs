@@ -6,7 +6,22 @@ import { fileURLToPath } from 'node:url';
 import { MazeGenerator } from '../maze-3d/maze-core.js';
 import { findPath, canMove, DIRS } from '../maze-3d/game-logic.js';
 import { THEMES, THEME_IDS } from '../maze-3d/themes.js';
-import { starCountFor, placeStars, starHit, STAR_COLORS } from '../maze-3d/gameplay.js';
+import { ACCEL, MAX_SPEED } from '../maze-3d/movement.js';
+import {
+  starCountFor,
+  placeStars,
+  starHit,
+  STAR_COLORS,
+  markExplored,
+  pushFootprint,
+  footprintAlpha,
+  formatTime,
+  parseBest,
+  updateBest,
+  createGameTimer,
+  createStepCounter,
+  createBumpDetector,
+} from '../maze-3d/gameplay.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -128,4 +143,105 @@ test('star face color is distinguishable from path and floors', () => {
     console.log(`star vs ${id} floorBase ${f.toFixed(1)}`);
     assert.ok(f >= 60, id);
   }
+});
+
+test('markExplored', () => {
+  const e = new Uint8Array(100);
+  assert.equal(markExplored(e, 10, { row: 0, col: 0 }, 1, true), 4);
+  assert.deepEqual([e[0], e[1], e[10], e[11], e[2], e[20]], [1, 1, 1, 1, 0, 0]);
+  assert.equal(markExplored(e, 10, { row: 0, col: 0 }, 1, true), 0);
+  assert.equal(markExplored(e, 10, { row: 5, col: 5 }, 1, true), 9);
+  assert.equal(markExplored(e, 10, { row: 0, col: 0 }, 1, false), 100 - 13);
+  assert.equal(markExplored(e, 10, { row: 9, col: 9 }, 1, true), 0);
+  assert.ok(e.every((v) => v === 1));
+});
+
+test('pushFootprint', () => {
+  const t = [0];
+  pushFootprint(t, 0); assert.deepEqual(t, [0]);
+  pushFootprint(t, 1); pushFootprint(t, 2); assert.deepEqual(t, [0, 1, 2]);
+  pushFootprint(t, 1); assert.deepEqual(t, [0, 2, 1]);
+  const big = [];
+  for (let k = 0; k < 1000; k++) pushFootprint(big, k % 100);
+  assert.equal(big.length, 100);
+});
+
+test('footprintAlpha', () => {
+  assert.equal(footprintAlpha(0, 1), 0.9);
+  assert.equal(footprintAlpha(0, 5), 0.35);
+  assert.equal(footprintAlpha(4, 5), 0.9);
+  for (let i = 1; i < 5; i++) assert.ok(footprintAlpha(i, 5) > footprintAlpha(i - 1, 5));
+});
+
+test('formatTime', () => {
+  assert.equal(formatTime(0), '00:00.0');
+  assert.equal(formatTime(1234), '00:01.2');
+  assert.equal(formatTime(59999), '00:59.9');
+  assert.equal(formatTime(61050), '01:01.0');
+  assert.equal(formatTime(99 * 60000 + 59999), '99:59.9');
+  assert.equal(formatTime(1e9), '99:59.9');
+});
+
+test('parseBest / updateBest', () => {
+  for (const s of [null, 'abc', '-5', '0', 'NaN', '1.5', '']) assert.equal(parseBest(s), null, String(s));
+  assert.equal(parseBest('1235'), 1235);
+  assert.deepEqual(updateBest(null, 5000, true), { best: 5000, isNew: true, write: '5000' });
+  assert.deepEqual(updateBest('6000', 5000, true), { best: 5000, isNew: true, write: '5000' });
+  assert.deepEqual(updateBest('5000', 5000, true), { best: 5000, isNew: false, write: null });
+  assert.deepEqual(updateBest('4000', 5000, true), { best: 4000, isNew: false, write: null });
+  assert.deepEqual(updateBest('abc', 5000, true), { best: 5000, isNew: true, write: '5000' });
+  assert.deepEqual(updateBest('9999999', 5000, false), { best: 9999999, isNew: false, write: null });
+  assert.deepEqual(updateBest(null, 5000, false), { best: null, isNew: false, write: null });
+  assert.equal(updateBest(null, 1234.6, true).write, '1235');
+  assert.deepEqual(updateBest('1235', 1234.6, true), { best: 1235, isNew: false, write: null });
+});
+
+test('createGameTimer', () => {
+  const t = createGameTimer();
+  t.tick(0.5); assert.equal(t.elapsedMs, 0); assert.equal(t.started, false);
+  t.start(); t.tick(0.5); assert.equal(t.elapsedMs, 500); assert.equal(t.running, true);
+  t.stop(); t.tick(0.5); assert.equal(t.elapsedMs, 500); assert.equal(t.running, false); assert.equal(t.started, true);
+  t.reset(); assert.equal(t.elapsedMs, 0); assert.equal(t.started, false); assert.equal(t.running, false);
+});
+
+test('createStepCounter', () => {
+  const c = createStepCounter();
+  let n = 0;
+  for (let i = 0; i < 20; i++) n += c.add(0.1);
+  assert.equal(n, 4);
+  const d = createStepCounter();
+  assert.equal(d.add(1.2), 2);
+  assert.equal(d.add(0.3), 1); // 余量 0.2 + 0.3
+  d.add(0.4); d.reset();
+  assert.equal(d.add(0.2), 0);
+});
+
+test('createBumpDetector', () => {
+  const dt = 1 / 60;
+  const wanted = MAX_SPEED * dt;
+  const b = createBumpDetector();
+  const hits = [];
+  for (let f = 1; f <= 9 + 180; f++) if (b.update(true, 0, wanted, dt)) hits.push(f);
+  assert.deepEqual(hits, [9]); // 0.15 s = 第 9 帧；之后 3 秒不再触发
+
+  // 松开 1 帧再推：冷却 0.6 s 内不触发；满 0.6 s 且又持续 0.15 s 后触发
+  const c = createBumpDetector();
+  let f = 0, first = -1, second = -1;
+  while (first < 0) { f++; if (c.update(true, 0, wanted, dt)) first = f; }
+  f++; c.update(false, 0, 0, dt);
+  while (second < 0 && f < first + 120) { f++; if (c.update(true, 0, wanted, dt)) second = f; }
+  assert.ok((second - first) * dt >= 0.6 - 1e-9, `${second - first}`);
+  assert.ok((second - first) * dt <= 0.6 + 0.15 + 2 * dt);
+
+  // 从静止起步（开阔地）：全程不触发
+  const s = createBumpDetector();
+  let v = 0;
+  for (let i = 0; i < 60; i++) {
+    v = Math.min(MAX_SPEED, v + ACCEL * dt);
+    assert.equal(s.update(true, v * dt, wanted, dt), false, `frame ${i}`);
+  }
+
+  // 斜 45° 贴墙滑行
+  const g = createBumpDetector();
+  for (let i = 0; i < 180; i++) assert.equal(g.update(true, wanted * Math.SQRT1_2, wanted, dt), false);
 });
