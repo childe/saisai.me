@@ -24,12 +24,15 @@ const PARAM_UI = {
 
 const blankVisual = () => ({ glow: 0, burnt: false, alarm: false, spin: 0, volume: 0, text: '--', stale: false });
 
+// 比一般元件高的元件：选中框和元件栏小图的上下边。
+const SEL_Y = { relay: [-66, 72], dpdt: [-100, 104], display: [-100, 92] };
+
 export function miniArt(type, style) {
   const def = PARTS[type];
   const params = Object.fromEntries(Object.entries(def.params).map(([k, d]) => [k, d.default]));
   const ys = def.terms.map(t => def.termPos[t][1] * GRID);
-  const top = Math.min(-50, ...ys.map(y => y - 12), def.lever ? LEVER_RECT.y0 * GRID - 4 : 0);
-  const bottom = Math.max(50, ...ys.map(y => y + 12));
+  const top = Math.min(-50, ...ys.map(y => y - 12), def.lever ? LEVER_RECT.y0 * GRID - 4 : 0, SEL_Y[type]?.[0] ?? 0);
+  const bottom = Math.max(50, ...ys.map(y => y + 12), SEL_Y[type]?.[1] ?? 0);
   const art = drawPart({ id: 'mini', type, x: 0, y: 0, rot: 0, params }, style, blankVisual());
   return `<svg viewBox="-92 ${top} 184 ${bottom - top}" aria-hidden="true">${art}</svg>`;
 }
@@ -87,17 +90,18 @@ export function wireItems(state, space, extra = () => '') {
 }
 
 function partItems(state, space) {
-  const { circuit, result, damage } = space;
+  const { circuit, result, damage, relays } = space;
   const sel = state.selection;
   return circuit.parts.map(p => {
-    const vis = partVisual(p, result.ok ? result.parts[p.id] : undefined, damage, result.ok);
+    const vis = partVisual(p, result.ok ? result.parts[p.id] : undefined, damage, result.ok, relays);
     const selected = sel?.kind === 'part' && sel.id === p.id;
     let art = drawPart(p, state.style, vis);
     if (p.type === 'motor' && Math.abs(vis.spin) >= 0.05) {
       const period = Math.round((1 / Math.abs(vis.spin)) * 100) / 100;
       art = art.replace('class="fan"', `class="fan spinning" style="animation-duration:${period}s;animation-direction:${vis.spin < 0 ? 'reverse' : 'normal'}"`);
     }
-    const selBox = !selected ? '' : p.type === 'node' ? '<circle class="sel" cx="0" cy="0" r="16"/>' : `<rect class="sel" x="-74" y="-${p.type === 'rheostat' || PARTS[p.type].lever ? 84 : 46}" width="148" height="${p.type === 'rheostat' || PARTS[p.type].lever ? 130 : 92}" rx="12"/>`;
+    const [top, bottom] = SEL_Y[p.type] ?? [p.type === 'rheostat' || PARTS[p.type].lever ? -84 : -46, 46];
+    const selBox = !selected ? '' : p.type === 'node' ? '<circle class="sel" cx="0" cy="0" r="16"/>' : `<rect class="sel" x="-74" y="${top}" width="148" height="${bottom - top}" rx="12"/>`;
     return {
       id: p.id,
       vis,
@@ -162,7 +166,8 @@ function renderPanel(dom, state, space) {
           body += `<div class="param-name">滑片位置</div><input type="range" min="0" max="1" step="0.01" value="${p.params.pos}" data-key="pos">`;
         }
         const extra = [];
-        if (def.lever) extra.push('<button class="btn" data-action="toggle">切换</button>');
+        // 按钮只能按住，不能切换。
+        if (def.lever && p.type !== 'button') extra.push('<button class="btn" data-action="toggle">切换</button>');
         if (burnt) extra.push('<button class="btn on" data-action="repair">换新</button>');
         if (extra.length) body += `<div class="row">${extra.join('')}</div>`;
         body += '<div class="row"><button class="btn" data-action="rotate">旋转 90°</button><button class="btn danger" data-action="deletePart">删除</button></div>';

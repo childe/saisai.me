@@ -32,6 +32,7 @@ export const PHYS = Object.freeze({
 export const PART_TYPES = Object.freeze([
   'battery', 'lamp', 'switch', 'led', 'resistor', 'motor',
   'buzzer', 'rheostat', 'spdt', 'ammeter', 'voltmeter', 'fuse',
+  'relay', 'button', 'dpdt', 'display',
 ]);
 
 const two = (t0, t1) => ({ terms: [t0, t1], termPos: { [t0]: [-2, 0], [t1]: [2, 0] } });

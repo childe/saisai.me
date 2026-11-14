@@ -234,6 +234,99 @@ const DRAW = {
     }
     return burnt ? `<g class="burnt">${body}</g>` : body;
   },
+
+  // 继电器：左边线圈，右边一组单刀双掷触点（动片绕右侧支点转），虚线表示铁片带动动片。
+  // 吸合（vis.on）时铁片贴向线圈，动片接常开（no）；释放时动片接常闭（nc）。
+  relay(part, style, vis) {
+    const on = !!vis.on;
+    const arm = on ? [-26, -24] : [-8, -28];
+    const blade = on ? [26, -36] : [26, 36];
+    const link = `<line x1="${n((arm[0] - 20) / 2)}" y1="${n((arm[1] + 30) / 2)}" x2="${n((blade[0] + 60) / 2)}" y2="${n(blade[1] / 2)}" stroke="${INK}" stroke-width="2" stroke-dasharray="6 5"/>`;
+    const coilLeads = line(-80, -40, -40, -40) + line(-40, -40, -40, -24) + line(-80, 40, -40, 40) + line(-40, 40, -40, 24);
+    const contactLeads = line(80, 0, 60, 0) + line(80, -40, 24, -40) + line(80, 40, 24, 40);
+    const labels = `<text x="52" y="-48" text-anchor="middle" class="label">常开</text><text x="52" y="62" text-anchor="middle" class="label">常闭</text>`;
+    if (style === 'cartoon') {
+      return `<rect x="-64" y="-54" width="128" height="108" rx="10" fill="#d9c7a7" stroke="${INK}" stroke-width="3" opacity="0.85"/>` +
+        coilLeads + contactLeads +
+        `<rect x="-45" y="-30" width="10" height="60" fill="#9aa0a8" stroke="${INK}" stroke-width="2"/>` +
+        `<rect x="-54" y="-22" width="28" height="44" rx="4" fill="#d0843c" stroke="${INK}" stroke-width="3"/>` +
+        [-12, -4, 4, 12].map(y => `<line x1="-54" y1="${y}" x2="-26" y2="${y}" stroke="#a35f22" stroke-width="2"/>`).join('') +
+        `<line x1="-20" y1="30" x2="${arm[0]}" y2="${arm[1]}" stroke="#8a8f99" stroke-width="7" stroke-linecap="round"/>` +
+        `<circle cx="-20" cy="30" r="5" fill="${INK}"/>` + link +
+        `<circle cx="24" cy="-40" r="6" fill="#c9a24a" stroke="${INK}" stroke-width="2"/><circle cx="24" cy="40" r="6" fill="#c9a24a" stroke="${INK}" stroke-width="2"/>` +
+        `<line x1="60" y1="0" x2="${blade[0]}" y2="${blade[1]}" stroke="#8a8f99" stroke-width="7" stroke-linecap="round"/>` +
+        `<circle cx="60" cy="0" r="6" fill="#c9a24a" stroke="${INK}" stroke-width="2"/>` + labels;
+    }
+    return coilLeads + contactLeads +
+      `<rect x="-50" y="-24" width="20" height="48" fill="#fff" stroke="${INK}" stroke-width="3"/>` +
+      line(-20, 30, arm[0], arm[1]) + link +
+      `<circle cx="24" cy="-40" r="4" fill="#fff" stroke="${INK}" stroke-width="3"/><circle cx="24" cy="40" r="4" fill="#fff" stroke="${INK}" stroke-width="3"/>` +
+      `<circle cx="60" cy="0" r="4" fill="#fff" stroke="${INK}" stroke-width="3"/>` +
+      line(56, 0, blade[0] + 2, blade[1]) + labels;
+  },
+
+  // 按钮：按钮帽画在拨片区（class="lever"），按下时帽和连接片一起往下，连接片碰到两个触点。
+  button(part, style) {
+    const on = !!part.params.pressed;
+    const bar = on ? -6 : -18;
+    const capY = on ? -46 : -60;
+    const area = `<rect x="${LEVER_RECT.x0 * GRID}" y="${LEVER_RECT.y0 * GRID}" width="${(LEVER_RECT.x1 - LEVER_RECT.x0) * GRID}" height="${(LEVER_RECT.y1 - LEVER_RECT.y0) * GRID}" fill="transparent"/>`;
+    const fill = on ? '#4caf50' : '#e5533d';
+    if (style === 'cartoon') {
+      return `<rect x="-60" y="-4" width="120" height="22" rx="8" fill="#d9c7a7" stroke="${INK}" stroke-width="3"/>` +
+        line(-80, 0, -40, 0) + line(80, 0, 40, 0) +
+        `<circle cx="-40" cy="0" r="6" fill="#c9a24a" stroke="${INK}" stroke-width="2"/><circle cx="40" cy="0" r="6" fill="#c9a24a" stroke="${INK}" stroke-width="2"/>` +
+        `<line x1="0" y1="${bar}" x2="0" y2="${capY + 14}" stroke="#8a8f99" stroke-width="6"/>` +
+        `<line x1="-46" y1="${bar}" x2="46" y2="${bar}" stroke="#8a8f99" stroke-width="7" stroke-linecap="round"/>` +
+        `<g class="lever">${area}<rect x="-20" y="${capY}" width="40" height="16" rx="6" fill="${fill}" stroke="${INK}" stroke-width="3"/>` +
+        `<rect x="-14" y="${capY + 3}" width="12" height="4" rx="2" fill="#fff" opacity="0.6"/></g>`;
+    }
+    return line(-80, 0, -36, 0) + line(80, 0, 36, 0) +
+      `<circle cx="-36" cy="0" r="4" fill="#fff" stroke="${INK}" stroke-width="3"/><circle cx="36" cy="0" r="4" fill="#fff" stroke="${INK}" stroke-width="3"/>` +
+      line(-40, bar, 40, bar) + `<line x1="0" y1="${bar}" x2="0" y2="${capY + 8}" stroke="${INK}" stroke-width="2" stroke-dasharray="5 4"/>` +
+      `<g class="lever">${area}<rect x="-16" y="${capY}" width="32" height="10" fill="#fff" stroke="${INK}" stroke-width="3"/>` +
+      `<circle cx="0" cy="${capY + 5}" r="3" fill="${fill}"/></g>`;
+  },
+
+  // 双刀双掷：两组单刀双掷触点上下排列，中间虚线连杆，两片动片同时转到 a 或 b。
+  dpdt(part, style) {
+    const toA = part.params.to === 'a';
+    const ends = toA ? [[36, -78], [36, 40]] : [[36, -40], [36, 78]];
+    const link = `<line x1="0" y1="${n((-40 + ends[0][1]) / 2)}" x2="0" y2="${n((40 + ends[1][1]) / 2)}" stroke="${INK}" stroke-width="2" stroke-dasharray="6 5"/>`;
+    const contacts = [-80, -40, 40, 80].map(y => line(80, y, 40, y)).join('');
+    const poles = line(-80, -40, -40, -40) + line(-80, 40, -40, 40);
+    if (style === 'cartoon') {
+      const dot = (x, y) => `<circle cx="${x}" cy="${y}" r="6" fill="#c9a24a" stroke="${INK}" stroke-width="2"/>`;
+      const blade = ([x, y], cy) => `<line x1="-40" y1="${cy}" x2="${x}" y2="${y}" stroke="#8a8f99" stroke-width="7" stroke-linecap="round"/>`;
+      return `<rect x="-60" y="-92" width="112" height="184" rx="10" fill="#d9c7a7" stroke="${INK}" stroke-width="3" opacity="0.85"/>` +
+        poles + contacts + dot(-40, -40) + dot(-40, 40) + [-80, -40, 40, 80].map(y => dot(40, y)).join('') +
+        blade(ends[0], -40) + blade(ends[1], 40) + link +
+        `<text x="54" y="-86" class="label">a</text><text x="54" y="-24" class="label">b</text>` +
+        `<text x="54" y="34" class="label">a</text><text x="54" y="96" class="label">b</text>` +
+        lever(toA, false);
+    }
+    const dot = (x, y) => `<circle cx="${x}" cy="${y}" r="4" fill="#fff" stroke="${INK}" stroke-width="3"/>`;
+    return poles + contacts + dot(-36, -40) + dot(-36, 40) + [-80, -40, 40, 80].map(y => dot(40, y)).join('') +
+      line(-32, -40, ends[0][0], ends[0][1]) + line(-32, 40, ends[1][0], ends[1][1]) + link + lever(toA, true);
+  },
+
+  // 数字显示器：屏上一个暗的「8」打底，上面叠当前数字；输入端旁标权重 1、2、4、8。
+  display(part, style, vis) {
+    const text = esc(String(vis.text ?? '-').slice(0, 1)); // 屏上只有一位（元件栏小图传的是 '--'）
+    const ins = [[-80, 1], [-40, 2], [0, 4], [40, 8]];
+    const leads = ins.map(([y]) => line(-80, y, -44, y)).join('') + line(0, 80, 0, 58);
+    const marks = ins.map(([y, w]) => `<text x="-70" y="${y - 8}" class="label">${w}</text>`).join('');
+    const digit = (fg, ghost) =>
+      `<text class="ghost" x="0" y="2" text-anchor="middle" style="fill:${ghost}">8</text>` +
+      `<text class="digit" x="0" y="2" text-anchor="middle" style="fill:${fg}">${text}</text>`;
+    if (style === 'cartoon') {
+      return leads + `<rect x="-44" y="-92" width="88" height="150" rx="10" fill="#33302c" stroke="${INK}" stroke-width="3"/>` +
+        `<rect x="-32" y="-78" width="64" height="108" rx="5" fill="#1d1a17" stroke="#5a524a" stroke-width="2"/>` +
+        digit('#ff4b3e', 'rgba(255,75,62,0.14)') + `<circle cx="0" cy="44" r="4" fill="#777"/>` + marks;
+    }
+    return leads + `<rect x="-44" y="-92" width="88" height="150" fill="#fff" stroke="${INK}" stroke-width="3"/>` +
+      digit(INK, 'rgba(58,46,37,0.1)') + marks;
+  },
 };
 
 function meter(letter, style, vis) {
@@ -261,7 +354,7 @@ export function drawPart(part, style, visual) {
 }
 
 // 文字基线到字形中心的大致偏移（约 0.35em），按 styles.css 里的字号。
-const TEXT_MID = { label: 5, pol: 6, sym: 8, reading: 6 };
+const TEXT_MID = { label: 5, pol: 6, sym: 8, reading: 6, digit: 21, ghost: 21 };
 const BUBBLE_RE = /<g class="bubble">[\s\S]*?<\/g>/;
 
 // 元件整体随 rot 旋转；文字绕自己的字形中心转回来保持正向；

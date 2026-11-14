@@ -4,8 +4,8 @@ import { PART_TYPES, PARTS, defaultParams, isValidParam, PHYS } from '../lib/par
 import { createCircuit, addPart, movePart, rotatePart, removePart, setParam, addWire, removeWire } from '../lib/circuit.js';
 import { build, loop } from './helpers.js';
 
-test('catalog has 12 types with terms', () => {
-  assert.equal(PART_TYPES.length, 12);
+test('catalog has 16 types with terms', () => {
+  assert.equal(PART_TYPES.length, 16);
   for (const t of PART_TYPES) assert.ok(PARTS[t].terms.every(n => PARTS[t].termPos[n]));
   assert.deepEqual(PARTS.rheostat.terms, ['a', 'b', 'w']);
   assert.equal(PARTS.switch.lever && PARTS.spdt.lever, true);

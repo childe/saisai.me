@@ -99,7 +99,11 @@ board.addEventListener('pointerdown', e => {
   const selWire = state.selection?.kind === 'wire' ? state.selection.id : null;
   const hit = hitTest(c, g, scale(), selWire);
   gesture = { id: e.pointerId, hit, selWire, sx: e.clientX, sy: e.clientY, moved: false, dragging: false };
-  if (hit?.kind === 'part') {
+  if (hit?.kind === 'lever' && c.parts.find(x => x.id === hit.id)?.type === 'button') {
+    // 按钮：按下就接通，松手时在 endGesture 里松开。
+    gesture.pressed = hit.id;
+    dispatch({ type: 'press', id: hit.id });
+  } else if (hit?.kind === 'part') {
     const p = c.parts.find(x => x.id === hit.id);
     gesture.offset = [p.x - g[0], p.y - g[1]];
     gesture.last = [p.x, p.y];
@@ -121,8 +125,20 @@ board.addEventListener('pointerdown', e => {
   e.preventDefault();
 });
 
+// 按住按钮时手指移出画板也算松手。
+function releaseButton(gs) {
+  if (!gs.pressed) return;
+  dispatch({ type: 'release', id: gs.pressed });
+  gs.pressed = null;
+}
+
 board.addEventListener('pointermove', e => {
   if (!gesture || e.pointerId !== gesture.id) return;
+  if (gesture.pressed) {
+    const r = board.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) releaseButton(gesture);
+    return;
+  }
   const dist = Math.hypot(e.clientX - gesture.sx, e.clientY - gesture.sy);
   if (dist > DRAG_PX) gesture.moved = true;
   const { hit } = gesture;
@@ -157,6 +173,8 @@ function endGesture(e, cancelled) {
   const { hit, moved } = gs;
   gesture = null;
   setOverlay('');
+  // 按钮不论抬起还是取消都松开，也不再切换。
+  if (gs.pressed !== undefined) { releaseButton(gs); return; }
   if (cancelled) return;
   const g = toGrid(e);
   if (!hit) { dispatch({ type: 'select', target: null }); return; }
@@ -308,11 +326,17 @@ const buzzer = createBuzzer();
 window.addEventListener('pointerdown', () => buzzer.unlock(), { capture: true });
 
 let lastT = null;
+// 继电器翻转次数：活动工作区的 relays.flips 变大就咔哒一声；换模式时只重记基数。
+let lastFlips = 0, lastMode = null;
 function frame(t) {
   const dt = lastT === null ? 0 : Math.min(0.1, Math.max(0, (t - lastT) / 1000));
   lastT = t;
   if (dt > 0) dispatch({ type: 'tick', dt });
   buzzer.update(buzzerVolume(state), state.muted);
+  const flips = activeSpace(state).relays?.flips ?? 0;
+  if (state.mode === lastMode && flips > lastFlips) buzzer.click(state.muted);
+  lastFlips = flips;
+  lastMode = state.mode;
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

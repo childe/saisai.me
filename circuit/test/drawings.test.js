@@ -23,6 +23,14 @@ test('state shows up in drawing', () => {
   assert.notEqual(drawPart(mk('switch', { closed: true }), 'symbol', vis()), drawPart(mk('switch'), 'symbol', vis()));
   assert.notEqual(drawPart(mk('spdt', { to: 'b' }), 'cartoon', vis()), drawPart(mk('spdt'), 'cartoon', vis()));
   assert.match(drawPart(mk('resistor', { ohms: 220 }), 'cartoon', vis()), /red/);
+  assert.notEqual(drawPart(mk('relay'), 'cartoon', vis({ on: true })), drawPart(mk('relay'), 'cartoon', vis()));
+  assert.notEqual(drawPart(mk('relay'), 'symbol', vis({ on: true })), drawPart(mk('relay'), 'symbol', vis()));
+  assert.notEqual(drawPart(mk('button', { pressed: true }), 'symbol', vis()), drawPart(mk('button'), 'symbol', vis()));
+  assert.notEqual(drawPart(mk('button', { pressed: true }), 'cartoon', vis()), drawPart(mk('button'), 'cartoon', vis()));
+  assert.notEqual(drawPart(mk('dpdt', { to: 'b' }), 'cartoon', vis()), drawPart(mk('dpdt'), 'cartoon', vis()));
+  assert.notEqual(drawPart(mk('dpdt', { to: 'b' }), 'symbol', vis()), drawPart(mk('dpdt'), 'symbol', vis()));
+  assert.match(drawPart(mk('display'), 'symbol', vis({ text: '7' })), />7</);
+  assert.match(drawPart(mk('display'), 'cartoon', vis({ text: 'E' })), />E</);
 });
 
 test('text stays upright when the part is rotated', () => {
@@ -38,6 +46,23 @@ test('text stays upright when the part is rotated', () => {
     for (const t of texts) assert.match(t, new RegExp(`transform="[^"]*rotate\\(${-rot * 90} `), t);
   }
   assert.doesNotMatch(drawPart(mk('battery'), 'cartoon', vis({ alarm: true })), /<text[^>]*transform=/);
+  // 新元件上的字（显示器数字、继电器常开常闭）也跟着转回来。
+  for (const t of ['relay', 'display']) for (const style of ['cartoon', 'symbol']) {
+    const s = drawPart({ ...mk(t), rot: 1 }, style, vis({ text: '5' }));
+    const texts = s.match(/<text\b[^>]*>/g);
+    assert.ok(texts?.length >= 2, `${t}/${style}`);
+    for (const x of texts) assert.match(x, /transform="[^"]*rotate\(-90 /, `${t}/${style}`);
+  }
+});
+
+test('relay contacts are labelled 常开 / 常闭, display inputs 1 2 4 8', () => {
+  for (const style of ['cartoon', 'symbol']) {
+    const r = drawPart(mk('relay'), style, vis());
+    assert.match(r, />常开</);
+    assert.match(r, />常闭</);
+    const d = drawPart(mk('display'), style, vis({ text: '-' }));
+    for (const k of ['1', '2', '4', '8']) assert.match(d, new RegExp(`>${k}<`), `${style}/${k}`);
+  }
 });
 
 test('node renders as a dot in both styles and stays out of the palette', () => {
