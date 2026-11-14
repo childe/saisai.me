@@ -51,6 +51,7 @@ const EXPECTED = [
   ['jump',     'tiao-yi-tiao/game.html',           '跳一跳'],
   ['maze3d',   'maze-3d/index.html',               '3D 迷宫'],
   ['circuit',  'circuit/index.html',              '电路实验室'],
+  ['sudoku',   'sudoku/index.html',               '数独'],
 ];
 
 test('viewport meta kept', () => {
@@ -63,9 +64,9 @@ test('lang and title', () => {
   assert.match(html, /<h1[^>]*>[\s\S]*赛赛的工具箱[\s\S]*<\/h1>/);
 });
 
-test('eight cards in order with fixed links and titles', () => {
+test('nine cards in order with fixed links and titles', () => {
   const c = cards();
-  assert.equal(c.length, 8);
+  assert.equal(c.length, 9);
   assert.deepEqual(c.map(x => [x.tool, x.href, x.title]), EXPECTED);
 });
 
@@ -73,7 +74,7 @@ test('cards have the agreed descriptions', () => {
   assert.deepEqual(cards().map(x => x.desc), [
     '声母 韵母 四声调', '一年级上册', '一元一次方程求解',
     '描点 连成线', '从起点走到终点', '按住蓄力 跳过去',
-    '立体迷宫 走出去', '连电线 点亮小灯',
+    '立体迷宫 走出去', '连电线 点亮小灯', '学技巧 练推理',
   ]);
 });
 
@@ -161,6 +162,13 @@ test('maze3d art is isometric', () => {
   const s = svgOf('maze3d');
   assert.ok((s.match(/<polygon\b/g) || []).length >= 6);
   assert.ok(shapeCount(s) >= 8);
+});
+
+test('sudoku art shows a grid with bold box lines and digits', () => {
+  const s = svgOf('sudoku');
+  assert.ok((s.match(/<text\b/g) || []).length >= 3);
+  assert.ok((s.match(/<line\b/g) || []).length >= 6);
+  assert.ok(shapeCount(s) >= 10);
 });
 
 test('no placeholder-only svg remains', () => {
