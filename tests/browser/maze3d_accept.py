@@ -9,6 +9,7 @@ Chromium 逐项检查，打印 PASS / FAIL；任一项失败时退出码为 1。
 """
 
 import argparse
+import base64
 import datetime
 import io
 import json
@@ -49,7 +50,7 @@ WASD = {"up": "w", "down": "s", "left": "a", "right": "d"}
 PW = None  # main() 中赋值，供需要设备描述的检查使用
 BASELINE_ROOT = None  # --baseline-root：改动前代码的副本，供对比检查使用
 SHOTS = Path(
-    "/Users/jialiu/Projects/saisai.me/.xdev/20261113-141153-maze-3d-polish/screenshots"
+    "/Users/jialiu/Projects/saisai.me/.xdev/20261114-103742-maze-3d-gameplay/screenshots"
 )  # --shots 覆盖
 DIRS = {"up": (-1, 0), "down": (1, 0), "left": (0, -1), "right": (0, 1)}
 
@@ -932,7 +933,7 @@ def minimap_data(page):
 
 
 def check_3(browser, base):
-    """切换视角：保留 yaw，pitch 改为该视角默认值；第一人称显示小地图、隐藏小人。"""
+    """切换视角：保留 yaw，pitch 改为该视角默认值；两种视角都显示小地图；第一人称隐藏小人。"""
     page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
     details = []
     try:
@@ -983,7 +984,7 @@ def check_3(browser, base):
         )
         ok = (
             view == "follow"
-            and not mini
+            and mini
             and pv is True
             and abs(yaw3 - yaw2) < 1e-9
             and abs(pitch_deg - 40) <= 0.5
@@ -1053,6 +1054,33 @@ def check_8(browser, base):
             and not any(intersects(stick, b) for b in buttons)
         )
         cdp_touch(cdp, "touchEnd", {})
+        # 跟随视角（开局）：信息栏与小地图都在舞台内，声音按钮不压舞台，窄屏小地图 110px
+        follow_mini = box_of(page, "#minimap")
+        follow_mini_ok = (
+            follow_mini is not None
+            and inside(follow_mini, stage)
+            and abs(follow_mini["width"] - 110) <= 0.5
+        )
+        if page.locator("#hud").count():
+            hud = box_of(page, "#hud")
+            hud_ok = hud is not None and inside(hud, stage)
+            hud_note = f"inside={hud_ok}"
+        else:
+            hud_ok = True
+            hud_note = "n/a"
+        if page.locator("#sound-btn").count():
+            sb = box_of(page, "#sound-btn")
+            sound_ok = sb is not None and not intersects(sb, stage)
+            sound_note = f"offStage={sound_ok}"
+        else:
+            sound_ok = True
+            sound_note = "n/a"
+        details.append(
+            f"follow: minimap={follow_mini} minimapOk={follow_mini_ok}"
+            f" hud={hud_note} soundBtn={sound_note}"
+        )
+        if not (follow_mini_ok and hud_ok and sound_ok):
+            return False, " ".join(details)
         page.click("#view-btn")
         page.wait_for_timeout(200)
         mini = box_of(page, "#minimap")
@@ -1066,12 +1094,24 @@ def check_8(browser, base):
             return False, " ".join(details)
         page.set_viewport_size({"width": 667, "height": 375})
         page.wait_for_timeout(300)
+        wait_frames(page, 3)
         sw2 = page.evaluate("() => document.documentElement.scrollWidth")
         cw = box_of(page, "#stage > canvas:not(#minimap)")["width"]
         stw = box_of(page, "#stage")["width"]
         page.screenshot(path=str(SCRATCH / "maze3d-667x375.png"), full_page=True)
-        details.append(f"landscape: scrollWidth={sw2} canvas={cw} stage={stw}")
-        ok = sw2 <= 667 and abs(cw - stw) < 1
+        mm = page.evaluate(
+            "() => ({ lay: window.__maze3d.minimapLayout,"
+            " w: document.getElementById('minimap').width,"
+            " dpr: window.devicePixelRatio })"
+        )
+        lay = mm["lay"] or {}
+        want_px = round(140 * mm["dpr"])
+        px_ok = lay.get("px") == want_px and mm["w"] == want_px
+        details.append(
+            f"landscape: scrollWidth={sw2} canvas={cw} stage={stw}"
+            f" minimapPx={lay.get('px')} canvasWidth={mm['w']} want={want_px}"
+        )
+        ok = sw2 <= 667 and abs(cw - stw) < 1 and px_ok
         ok_err, msg = no_errors(errors)
         return ok and ok_err, (" ".join(details) + " " + msg).strip()
     finally:
@@ -1590,14 +1630,23 @@ def check_t8(browser, base):
 
 def canvas_image(page, attempts=3):
     """3D canvas 的截图。自动降画质会换掉 canvas 元素，截图途中被换掉时重试。"""
-    for i in range(attempts):
-        try:
-            data = page.locator("#stage > canvas:not(#minimap)").screenshot()
-            return Image.open(io.BytesIO(data)).convert("RGB")
-        except Exception as exc:
-            if "not attached" not in str(exc) or i == attempts - 1:
-                raise
-            page.wait_for_timeout(200)
+    # 元素截图包含盖在 canvas 上的覆盖层；测的是 3D 画面本身，截图前先藏起小地图与信息栏
+    toggle = (
+        "(v) => { for (const id of ['minimap', 'hud']) {"
+        " const el = document.getElementById(id); if (el) el.style.visibility = v; } }"
+    )
+    page.evaluate(toggle, "hidden")
+    try:
+        for i in range(attempts):
+            try:
+                data = page.locator("#stage > canvas:not(#minimap)").screenshot()
+                return Image.open(io.BytesIO(data)).convert("RGB")
+            except Exception as exc:
+                if "not attached" not in str(exc) or i == attempts - 1:
+                    raise
+                page.wait_for_timeout(200)
+    finally:
+        page.evaluate(toggle, "")
 
 
 def screen_metrics(img):
@@ -4188,6 +4237,262 @@ def check_p8(browser, base):
     return ok and ok_err, (" ".join(details) + f" dir={SHOTS} " + msg).strip()
 
 
+# ---------------------------------------------------------------- gameplay（PR B）
+
+
+def gameplay(page, expr, arg=None):
+    """在页面里 import gameplay.js（G）与 game-logic.js（L）后求值 expr（可用 G、L、M=__maze3d、arg）。"""
+    return page.evaluate(
+        "async ([expr, arg]) => {"
+        " const G = await import('/maze-3d/gameplay.js');"
+        " const L = await import('/maze-3d/game-logic.js');"
+        " const M = window.__maze3d;"
+        " return (new Function('G', 'L', 'M', 'arg', 'return (' + expr + ');'))(G, L, M, arg);"
+        "}",
+        [expr, arg],
+    )
+
+
+def mini_colors(page):
+    return {k: hex_rgb(v) for k, v in gameplay(page, "G.MINI_COLORS").items()}
+
+
+def minimap_image(page):
+    """#minimap 画布的设备像素图（解码 toDataURL）。"""
+    data = minimap_data(page)
+    raw = base64.b64decode(data.split(",", 1)[1])
+    return Image.open(io.BytesIO(raw)).convert("RGB")
+
+
+def mini_px(lay, row, col, fx=0.5, fz=0.5):
+    """格 (row, col) 内相对位置 (fx, fz) 在小地图画布上的设备像素坐标。"""
+    return (
+        lay["pad"] + (col + fx) * lay["cell"],
+        lay["pad"] + (row + fz) * lay["cell"],
+    )
+
+
+def cheb_rc(a, b):
+    """两个 (row, col) 序列的 Chebyshev 距离。"""
+    return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
+
+
+def px_at(img, xy):
+    return img.getpixel((int(xy[0]), int(xy[1])))
+
+
+def footprint_alpha(i, n):
+    """与 gameplay.js 的 footprintAlpha 同公式。"""
+    if n <= 1:
+        return 0.9
+    return 0.35 + 0.55 * i / (n - 1)
+
+
+def mix_rgb(a, b, alpha):
+    return tuple(alpha * x + (1 - alpha) * y for x, y in zip(a, b))
+
+
+def route_to_end(page):
+    return logic(
+        page,
+        "L.findPath(M.connections, {row: 0, col: 0}, {row: M.size - 1, col: M.size - 1})",
+    )
+
+
+def check_b1(browser, base):
+    """已探索格子：开局 4 格；沿通关路线走到第 7 格后路上视野都已探索；小地图已探索 / 未探索格颜色；
+    关迷雾全部已探索，再开仍是全部。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        init_script=preset_storage("1", "1"),
+    )
+    details = []
+    try:
+        wait_idle(page)
+        e0 = m3(page, "explored")
+        details.append(f"start explored={e0}")
+        if e0 != 4:
+            return False, " ".join(details)
+        route = route_to_end(page)
+        details.append(f"route={len(route)}")
+        if len(route) < 8:
+            return False, " ".join(details)
+        t = route[6]
+        ok_walk = walk_to(page, *t)
+        cell = m3(page, "playerCell")
+        st = m3(page, "state")
+        details.append(f"walk to {t}: ok={ok_walk} cell={cell} state={st}")
+        if not ok_walk or cell != {"row": t[0], "col": t[1]} or st == "won":
+            return False, " ".join(details)
+        e1 = m3(page, "explored")
+        missing = page.evaluate(
+            "(route) => { const M = window.__maze3d; const out = [];"
+            " for (const [r, c] of route) for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {"
+            "  const rr = r + dr, cc = c + dc;"
+            "  if (rr < 0 || cc < 0 || rr >= M.size || cc >= M.size) continue;"
+            "  if (!M.exploredAt(rr, cc)) out.push([rr, cc]); }"
+            " return out; }",
+            route[:7],
+        )
+        details.append(f"explored={e1} missingOnRoute={missing[:5]}")
+        if e1 <= 4 or missing:
+            return False, " ".join(details)
+        wait_frames(page, 3)
+        colors = mini_colors(page)
+        lay = m3(page, "minimapLayout")
+        img = minimap_image(page)
+        explored_map = page.evaluate(
+            "() => { const M = window.__maze3d; const out = [];"
+            " for (let r = 0; r < M.size; r++) { const row = [];"
+            "  for (let c = 0; c < M.size; c++) row.push(M.exploredAt(r, c)); out.push(row); }"
+            " return out; }"
+        )
+        bad = []
+        n_seen = n_fog = 0
+        for r in range(10):
+            for c in range(10):
+                if cheb_rc((r, c), t) <= 1 or (r, c) == (9, 9):
+                    continue
+                px = px_at(img, mini_px(lay, r, c, 0.25, 0.25))
+                if explored_map[r][c]:
+                    d = min(rgb_dist(px, colors["floor"]), rgb_dist(px, colors["seen"]))
+                    n_seen += 1
+                else:
+                    d = rgb_dist(px, colors["fog"])
+                    n_fog += 1
+                if d > 20:
+                    bad.append(((r, c), explored_map[r][c], px, round(d, 1)))
+        details.append(f"pixels explored={n_seen} fog={n_fog} bad={bad[:4]}")
+        if bad or n_fog == 0:
+            return False, " ".join(details)
+        page.click("#fog-btn")
+        page.wait_for_timeout(100)
+        e2 = m3(page, "explored")
+        page.click("#fog-btn")
+        page.wait_for_timeout(100)
+        e3 = m3(page, "explored")
+        details.append(f"fogOff explored={e2} fogOn again={e3}")
+        ok = e2 == 100 and e3 == 100
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_b2(browser, base):
+    """脚印：按走过顺序记录；小地图格心是按不透明度混合的脚印色；回头走移到末尾；
+    瞬移不记；重新生成只剩起点。"""
+    page, errors = open_page(
+        browser,
+        f"{base}{PAGE}?seed={S}&size=10&debug=1",
+        init_script=preset_storage("1", "5"),
+    )
+    details = []
+    try:
+        wait_idle(page)
+        route = route_to_end(page)[:6]
+        ok_walk = walk_to(page, *route[5])
+        fp = m3(page, "footprints")
+        details.append(f"route={route} walk={ok_walk} footprints={fp}")
+        if not ok_walk or fp != route:
+            return False, " ".join(details)
+        wait_frames(page, 3)
+        colors = mini_colors(page)
+        lay = m3(page, "minimapLayout")
+        img = minimap_image(page)
+        ppos = m3(page, "playerPos")
+        pc = (
+            lay["pad"] + ppos["x"] * lay["cell"],
+            lay["pad"] + ppos["z"] * lay["cell"],
+        )
+        rad = 2.2 * max(2.5 * lay["dpr"], 0.28 * lay["cell"]) + 2
+        cur = route[5]
+        n = len(fp)
+        bad = []
+        checked = 0
+        for i, (r, c) in enumerate(route[:-1]):
+            xy = mini_px(lay, r, c)
+            if math.hypot(xy[0] - pc[0], xy[1] - pc[1]) < rad:
+                continue
+            under = colors["floor"] if cheb_rc((r, c), cur) <= 5 else colors["seen"]
+            want = mix_rgb(colors["foot"], under, footprint_alpha(i, n))
+            got = px_at(img, xy)
+            d = rgb_dist(got, want)
+            checked += 1
+            if d > 30:
+                bad.append(((r, c), got, tuple(round(v) for v in want), round(d, 1)))
+        details.append(f"pixels checked={checked} bad={bad[:4]}")
+        if bad or checked == 0:
+            return False, " ".join(details)
+        ok_back = walk_to(page, *route[4])
+        fp2 = m3(page, "footprints")
+        details.append(
+            f"back to {route[4]}: ok={ok_back} last={fp2[-1]} len={len(fp2)}"
+        )
+        if not ok_back or fp2[-1] != route[4] or len(fp2) != 6:
+            return False, " ".join(details)
+        page.evaluate("() => window.__maze3d.teleportForTest(5, 5)")
+        fp3 = m3(page, "footprints")
+        details.append(f"teleport unchanged={fp3 == fp2}")
+        if fp3 != fp2:
+            return False, " ".join(details)
+        page.click("#regen-btn")
+        wait_idle(page)
+        fp4 = m3(page, "footprints")
+        details.append(f"regen footprints={fp4}")
+        ok = fp4 == [[0, 0]]
+        ok_err, msg = no_errors(errors)
+        return ok and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
+def check_b3(browser, base):
+    """小地图在跟随视角也显示；跟随视角下终点箭头不压小地图；静止时小地图连续 30 帧不变。"""
+    page, errors = open_page(browser, f"{base}{PAGE}?seed={S}&size=10&debug=1")
+    details = []
+    try:
+        wait_idle(page)
+        v0 = m3(page, "minimapVisible")
+        page.click("#view-btn")
+        page.wait_for_timeout(100)
+        v1 = m3(page, "minimapVisible")
+        page.click("#view-btn")
+        page.wait_for_timeout(100)
+        details.append(f"visible follow={v0} first={v1}")
+        if not (v0 is True and v1 is True):
+            return False, " ".join(details)
+        errs = list(errors)
+    finally:
+        close(page)
+    page, errors = hint_page(browser, base, "0", "5")
+    try:
+        back_to_end_state(page)
+        r = page.evaluate(
+            "() => { const M = window.__maze3d;"
+            " const a = document.getElementById('end-arrow').getBoundingClientRect();"
+            " const m = document.getElementById('minimap').getBoundingClientRect();"
+            " const hit = !(a.right <= m.left || a.left >= m.right || a.bottom <= m.top || a.top >= m.bottom);"
+            " return { mode: M.endHint.mode, hit, mini: !document.getElementById('minimap').hidden }; }"
+        )
+        details.append(f"arrow: {r}")
+        if r["mode"] != "edge" or r["hit"] or not r["mini"]:
+            return False, " ".join(details)
+        set_test_input(page)
+        wait_camera_still(page)
+        shots = []
+        for _ in range(30):
+            wait_frames(page, 1)
+            shots.append(minimap_data(page))
+        same = all(x == shots[0] for x in shots)
+        details.append(f"still 30 frames same={same}")
+        ok_err, msg = no_errors(errs + errors)
+        return same and ok_err, (" ".join(details) + " " + msg).strip()
+    finally:
+        close(page)
+
+
 CHECKS = {
     "1": check_1,
     "10": check_10,
@@ -4240,6 +4545,9 @@ CHECKS = {
     "p5m": check_p5m,
     "p6": check_p6,
     "p8": check_p8,
+    "b1": check_b1,
+    "b2": check_b2,
+    "b3": check_b3,
 }
 
 

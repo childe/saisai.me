@@ -83,6 +83,7 @@ import {
   edgeArrow,
   endHintMode,
 } from './effects.js';
+import { markExplored, pushFootprint, footprintAlpha, MINI_COLORS } from './gameplay.js';
 
 const EYE_HEIGHT = 0.45;
 const STICK_RADIUS = 50; // 虚拟摇杆底座半径，CSS 像素
@@ -408,6 +409,10 @@ function start() {
   let pathSet = null;
   let fogRecomputeCount = 0;
 
+  // ---------- 本局：已探索格子与脚印 ----------
+  let explored = new Uint8Array(0); // 本局进入过迷雾视野的格子（迷雾关时全部）
+  const footTrail = []; // 走过的格子 row * size + col，按最近一次走过排序，最旧在前
+
   const tmpMatrix = new THREE.Matrix4();
   const tmpColor = new THREE.Color();
   const tmpDir = new THREE.Vector3();
@@ -567,6 +572,11 @@ function start() {
       b.classList.toggle('active', Number(b.dataset.size) === size);
     });
 
+    if (explored.length === size * size) explored.fill(0);
+    else explored = new Uint8Array(size * size);
+    footTrail.length = 0;
+    pushFootprint(footTrail, 0);
+
     updateSceneFog();
     recomputeFog();
     updateGroundExtent();
@@ -596,6 +606,7 @@ function start() {
   // 唯一的迷雾重算入口：只在显示格变化、视野 / 开关 / 道路变化、重建迷宫时调用
   function recomputeFog() {
     fogRecomputeCount += 1;
+    markExplored(explored, size, display, fogRadius, fogOn);
     if (showPath) {
       const path = findPath(connections, display, { row: size - 1, col: size - 1 });
       pathSet = new Set(path.map(([r, c]) => r * size + c));
@@ -712,7 +723,7 @@ function start() {
       endHint.x = Math.min(W - HINT_INSET, Math.max(HINT_INSET, top.x));
       endHint.y = Math.min(H - HINT_INSET, Math.max(HINT_INSET, top.y));
     } else {
-      // 第一人称时右上角有小地图（z-index 更高），箭头落在它上面就沿边框移开
+      // 小地图可见时右上角有小地图（z-index 更高），箭头落在它上面就沿边框移开
       const at = avoidRect(arrow, minimap.hidden ? null : miniRect(), HINT_INSET);
       endHint.x = at.x;
       endHint.y = at.y;
@@ -884,12 +895,10 @@ function start() {
     const first = view === 'first';
     pitch = first ? FIRST_PITCH.def : FOLLOW_PITCH.def;
     $('view-btn').textContent = first ? '切换到跟随视角' : '切换到第一人称';
-    $('minimap').hidden = !first;
     player.visible = !first;
     shadow.visible = !first;
     updateSceneFog();
     snapCamera();
-    if (first) drawMinimap();
   }
 
   $('view-btn').addEventListener('click', () => {
@@ -897,11 +906,13 @@ function start() {
   });
 
   // ---------- 小地图 ----------
-  // 底图（地块、墙）只在迷雾重算时画进离屏 canvas；第一人称每帧贴底图再画小人与朝向
+  // 底图（地块、墙、脚印、星星标记）只在迷雾重算等时机画进离屏 canvas；
+  // 两种视角都显示，每帧贴底图再画小人与朝向，小人与底图都没变时跳过
   const minimap = $('minimap');
   const miniCtx = minimap.getContext('2d');
   const miniBase = document.createElement('canvas');
   let miniBaseDirty = true;
+  const miniLast = { x: NaN, z: NaN, yaw: NaN, px: NaN };
 
   function miniLayout() {
     const dpr = window.devicePixelRatio || 1;
@@ -917,16 +928,33 @@ function start() {
     miniBase.height = px;
     const ctx = miniBase.getContext('2d');
     ctx.clearRect(0, 0, px, px);
-    ctx.fillStyle = '#f2efe6';
-    ctx.fillRect(pad, pad, cell * size, cell * size);
-    ctx.fillStyle = '#e53935';
+    // 视野内 / 已探索视野外 / 未探索，同色格子合成一条路径一次填充
+    const pFloor = new Path2D();
+    const pSeen = new Path2D();
+    const pFog = new Path2D();
+    for (let row = 0; row < size; row++) {
+      for (let col = 0; col < size; col++) {
+        const x = pad + col * cell;
+        const y = pad + row * cell;
+        if (cellVisible(row, col)) pFloor.rect(x, y, cell, cell);
+        else if (explored[row * size + col]) pSeen.rect(x, y, cell, cell);
+        else pFog.rect(x, y, cell, cell);
+      }
+    }
+    ctx.fillStyle = MINI_COLORS.floor;
+    ctx.fill(pFloor);
+    ctx.fillStyle = MINI_COLORS.seen;
+    ctx.fill(pSeen);
+    ctx.fillStyle = MINI_COLORS.fog;
+    ctx.fill(pFog);
+    ctx.fillStyle = MINI_COLORS.end;
     ctx.fillRect(pad + (size - 1) * cell, pad + (size - 1) * cell, cell, cell);
-    ctx.strokeStyle = '#7e57c2';
+    ctx.strokeStyle = MINI_COLORS.wall;
     ctx.lineWidth = Math.max(1, 1.5 * dpr);
     ctx.lineCap = 'round';
     ctx.beginPath();
     for (const seg of segments) {
-      if (fogOn && !wallInView(seg, display, fogRadius)) continue;
+      if (fogOn && !seg.cells.some(([r, c]) => explored[r * size + c])) continue;
       if (seg.along === 'x') {
         ctx.moveTo(pad + (seg.x - 0.5) * cell, pad + seg.z * cell);
         ctx.lineTo(pad + (seg.x + 0.5) * cell, pad + seg.z * cell);
@@ -936,13 +964,46 @@ function start() {
       }
     }
     ctx.stroke();
+    // 脚印：越早越淡
+    const n = footTrail.length;
+    const fr = Math.max(1.5 * dpr, 0.12 * cell);
+    ctx.fillStyle = MINI_COLORS.foot;
+    for (let i = 0; i < n; i++) {
+      const k = footTrail[i];
+      const row = Math.floor(k / size);
+      const col = k % size;
+      ctx.globalAlpha = footprintAlpha(i, n);
+      ctx.beginPath();
+      ctx.arc(pad + (col + 0.5) * cell, pad + (row + 0.5) * cell, fr, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    drawStarMarkers(ctx, lay);
     miniBaseDirty = false;
   }
 
-  function drawMinimap() {
+  // 星星标记（画在脚印之上）；星星接入之前为空
+  // eslint-disable-next-line no-unused-vars
+  function drawStarMarkers(ctx, lay) {}
+
+  function drawMinimap(force = false) {
     if (minimap.hidden || !connections) return;
     const lay = miniLayout();
     const { dpr, px, pad, cell } = lay;
+    if (
+      !force &&
+      !miniBaseDirty &&
+      px === miniLast.px &&
+      Math.abs(playerState.x - miniLast.x) <= 1e-4 &&
+      Math.abs(playerState.z - miniLast.z) <= 1e-4 &&
+      Math.abs(yaw - miniLast.yaw) <= 1e-4
+    ) {
+      return;
+    }
+    miniLast.x = playerState.x;
+    miniLast.z = playerState.z;
+    miniLast.yaw = yaw;
+    miniLast.px = px;
     if (minimap.width !== px || minimap.height !== px) {
       minimap.width = px;
       minimap.height = px;
@@ -1107,6 +1168,7 @@ function start() {
       if (c.row !== display.row || c.col !== display.col) {
         display.row = c.row;
         display.col = c.col;
+        pushFootprint(footTrail, c.row * size + c.col);
         recomputeFog();
         if (c.row === size - 1 && c.col === size - 1) {
           state = 'won';
@@ -1337,7 +1399,7 @@ function start() {
     syncGround();
     updateSceneFog();
     updateEndHint();
-    if (view === 'first') drawMinimap();
+    if (!minimap.hidden) drawMinimap();
     renderer.render(scene, camera);
     drawConfetti(dt);
     rafId = requestAnimationFrame(frame);
@@ -1677,6 +1739,23 @@ function start() {
     get fogRecomputeCount() {
       return fogRecomputeCount;
     },
+    get minimapVisible() {
+      return !minimap.hidden;
+    },
+    get minimapLayout() {
+      return miniLayout();
+    },
+    get explored() {
+      let n = 0;
+      for (let i = 0; i < explored.length; i++) n += explored[i];
+      return n;
+    },
+    exploredAt(row, col) {
+      return explored[row * size + col] === 1;
+    },
+    get footprints() {
+      return footTrail.map((k) => [Math.floor(k / size), k % size]);
+    },
     frameStats() {
       return summarizeFrames(meter.deltas());
     },
@@ -1758,6 +1837,7 @@ function start() {
 
   let warmDone = 0;
   function warmFrame() {
+    drawMinimap(true); // 小地图画布逐帧更新的首次开销也落在预热里
     renderer.render(scene, camera);
     warmDone += 1;
     if (warmDone === WARM_HINT_FRAMES) setWarmHint(false);
