@@ -88,7 +88,7 @@ body {
 }
 
 #palette {
-  flex: 0 0 120px;
+  flex: 0 0 156px;
   border-right: 2px solid var(--line);
   background: var(--card);
   touch-action: none;
@@ -101,33 +101,36 @@ body {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  padding: 6px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: start;
+  gap: 6px;
 }
+/* 两列小卡片，12 个元件一屏放得下；按住卡片拖动时不触发列表滚动 */
 .pal-item {
   position: relative;
   border: 2px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: #fff;
-  padding: 4px 4px 6px;
+  padding: 2px 2px 4px;
   text-align: center;
-  min-height: 74px;
+  min-height: 56px;
   cursor: grab;
+  touch-action: none;
 }
-.pal-item svg { width: 100%; height: 44px; display: block; pointer-events: none; }
-.pal-item .name { font-size: 0.85rem; }
+.pal-item svg { width: 100%; height: 30px; display: block; pointer-events: none; }
+.pal-item .name { font-size: 0.75rem; line-height: 1.15; }
 .pal-item .count {
   position: absolute;
-  top: 2px;
-  right: 6px;
-  font-size: 0.8rem;
+  top: 0;
+  right: 4px;
+  font-size: 0.75rem;
   font-weight: bold;
   color: var(--accent);
 }
 .pal-item.empty { opacity: 0.35; cursor: not-allowed; }
-.pal-note { font-size: 0.9rem; padding: 8px 4px; text-align: center; color: #8a7a68; }
+.pal-note { grid-column: 1 / -1; font-size: 0.9rem; padding: 8px 4px; text-align: center; color: #8a7a68; }
 
 .stage {
   position: relative;
