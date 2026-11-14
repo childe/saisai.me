@@ -30,7 +30,11 @@ test('state shows up in drawing', () => {
   assert.notEqual(drawPart(mk('dpdt', { to: 'b' }), 'cartoon', vis()), drawPart(mk('dpdt'), 'cartoon', vis()));
   assert.notEqual(drawPart(mk('dpdt', { to: 'b' }), 'symbol', vis()), drawPart(mk('dpdt'), 'symbol', vis()));
   assert.match(drawPart(mk('display'), 'symbol', vis({ text: '7' })), />7</);
-  assert.match(drawPart(mk('display'), 'cartoon', vis({ text: 'E' })), />E</);
+  assert.match(drawPart(mk('display'), 'cartoon', vis({ text: '-' })), />-</);
+  const two = drawPart(mk('display'), 'cartoon', vis({ text: '13' }));
+  assert.match(two, />1<\/text>/);
+  assert.match(two, />3<\/text>/);
+  assert.equal((two.match(/class="ghost"/g) || []).length, 2);
 });
 
 test('text stays upright when the part is rotated', () => {

@@ -47,13 +47,14 @@ test('resistor color bands', () => {
     ['red', 'red', 'brown'], ['yellow', 'violet', 'brown'], ['brown', 'black', 'red']]);
 });
 
-test('display text: digit, E above 9, - when invalid', () => {
+test('display text: 0–15 as number, - when invalid', () => {
   const disp = { id: 'D', type: 'display', params: {} };
   const r = value => ({ v: 0, i: 0, p: 0, value });
   assert.equal(partVisual(disp, r(5), d, true).text, '5');
   assert.equal(partVisual(disp, r(0), d, true).text, '0');
   assert.equal(partVisual(disp, r(9), d, true).text, '9');
-  assert.equal(partVisual(disp, r(12), d, true).text, 'E');
+  assert.equal(partVisual(disp, r(12), d, true).text, '12');
+  assert.equal(partVisual(disp, r(15), d, true).text, '15');
   assert.equal(partVisual(disp, undefined, d, false).text, '-');
 });
 
