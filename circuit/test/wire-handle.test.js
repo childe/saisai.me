@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dragSegment, hitTest } from '../lib/geometry.js';
+import { BOARD, dragSegment, hitTest } from '../lib/geometry.js';
 import { build } from './helpers.js';
 
 const Z = [[3, 5], [8, 5], [8, 10], [13, 10]];
@@ -16,7 +16,7 @@ test('dragSegment on the first / last / only segment keeps endpoints fixed', () 
   assert.deepEqual(dragSegment(Z, 0, [0.6, -1.8]), [[3, 3], [8, 3], [8, 10]]);
   assert.deepEqual(dragSegment(Z, 2, [-2, 2.4]), [[8, 5], [8, 12], [13, 12]]);
   assert.deepEqual(dragSegment([[3, 5], [13, 5]], 0, [0, 2]), [[3, 7], [13, 7]]);
-  assert.deepEqual(dragSegment([[3, 5], [13, 5]], 0, [0, 35]), [[3, 18], [13, 18]]);
+  assert.deepEqual(dragSegment([[3, 5], [13, 5]], 0, [0, 99]), [[3, BOARD.h], [13, BOARD.h]]);
 });
 
 test('pressing off the handle centre and moving only along the segment keeps the route', () => {
@@ -70,5 +70,5 @@ test('dragSegment keeps a half-grid segment in place when moved only along it (a
   const right = [[6, 10], [7.5, 10], [7.5, 6], [6, 6]]; // rot 3：竖直 x=7.5
   assert.deepEqual(dragSegment(right, 1, [0, -2]), [[7.5, 10], [7.5, 6]]);
   // 半格线段仍限制在画布内
-  assert.deepEqual(dragSegment(down, 1, [0, 30]), [[4, 17.5], [8, 17.5]]);
+  assert.deepEqual(dragSegment(down, 1, [0, 99]), [[4, BOARD.h - 0.5], [8, BOARD.h - 0.5]]);
 });

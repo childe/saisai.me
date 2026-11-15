@@ -37,11 +37,16 @@
             <circle cx="20" cy="20" r="2.2" fill="#e0cfb2"/>
           </pattern>
         </defs>
-        <rect class="board-bg" x="0" y="0" width="1120" height="720" rx="18" fill="url(#dots)"/>
+        <rect class="board-bg" x="0" y="0" width="1920" height="1200" rx="18" fill="url(#dots)"/>
         <g id="wires"></g>
         <g id="parts"></g>
         <g id="overlay"></g>
       </svg>
+      <div id="zoom">
+        <button class="btn" data-zoom="in" aria-label="放大">＋</button>
+        <button class="btn" data-zoom="out" aria-label="缩小">－</button>
+        <button class="btn" data-zoom="fit" aria-label="看全部">⤢</button>
+      </div>
       <div id="panel" hidden></div>
       <div id="banner" hidden>暂时无法计算</div>
       <div id="tasklist" hidden>

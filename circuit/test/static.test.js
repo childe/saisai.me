@@ -15,6 +15,13 @@ test('index.html wiring', () => {
   assert.doesNotMatch(html, /https?:\/\//);
 });
 
+test('board background covers the whole BOARD and zoom buttons exist', async () => {
+  const { GRID, BOARD } = await import('../lib/geometry.js');
+  const html = read('index.html');
+  assert.match(html, new RegExp(`class="board-bg"[^>]*width="${BOARD.w * GRID}" height="${BOARD.h * GRID}"`));
+  for (const z of ['in', 'out', 'fit']) assert.match(html, new RegExp(`data-zoom="${z}"`));
+});
+
 test('every relative import resolves and nothing is fetched from the network', () => {
   const sub = d => fs.readdirSync(path.join(root, d), { withFileTypes: true })
     .flatMap(e => (e.isDirectory() ? sub(`${d}/${e.name}`) : [`${d}/${e.name}`]));

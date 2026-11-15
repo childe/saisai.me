@@ -2,7 +2,7 @@
 import { PARTS } from './parts.js';
 
 export const GRID = 40;
-export const BOARD = Object.freeze({ w: 28, h: 18 });
+export const BOARD = Object.freeze({ w: 48, h: 30 });
 export const BODY_RECT = Object.freeze({ x0: -1.6, x1: 1.6, y0: -0.6, y1: 0.6 });
 export const LEVER_RECT = Object.freeze({ x0: -0.6, x1: 0.6, y0: -1.8, y1: -0.6 });
 export const TERM_R = 0.55;
