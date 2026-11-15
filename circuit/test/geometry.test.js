@@ -49,7 +49,7 @@ test('hitTest priority and lever only on switches', () => {
 test('wire hit and route', () => {
   assert.deepEqual(wireRoute([1, 1], [4, 3]), [[1, 1], [4, 1], [4, 3]]);
   assert.deepEqual(wireRoute([1, 1], [4, 1]), [[1, 1], [4, 1]]);
-  assert.deepEqual(snap([0.4, 30.6]), [3, BOARD.h - 3]);
+  assert.deepEqual(snap([0.4, 99.6]), [3, BOARD.h - 3]);
 });
 
 test('hitTest finds a wire 0.3 grid from its midpoint', () => {

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GRID, BOARD } from '../lib/geometry.js';
-import { HOME, MAX_ZOOM, fitView, clampView, viewBox, zoomAt, panBy, zoomLimits, contentRect } from '../lib/viewport.js';
+import { HOME, MAX_ZOOM, MIN_ZOOM, fitView, clampView, viewBox, zoomAt, panBy, zoomLimits, contentRect } from '../lib/viewport.js';
 
 const size = { w: 1132, h: 732 };
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -28,16 +28,22 @@ test('zoomAt keeps the point under the pointer fixed', () => {
   near(before[1] + p[1] / v.k, after[1] + p[1] / z.k);
 });
 
-test('zoom is clamped between whole board and MAX_ZOOM', () => {
+test('zoom is clamped between MIN_ZOOM and MAX_ZOOM of the home view', () => {
   const v = fitView(HOME, size);
   const { min, max } = zoomLimits(size);
   near(zoomAt(v, 100, [0, 0], size).k, max);
   near(max, MAX_ZOOM);
+  near(min, MIN_ZOOM);
   near(zoomAt(v, 0.01, [0, 0], size).k, min);
-  const [x, y, w, h] = viewBox(zoomAt(v, 0.01, [0, 0], size), size);
-  assert.ok(w >= BOARD.w * GRID - 1e-6 || h >= BOARD.h * GRID - 1e-6);
-  near(x + w / 2, BOARD.w * GRID / 2);
-  near(y + h / 2, BOARD.h * GRID / 2);
+});
+
+test('fully zoomed out the board is larger than the view, and panning reaches the far corner', () => {
+  const out = zoomAt(fitView(HOME, size), 0.01, [0, 0], size);
+  const [, , w, h] = viewBox(out, size);
+  assert.ok(w < BOARD.w * GRID && h < BOARD.h * GRID);
+  const [x, y] = viewBox(panBy(out, -1e6, -1e6, size), size);
+  near(x + w, BOARD.w * GRID);
+  near(y + h, BOARD.h * GRID);
 });
 
 test('panBy moves the view opposite to the finger and stays on the board', () => {
