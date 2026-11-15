@@ -101,52 +101,52 @@ const andWiring = () => twoRelays([['B2.p', 'K1.com'], ['K1.no', 'K2.com'], ['K2
 const orWiring = () => twoRelays([['B2.p', 'K1.com'], ['B2.p', 'K2.com'], ['K1.no', 'L.a'], ['K2.no', 'L.a']]);
 
 test('34 and: two relays in series pass', () => {
-  assert.equal(run(34, andWiring(), 'and').passed, true);
+  assert.equal(run(34, andWiring()).passed, true);
 });
 
 test('34 and: one relay with two switches in series passes', () => {
   const c = build({ parts: { B1: ['battery'], S1: ['switch'], S2: ['switch'], K: ['relay'], B2: ['battery'], L: ['lamp'] },
     wires: [['B1.p', 'S1.a'], ['S1.b', 'S2.a'], ['S2.b', 'K.x'], ['K.y', 'B1.n'], ['B2.p', 'K.com'], ['K.no', 'L.a'], ['L.b', 'B2.n']] });
-  assert.equal(run(34, c, 'and').passed, true);
+  assert.equal(run(34, c).passed, true);
 });
 
-test('34 or: parallel contacts pass', () => {
-  assert.equal(run(34, orWiring(), 'or').passed, true);
-  assert.equal(run(34, orWiring(), 'and').passed, false);
+test('35 or: parallel contacts pass, and fails 34', () => {
+  assert.equal(run(35, orWiring()).passed, true);
+  assert.equal(run(34, orWiring()).passed, false);
 });
 
-test('34 or: and-wiring fails the or variant', () => {
-  assert.equal(run(34, andWiring(), 'or').passed, false);
+test('35 or: and-wiring fails', () => {
+  assert.equal(run(35, andWiring()).passed, false);
 });
 
 test('34 and: switches driving the lamp directly fail', () => {
   // 两个开关直接串在灯的回路里，继电器空接：亮灭对，但继电器不起作用
   const c = build({ parts: { B1: ['battery'], S1: ['switch'], S2: ['switch'], K1: ['relay'], K2: ['relay'], B2: ['battery'], L: ['lamp'] },
     wires: [['B1.p', 'K1.x'], ['K1.y', 'B1.n'], ['B2.p', 'S1.a'], ['S1.b', 'S2.a'], ['S2.b', 'L.a'], ['L.b', 'B2.n']] });
-  assert.equal(run(34, c, 'and').passed, false);
+  assert.equal(run(34, c).passed, false);
 });
 
 test('34 and: switches in the lamp loop plus an always-on relay fail', () => {
   // 两个开关直接串在灯的回路里，再串一个线圈常通的继电器常开触点：继电器看似起作用，但开关没经过继电器
   const c = build({ parts: { B1: ['battery'], S1: ['switch'], S2: ['switch'], K1: ['relay'], K2: ['relay'], B2: ['battery'], L: ['lamp'] },
     wires: [['B1.p', 'K1.x'], ['K1.y', 'B1.n'], ['B2.p', 'S1.a'], ['S1.b', 'S2.a'], ['S2.b', 'K1.com'], ['K1.no', 'L.a'], ['L.b', 'B2.n']] });
-  assert.equal(run(34, c, 'and').passed, false);
+  assert.equal(run(34, c).passed, false);
 });
 
-test('34 goal text follows the variant', () => {
-  assert.equal(T(34).goal('and'), '两个开关都合上，灯才亮');
-  assert.equal(T(34).goal('or'), '随便合上一个开关，灯就亮');
+test('34 and / 35 or goal text', () => {
+  assert.equal(T(34).goal, '两个开关都合上，灯才亮');
+  assert.equal(T(35).goal, '随便合上一个开关，灯就亮');
 });
 
-test('chapter 7 is listed with 7 tasks', () => {
+test('chapter 7 is listed with 8 tasks', () => {
   assert.ok(CHAPTERS.some(c => c.n === 7 && c.name === '逻辑与加法器'));
-  assert.deepEqual(TASKS.filter(t => t.chapter === 7).map(t => t.id), [30, 31, 32, 33, 34, 35, 36]);
+  assert.deepEqual(TASKS.filter(t => t.chapter === 7).map(t => t.id), [30, 31, 32, 33, 34, 35, 36, 37]);
 });
 
-// 进入第 35 关，把电路装进关卡空间，然后依次执行动作。
+// 进入第 36 关，把电路装进关卡空间，然后依次执行动作。
 const play = (s, ...as) => as.reduce(reduce, s);
 const bellSpace = c => {
-  const s = play(createEditor(), { type: 'setMode', mode: 'task' }, { type: 'chooseTask', index: TASKS.indexOf(T(35)) });
+  const s = play(createEditor(), { type: 'setMode', mode: 'task' }, { type: 'chooseTask', index: TASKS.indexOf(T(36)) });
   return { ...s, task: { ...s.task, ...settle(c, createDamage()) } };
 };
 const ticks = (s, n) => play(s, ...Array.from({ length: n }, () => ({ type: 'tick', dt: 0.05 })));
@@ -185,12 +185,12 @@ test('35 bell: seen alone is not enough when the relay is stable', () => {
   const c = build({ parts: { B: ['battery'], BT: ['button', { pressed: true }], K: ['relay'] },
     wires: [['B.p', 'BT.a'], ['BT.b', 'K.x'], ['K.y', 'B.n']] });
   const ws = { ...settle(c, createDamage()), variant: null };
-  assert.equal(evaluateTask(T(35), { base: 0, seen: true }, ws).passed, false);
+  assert.equal(evaluateTask(T(36), { base: 0, seen: true }, ws).passed, false);
   const osc = { ...settle(bell('nc'), createDamage()), variant: null };
-  assert.equal(evaluateTask(T(35), { base: 0, seen: true }, osc).passed, true);
+  assert.equal(evaluateTask(T(36), { base: 0, seen: true }, osc).passed, true);
 });
 
-// 第 36 关：按 tag 找预置元件，接上触点网络。
+// 第 37 关：按 tag 找预置元件，接上触点网络。
 const byTag = (c, tag) => c.parts.find(p => p.tag === tag).id;
 const wireUp = (c, pairs) => pairs.reduce((cc, [a, b]) => {
   const [pa, ta] = a.split('.'), [pb, tb] = b.split('.');
@@ -204,8 +204,8 @@ const SUM = [
   ['B1.com', 'C1.nc'], ['B2.com', 'C1.no'], ['C1.com', 'D.i1'],
 ];
 const CARRY = [['BL.p', 'A2.com'], ['A2.no', 'B3.com'], ['B3.no', 'D.i2'], ['B1.com', 'C2.com'], ['C2.no', 'D.i2']];
-const adder = (pairs = [...SUM, ...CARRY]) => wireUp(T(36).preset(), pairs);
-const run36 = c => evaluateTask(T(36), T(36).initProgress(), { ...settle(c, createDamage()), variant: null });
+const adder = (pairs = [...SUM, ...CARRY]) => wireUp(T(37).preset(), pairs);
+const run37 = c => evaluateTask(T(37), T(37).initProgress(), { ...settle(c, createDamage()), variant: null });
 
 // 元件本体（含拨片）在画板上的矩形
 const bodyOf = p => {
@@ -218,7 +218,7 @@ const bodyOf = p => {
 const overlap = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
 
 test('36 full adder: preset fits the board and nothing overlaps', () => {
-  const c = T(36).preset();
+  const c = T(37).preset();
   const tags = c.parts.filter(p => p.type !== 'node').map(p => p.tag).sort();
   assert.deepEqual(tags, ['A', 'A1', 'A2', 'B', 'B1', 'B2', 'B3', 'BC', 'BL', 'C', 'C1', 'C2', 'D'].sort());
   assert.ok(c.parts.every(p => p.preset) && c.wires.every(w => w.preset));
@@ -239,7 +239,7 @@ test('36 full adder: preset fits the board and nothing overlaps', () => {
 });
 
 test('36 full adder: preset wires do not run over other terminals', () => {
-  const c = T(36).preset();
+  const c = T(37).preset();
   const terms = c.parts.flatMap(p => PARTS[p.type].terms.map(t => ({ k: `${p.id}.${t}`, pt: terminalPoint(p, t) })));
   for (const w of c.wires) {
     const pts = wirePoints(c, w);
@@ -257,15 +257,15 @@ test('36 full adder: preset wires do not run over other terminals', () => {
 });
 
 test('36 full adder: preset coils pull in, display starts at 0', () => {
-  const c = T(36).preset();
+  const c = T(37).preset();
   const sw = id => byTag(c, id);
   const all = withParams(c, { [sw('A')]: { closed: true }, [sw('B')]: { closed: true }, [sw('C')]: { closed: true } });
   const s = stableSolve(all, new Set());
   assert.equal(s.stable, true);
   assert.deepEqual([...s.on].sort(), ['A1', 'A2', 'B1', 'B2', 'B3', 'C1', 'C2'].map(t => byTag(c, t)).sort());
   assert.equal(displayValue(stableSolve(c, new Set()).result, new Set(), byTag(c, 'D')), 0);
-  assert.equal(T(36).lockPreset, true);
-  assert.deepEqual(T(36).palette, {});
+  assert.equal(T(37).lockPreset, true);
+  assert.deepEqual(T(37).palette, {});
 });
 
 test('36 full adder: reference wiring passes all 8 combos', () => {
@@ -276,24 +276,24 @@ test('36 full adder: reference wiring passes all 8 combos', () => {
     assert.equal(s.stable, true);
     assert.equal(displayValue(s.result, new Set(), byTag(c, 'D')), a + b + cc, `${a}${b}${cc}`);
   }
-  assert.equal(run36(c).passed, true);
+  assert.equal(run37(c).passed, true);
 });
 
 test('36 full adder: sum-only wiring fails', () => {
-  assert.equal(run36(adder(SUM)).passed, false);
-  assert.equal(run36(T(36).preset()).passed, false);
+  assert.equal(run37(adder(SUM)).passed, false);
+  assert.equal(run37(T(37).preset()).passed, false);
 });
 
 test('full adder check is fast', () => {
   const ws = { ...settle(adder(), createDamage()), variant: null };
   const t0 = performance.now();
-  T(36).check(T(36).initProgress(), ws);
+  T(37).check(T(37).initProgress(), ws);
   assert.ok(performance.now() - t0 < 50);
 });
 
-// 第 36 关：继电器常开/常闭标签和开关、继电器的名字，在板面上互不压住，也不盖端点。
+// 第 37 关：继电器常开/常闭标签和开关、继电器的名字，在板面上互不压住，也不盖端点。
 test('36 full adder: relay contact labels and tag names do not overlap each other or terminals', () => {
-  const c = T(36).preset();
+  const c = T(37).preset();
   const vis = { glow: 0, burnt: false, alarm: false, spin: 0, volume: 0, text: null, stale: false };
   for (const style of ['cartoon', 'symbol']) {
     const labels = [], terms = [];

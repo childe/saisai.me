@@ -70,7 +70,7 @@ function bellOk(ws) {
   });
 }
 
-// 第 36 关预置：上排线圈电池 BC 和开关 A、B、C，中排 7 个继电器（转 90°，线圈朝上、触点朝下），
+// 第 37 关预置：上排线圈电池 BC 和开关 A、B、C，中排 7 个继电器（转 90°，线圈朝上、触点朝下），
 // 下排逻辑电池 BL 和显示器 D。同一开关的线圈串成一串：开关 → 最右的线圈 → … → 最左的线圈 → BC 负极，
 // 这样线圈导线只在两处和地线交叉；线圈 20 mA 吸合，1 节电池过 90 Ω 只有约 17 mA（不够），2 节约 33 mA，所以 BC 用 2 节。
 // 节点 P1、P2 是正极母线的分叉，G1、G2 是地线母线的分叉。
@@ -109,6 +109,16 @@ function fullAdderOk(ws) {
 
 const RELAY_PALETTE = { battery: 2, switch: 1, relay: 1, lamp: 1 };
 
+// 两个开关经继电器控制一盏灯；want 列出灯该亮的组合，键 tt、tf、ft、ff 对应 BITS 顺序
+const relayGateTask = (id, name, goal, want) => ({
+  id, chapter: 7, name, goal, palette: { battery: 2, switch: 2, relay: 2, lamp: 1 },
+  preset: () => createCircuit(), initProgress: noProgress,
+  check(progress, ws) {
+    const keys = ['tt', 'tf', 'ft', 'ff'];
+    return result(relayLampTask(ws, 2, lit => truth(k => lit(keys.indexOf(k)), want)), progress);
+  },
+});
+
 export const CH7 = [
   {
     id: 30, chapter: 7, name: '认识数字显示器', goal: v => `让显示器显示 ${v}`, palette: { battery: 1, display: 1 },
@@ -134,20 +144,10 @@ export const CH7 = [
     preset: () => createCircuit(), initProgress: noProgress,
     check: (progress, ws) => result(relayLampTask(ws, 1, lit => !lit(0) && lit(1)), progress),
   },
+  relayGateTask(34, '继电器与门', '两个开关都合上，灯才亮', ['tt']),
+  relayGateTask(35, '继电器或门', '随便合上一个开关，灯就亮', ['tt', 'tf', 'ft']),
   {
-    id: 34, chapter: 7, name: '继电器与门 / 或门',
-    goal: v => (v === 'and' ? '两个开关都合上，灯才亮' : '随便合上一个开关，灯就亮'),
-    palette: { battery: 2, switch: 2, relay: 2, lamp: 1 }, variants: ['and', 'or'],
-    preset: () => createCircuit(), initProgress: noProgress,
-    check(progress, ws) {
-      // BITS 顺序对应 truth 的键 tt、tf、ft、ff
-      const keys = ['tt', 'tf', 'ft', 'ff'];
-      const want = ws.variant === 'and' ? ['tt'] : ['tt', 'tf', 'ft'];
-      return result(relayLampTask(ws, 2, lit => truth(k => lit(keys.indexOf(k)), want)), progress);
-    },
-  },
-  {
-    id: 35, chapter: 7, name: '自制电铃', goal: '按住按钮，继电器自己哒哒响', palette: { battery: 1, button: 1, relay: 1 },
+    id: 36, chapter: 7, name: '自制电铃', goal: '按住按钮，继电器自己哒哒响', palette: { battery: 1, button: 1, relay: 1 },
     preset: () => createCircuit(), initProgress: () => ({ base: null, seen: false }),
     check(progress, ws) {
       // 按住期间继电器翻转 4 次以上才算真响过；松开就清掉起点，重新按再数
@@ -164,7 +164,7 @@ export const CH7 = [
     },
   },
   {
-    id: 36, chapter: 7, name: '全加器', goal: '三个开关 A、B、C：断开是 0，合上是 1。让显示器显示 A+B+C', palette: {}, lockPreset: true,
+    id: 37, chapter: 7, name: '全加器', goal: '三个开关 A、B、C：断开是 0，合上是 1。让显示器显示 A+B+C', palette: {}, lockPreset: true,
     preset: fullAdderPreset, initProgress: noProgress,
     check: (progress, ws) => result(fullAdderOk(ws), progress),
   },
