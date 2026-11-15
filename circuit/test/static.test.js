@@ -15,11 +15,11 @@ test('index.html wiring', () => {
   assert.doesNotMatch(html, /https?:\/\//);
 });
 
-test('board background covers the whole BOARD and zoom buttons exist', async () => {
+test('board background covers the whole BOARD', async () => {
   const { GRID, BOARD } = await import('../lib/geometry.js');
   const html = read('index.html');
   assert.match(html, new RegExp(`class="board-bg"[^>]*width="${BOARD.w * GRID}" height="${BOARD.h * GRID}"`));
-  for (const z of ['in', 'out', 'fit']) assert.match(html, new RegExp(`data-zoom="${z}"`));
+  assert.doesNotMatch(html, /data-zoom=/);
 });
 
 test('every relative import resolves and nothing is fetched from the network', () => {
