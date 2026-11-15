@@ -38,11 +38,12 @@ export function miniArt(type, style) {
 }
 
 // 按 id 同步一组子元素：只替换内容变化了的元素。
-function sync(group, cache, items) {
+export function sync(group, cache, items) {
   const keep = new Set(items.map(it => it.id));
   for (const [id, entry] of cache) {
     if (!keep.has(id)) { entry.el.remove(); cache.delete(id); }
   }
+  let prev = null;
   for (const it of items) {
     let entry = cache.get(it.id);
     if (!entry) {
@@ -59,7 +60,10 @@ function sync(group, cache, items) {
       entry.el.innerHTML = it.html;
       entry.html = it.html;
     }
-    group.appendChild(entry.el);
+    // 只在位置不对时才挪：重新插入会让电流小点、风扇的 CSS 动画从头开始。
+    const want = prev ? prev.nextSibling : group.firstChild;
+    if (entry.el !== want) group.insertBefore(entry.el, want);
+    prev = entry.el;
   }
 }
 
