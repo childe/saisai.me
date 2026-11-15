@@ -6,6 +6,7 @@ import {
 import { render, miniArt, buzzerVolume } from './view.js';
 import { createBuzzer } from './sound.js';
 import { taskListHtml, parseAnswer } from './lib/taskbar.js';
+import { HOME, fitView, clampView, viewBox, zoomAt, panBy, contentRect } from './lib/viewport.js';
 
 const $ = sel => document.querySelector(sel);
 const board = $('#board');
@@ -37,7 +38,69 @@ export function dispatch(action) {
   if (next === state) return;
   state = next;
   render(dom, state);
+  // 换模式、换关、重来一关：视野回到能看全电路的位置。
+  const key = spaceKey(state);
+  if (key !== lastSpaceKey) { lastSpaceKey = key; fitContent(); }
 }
+
+// ---------- 视野 ----------
+let view = null;
+const boardSize = () => {
+  const r = board.getBoundingClientRect();
+  return { w: r.width, h: r.height };
+};
+const spaceKey = s => (s.mode === 'task' ? `task:${s.task.index}:${s.task.variantIndex}` : s.mode);
+let lastSpaceKey = spaceKey(state);
+
+function setView(v) {
+  const size = boardSize();
+  if (!size.w || !size.h) return;
+  view = clampView(v, size);
+  board.setAttribute('viewBox', viewBox(view, size).join(' '));
+}
+
+function fitContent() {
+  const size = boardSize();
+  if (!size.w || !size.h) return;
+  const c = activeSpace(state).circuit;
+  const pts = [...c.parts.map(p => [p.x, p.y]), ...c.wires.flatMap(w => wirePoints(c, w) ?? [])];
+  setView(fitView(contentRect(pts), size));
+}
+
+// 相对画板左上角的屏幕像素。
+function localPt(x, y) {
+  const r = board.getBoundingClientRect();
+  return [x - r.left, y - r.top];
+}
+
+new ResizeObserver(() => {
+  if (view) setView(view);
+  else setView(fitView(HOME, boardSize()));
+}).observe(board);
+
+board.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (!view) return;
+  // 触控板捏合带 ctrlKey，步子小，放大倍数给足；普通滚轮一格约 100。
+  const d = Math.max(-100, Math.min(100, e.deltaY));
+  setView(zoomAt(view, Math.exp(-d * (e.ctrlKey ? 0.01 : 0.002)), localPt(e.clientX, e.clientY), boardSize()));
+}, { passive: false });
+
+document.querySelector('#zoom').addEventListener('click', e => {
+  const b = e.target.closest('[data-zoom]');
+  if (!b || !view) return;
+  const size = boardSize();
+  if (b.dataset.zoom === 'fit') fitContent();
+  else setView(zoomAt(view, b.dataset.zoom === 'in' ? 1.25 : 0.8, [size.w / 2, size.h / 2], size));
+});
+
+// 画板上按着的手指；两根手指时进入捏合缩放。
+const pointers = new Map();
+let pinch = null;
+const pinchInfo = () => {
+  const [a, b] = [...pointers.values()];
+  return { mid: localPt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2), dist: Math.max(1, Math.hypot(a[0] - b[0], a[1] - b[1])) };
+};
 
 const DRAG_PX = 8;
 
@@ -93,12 +156,25 @@ function finishWire(gs, g) {
 }
 
 board.addEventListener('pointerdown', e => {
-  if (gesture) return;
+  pointers.set(e.pointerId, [e.clientX, e.clientY]);
+  if (pointers.size === 2) {
+    // 第二根手指落下：放弃第一根手指正在做的事，改成捏合。
+    if (gesture) {
+      releaseButton(gesture);
+      gesture = null;
+      setOverlay('');
+    }
+    pinch = pinchInfo();
+    try { board.setPointerCapture(e.pointerId); } catch { /* 忽略 */ }
+    e.preventDefault();
+    return;
+  }
+  if (gesture || pinch || pointers.size > 2) return;
   const g = toGrid(e);
   const c = circuit();
   const selWire = state.selection?.kind === 'wire' ? state.selection.id : null;
   const hit = hitTest(c, g, scale(), selWire);
-  gesture = { id: e.pointerId, hit, selWire, sx: e.clientX, sy: e.clientY, moved: false, dragging: false };
+  gesture = { id: e.pointerId, hit, selWire, sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY, moved: false, dragging: false };
   if (hit?.kind === 'lever' && c.parts.find(x => x.id === hit.id)?.type === 'button') {
     // 按钮：按下就接通，松手时在 endGesture 里松开。
     gesture.pressed = hit.id;
@@ -133,6 +209,16 @@ function releaseButton(gs) {
 }
 
 board.addEventListener('pointermove', e => {
+  if (pointers.has(e.pointerId)) pointers.set(e.pointerId, [e.clientX, e.clientY]);
+  if (pinch) {
+    if (pointers.size < 2 || !view) return;
+    const now = pinchInfo();
+    const size = boardSize();
+    const zoomed = zoomAt(view, now.dist / pinch.dist, now.mid, size);
+    setView(panBy(zoomed, now.mid[0] - pinch.mid[0], now.mid[1] - pinch.mid[1], size));
+    pinch = now;
+    return;
+  }
   if (!gesture || e.pointerId !== gesture.id) return;
   if (gesture.pressed) {
     const r = board.getBoundingClientRect();
@@ -142,6 +228,16 @@ board.addEventListener('pointermove', e => {
   const dist = Math.hypot(e.clientX - gesture.sx, e.clientY - gesture.sy);
   if (dist > DRAG_PX) gesture.moved = true;
   const { hit } = gesture;
+  if (!hit) {
+    // 拖空白处：移动画面。
+    if (gesture.moved && view) {
+      setView(panBy(view, e.clientX - gesture.px, e.clientY - gesture.py, boardSize()));
+      board.classList.add('panning');
+    }
+    gesture.px = e.clientX;
+    gesture.py = e.clientY;
+    return;
+  }
   const g = toGrid(e);
   if (hit?.kind === 'terminal' || (hit?.kind === 'wire' && gesture.moved)) {
     const samples = e.getCoalescedEvents?.() ?? [];
@@ -168,16 +264,25 @@ board.addEventListener('pointermove', e => {
 });
 
 function endGesture(e, cancelled) {
+  pointers.delete(e.pointerId);
+  if (pinch) {
+    if (pointers.size < 2) pinch = null;
+    return;
+  }
   if (!gesture || e.pointerId !== gesture.id) return;
   const gs = gesture;
   const { hit, moved } = gs;
   gesture = null;
   setOverlay('');
+  board.classList.remove('panning');
   // 按钮不论抬起还是取消都松开，也不再切换。
   if (gs.pressed !== undefined) { releaseButton(gs); return; }
   if (cancelled) return;
   const g = toGrid(e);
-  if (!hit) { dispatch({ type: 'select', target: null }); return; }
+  if (!hit) {
+    if (!moved) dispatch({ type: 'select', target: null });
+    return;
+  }
   switch (hit.kind) {
     case 'terminal':
       if (!moved && partById(hit.part)?.type === 'node') {
