@@ -86,14 +86,6 @@ board.addEventListener('wheel', e => {
   setView(zoomAt(view, Math.exp(-d * (e.ctrlKey ? 0.01 : 0.002)), localPt(e.clientX, e.clientY), boardSize()));
 }, { passive: false });
 
-document.querySelector('#zoom').addEventListener('click', e => {
-  const b = e.target.closest('[data-zoom]');
-  if (!b || !view) return;
-  const size = boardSize();
-  if (b.dataset.zoom === 'fit') fitContent();
-  else setView(zoomAt(view, b.dataset.zoom === 'in' ? 1.25 : 0.8, [size.w / 2, size.h / 2], size));
-});
-
 // 画板上按着的手指；两根手指时进入捏合缩放。
 const pointers = new Map();
 let pinch = null;

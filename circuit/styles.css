@@ -168,17 +168,6 @@ body {
 .burnt { filter: grayscale(1); }
 .preview { fill: none; stroke: var(--accent); stroke-width: 4; stroke-dasharray: 10 8; }
 
-/* 缩放按钮 */
-#zoom {
-  position: absolute;
-  right: 14px;
-  bottom: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-#zoom .btn { font-size: 1.3rem; padding: 0; box-shadow: 0 2px 6px rgba(58, 46, 37, 0.12); }
-
 /* 面板 */
 #panel {
   position: absolute;
