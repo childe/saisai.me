@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TASKS, CHAPTERS, evaluateTask, withParams } from '../lib/tasks.js';
-import { stableSolve, displayValue } from '../lib/task-kit.js';
+import { stableSolve, displayValue, lampLit } from '../lib/task-kit.js';
 import { settle } from '../lib/engine.js';
 import { createDamage } from '../lib/damage.js';
 import { build } from './helpers.js';
@@ -138,9 +138,9 @@ test('34 and / 35 or goal text', () => {
   assert.equal(T(35).goal, '随便合上一个开关，灯就亮');
 });
 
-test('chapter 7 is listed with 9 tasks', () => {
+test('chapter 7 is listed with 12 tasks', () => {
   assert.ok(CHAPTERS.some(c => c.n === 7 && c.name === '逻辑与加法器'));
-  assert.deepEqual(TASKS.filter(t => t.chapter === 7).map(t => t.id), [30, 31, 32, 33, 34, 35, 36, 37, 39]);
+  assert.deepEqual(TASKS.filter(t => t.chapter === 7).map(t => t.id), [30, 31, 32, 33, 34, 35, 36, 37, 39, 40, 41, 42]);
 });
 
 // 进入第 36 关，把电路装进关卡空间，然后依次执行动作。
@@ -292,8 +292,8 @@ test('full adder check is fast', () => {
 });
 
 // 第 37 关：继电器常开/常闭标签和开关、继电器的名字，在板面上互不压住，也不盖端点。
-test('36 full adder: relay contact labels and tag names do not overlap each other or terminals', () => {
-  const c = T(37).preset();
+// 继电器、开关的文字（触点名和标签）不出界、不盖住端点、同一行不互相重叠；n 是文字总数。
+function checkLabels(c, n) {
   const vis = { glow: 0, burnt: false, alarm: false, spin: 0, volume: 0, text: null, stale: false };
   for (const style of ['cartoon', 'symbol']) {
     const labels = [], terms = [];
@@ -309,8 +309,7 @@ test('36 full adder: relay contact labels and tag names do not overlap each othe
         labels.push({ text: m[2], x: p.x + rx, y: p.y + ry, w: m[2].length * 0.4 });
       }
     }
-    // 7 个继电器各有常开、常闭，再加 3 个开关和 7 个继电器的名字。
-    assert.equal(labels.length, 7 * 2 + 10, style);
+    assert.equal(labels.length, n, style);
     for (const l of labels) {
       assert.ok(l.x - l.w / 2 >= 0 && l.x + l.w / 2 <= BOARD.w && l.y >= 0.4 && l.y <= BOARD.h - 0.4, `${style}/${l.text} 出界`);
       for (const [tx, ty] of terms) assert.ok(Math.hypot(l.x - tx, l.y - ty) >= 0.35, `${style}/${l.text} 盖住端点`);
@@ -319,20 +318,23 @@ test('36 full adder: relay contact labels and tag names do not overlap each othe
       if (Math.abs(a.y - b.y) < 0.4) assert.ok(Math.abs(a.x - b.x) >= (a.w + b.w) / 2 + 0.1, `${style}/${a.text}@${a.x},${a.y} 和 ${b.text}@${b.x},${b.y} 重叠`);
     }
   }
+}
+
+test('36 full adder: relay contact labels and tag names do not overlap each other or terminals', () => {
+  // 7 个继电器各有常开、常闭，再加 3 个开关和 7 个继电器的名字。
+  checkLabels(T(37).preset(), 7 * 2 + 10);
 });
 
-// 第 39 关：预置好的继电器计数器，只能按按钮。
-const counterSpace = () => play(createEditor(), { type: 'setMode', mode: 'task' }, { type: 'chooseTask', index: TASKS.indexOf(T(39)) });
+// 第 42 关：预置好的继电器计数器，只能按按钮。
+const counterSpace = () => play(createEditor(), { type: 'setMode', mode: 'task' }, { type: 'chooseTask', index: TASKS.indexOf(T(42)) });
 const shown = s => displayValue(s.task.result, new Set(), s.task.circuit.parts.find(p => p.type === 'display').id);
 const tap = (s, holdTicks = 4) => {
   const id = s.task.circuit.parts.find(p => p.type === 'button').id;
   return ticks(play(ticks(play(s, { type: 'press', id }), holdTicks), { type: 'release', id }), 4);
 };
 
-test('39 counter: preset fits the board, nothing overlaps, wires stay off other terminals', () => {
-  const c = T(39).preset();
-  assert.ok(c.parts.every(p => p.preset) && c.wires.every(w => w.preset));
-  assert.equal(c.parts.filter(p => p.type === 'relay').length, 29);
+// 预置电路的版面检查：端点在板内且不重合、元件不重叠、导线不压别的端点、不同网络的导线不相碰。
+function checkLayout(c) {
   const seen = new Map();
   for (const p of c.parts) for (const term of PARTS[p.type].terms) {
     const [x, y] = terminalPoint(p, term);
@@ -342,6 +344,8 @@ test('39 counter: preset fits the board, nothing overlaps, wires stay off other 
     seen.set(k, `${p.id}.${term}`);
   }
   for (const p of c.parts) for (const q of c.parts) if (q !== p) assert.ok(!overlap(bodyOf(p), bodyOf(q)), `${p.id} 和 ${q.id} 重叠`);
+  const onSeg = (p, a, b) => Math.min(a[0], b[0]) <= p[0] && p[0] <= Math.max(a[0], b[0])
+    && Math.min(a[1], b[1]) <= p[1] && p[1] <= Math.max(a[1], b[1]);
   const terms = c.parts.flatMap(p => PARTS[p.type].terms.map(t => ({ k: `${p.id}.${t}`, pt: terminalPoint(p, t) })));
   for (const w of c.wires) {
     const pts = wirePoints(c, w);
@@ -349,32 +353,28 @@ test('39 counter: preset fits the board, nothing overlaps, wires stay off other 
     const ends = [`${w.a.part}.${w.a.term}`, `${w.b.part}.${w.b.term}`];
     for (const { k, pt } of terms) {
       if (ends.includes(k)) continue;
-      for (let i = 1; i < pts.length; i++) {
-        const [a, b] = [pts[i - 1], pts[i]];
-        const on = Math.min(a[0], b[0]) <= pt[0] && pt[0] <= Math.max(a[0], b[0])
-          && Math.min(a[1], b[1]) <= pt[1] && pt[1] <= Math.max(a[1], b[1]);
-        assert.ok(!on, `${w.id} 压在 ${k} 上`);
-      }
+      for (let i = 1; i < pts.length; i++) assert.ok(!onSeg(pt, pts[i - 1], pts[i]), `${w.id} 压在 ${k} 上`);
     }
   }
-});
-
-test('39 counter: wires of different nets never overlap or touch', () => {
-  const c = T(39).preset();
   const root = {};
   const find = k => (root[k] && root[k] !== k ? (root[k] = find(root[k])) : k);
   for (const w of c.wires) root[find(`${w.a.part}.${w.a.term}`)] = find(`${w.b.part}.${w.b.term}`);
   const segs = c.wires.map(w => ({ id: w.id, net: find(`${w.a.part}.${w.a.term}`), pts: wirePoints(c, w) }));
-  const onSeg = (p, a, b) => Math.min(a[0], b[0]) <= p[0] && p[0] <= Math.max(a[0], b[0])
-    && Math.min(a[1], b[1]) <= p[1] && p[1] <= Math.max(a[1], b[1]);
   // 只许直角相交：一条线的拐点或端点落在另一条线上就算碰到
   for (const A of segs) for (const B of segs) {
     if (A.net === B.net) continue;
     for (const p of A.pts) for (let i = 1; i < B.pts.length; i++) assert.ok(!onSeg(p, B.pts[i - 1], B.pts[i]), `${A.id} 碰到 ${B.id}`);
   }
+}
+
+test('42 counter: preset fits the board and stays tidy', () => {
+  const c = T(42).preset();
+  assert.ok(c.parts.every(p => p.preset) && c.wires.every(w => w.preset));
+  assert.equal(c.parts.filter(p => p.type === 'relay').length, 29);
+  checkLayout(c);
 });
 
-test('39 counter: starts at 0, each tap adds 1, 9 wraps to 0, passes after a full round', () => {
+test('42 counter: starts at 0, each tap adds 1, 9 wraps to 0, passes after a full round', () => {
   let s = ticks(counterSpace(), 10);
   assert.equal(shown(s), 0);
   const got = [];
@@ -387,11 +387,198 @@ test('39 counter: starts at 0, each tap adds 1, 9 wraps to 0, passes after a ful
   assert.equal(s.task.passed, true);
 });
 
-test('39 counter: holding the button adds only 1, and the number changes on press', () => {
+test('42 counter: holding the button adds only 1, and the number changes on press', () => {
   let s = ticks(counterSpace(), 10);
   const id = s.task.circuit.parts.find(p => p.type === 'button').id;
   s = ticks(play(s, { type: 'press', id }), 40);
   assert.equal(shown(s), 1);
   s = ticks(play(s, { type: 'release', id }), 10);
   assert.equal(shown(s), 1);
+});
+
+// 进入第 id 关；tagged 按预置顺序找第 n 个带这个标签的元件；link 用小朋友的方式加一根导线。
+const levelSpace = id => ticks(play(createEditor(), { type: 'setMode', mode: 'task' }, { type: 'chooseTask', index: TASKS.indexOf(T(id)) }), 10);
+const tagged = (s, tag, n = 0) => s.task.circuit.parts.filter(p => p.tag === tag)[n];
+const link = (s, [pa, ta], [pb, tb]) => ticks(play(s, { type: 'connect', from: { part: pa.id, term: ta }, to: { part: pb.id, term: tb } }), 10);
+const press = (s, holdTicks = 6) => ticks(play(s, { type: 'press', id: s.task.circuit.parts.find(p => p.type === 'button').id }), holdTicks);
+const release = s => ticks(play(s, { type: 'release', id: s.task.circuit.parts.find(p => p.type === 'button').id }), 6);
+const toggleSw = s => ticks(play(s, { type: 'toggle', id: s.task.circuit.parts.find(p => p.type === 'switch').id }), 6);
+const lampOn = s => {
+  const l = s.task.circuit.parts.find(p => p.type === 'lamp');
+  return lampLit(s.task.result, new Set(), l.id);
+};
+
+// 第 39 关：会记住的继电器。
+const latchWire = s => link(s, [tagged(s, '继电器'), 'no'], [tagged(s, '继电器'), 'y']);
+
+test('39 latch: preset is tidy, the relay coil is fed by the button', () => {
+  const c = T(39).preset();
+  assert.ok(c.parts.every(p => p.preset) && c.wires.every(w => w.preset));
+  assert.deepEqual(c.parts.map(p => p.type).sort(), ['battery', 'button', 'lamp', 'relay', 'switch']);
+  checkLayout(c);
+});
+
+test('39 latch: without the hold wire the lamp goes out on release', () => {
+  let s = levelSpace(39);
+  assert.equal(lampOn(s), false);
+  s = press(s);
+  assert.equal(lampOn(s), true);
+  s = release(s);
+  assert.equal(lampOn(s), false);
+  assert.equal(s.task.passed, false);
+});
+
+test('39 latch: with the hold wire one tap keeps the lamp lit and passes', () => {
+  let s = latchWire(levelSpace(39));
+  assert.equal(lampOn(s), false);
+  s = press(s);
+  assert.equal(s.task.passed, false);
+  s = release(s);
+  assert.equal(lampOn(s), true);
+  assert.equal(s.task.passed, true);
+});
+
+test('39 latch: opening 清零 forgets, closing again stays dark until the next tap', () => {
+  let s = release(press(latchWire(levelSpace(39))));
+  s = toggleSw(s);
+  assert.equal(lampOn(s), false);
+  s = toggleSw(s);
+  assert.equal(lampOn(s), false);
+  s = release(press(s));
+  assert.equal(lampOn(s), true);
+});
+
+test('39 latch: a lamp lit straight from the battery does not pass', () => {
+  let s = levelSpace(39);
+  const bat = s.task.circuit.parts.find(p => p.type === 'battery');
+  const lamp = s.task.circuit.parts.find(p => p.type === 'lamp');
+  s = release(press(link(s, [bat, 'p'], [lamp, 'a'])));
+  assert.equal(lampOn(s), true);
+  assert.equal(s.task.passed, false);
+});
+
+// 第 40 关：按一下换一下。「按」两个，第 0 个接「现」，第 1 个接「下」。
+const toggleHold = s => link(s, [tagged(s, '现'), 'no'], [tagged(s, '按', 0), 'nc']);
+const toggleNext = s => link(s, [tagged(s, '现'), 'nc'], [tagged(s, '按', 1), 'nc']);
+
+test('40 toggle: preset is tidy with four relays and a display', () => {
+  const c = T(40).preset();
+  assert.ok(c.parts.every(p => p.preset) && c.wires.every(w => w.preset));
+  assert.deepEqual(c.parts.filter(p => p.type === 'relay').map(p => p.tag), ['按', '现', '按', '下']);
+  checkLayout(c);
+});
+
+test('40 toggle: both wires make each tap flip 0/1, passes on the 4th change', () => {
+  let s = toggleNext(toggleHold(levelSpace(40)));
+  assert.equal(shown(s), 0);
+  const got = [];
+  for (let i = 0; i < 5; i++) {
+    s = tap(s);
+    got.push(shown(s));
+    if (i < 3) assert.equal(s.task.passed, false, `第 ${i + 1} 下`);
+  }
+  assert.deepEqual(got, [1, 0, 1, 0, 1]);
+  assert.equal(s.task.passed, true);
+});
+
+test('40 toggle: holding the button flips only once', () => {
+  let s = toggleNext(toggleHold(levelSpace(40)));
+  s = press(s, 40);
+  assert.equal(shown(s), 1);
+  s = release(s);
+  assert.equal(shown(s), 1);
+});
+
+test('40 toggle: one wire alone does not pass', () => {
+  for (const add of [toggleHold, toggleNext]) {
+    let s = add(levelSpace(40));
+    for (let i = 0; i < 6; i++) s = tap(s);
+    assert.equal(s.task.passed, false);
+  }
+});
+
+test('40 toggle: the button wired straight to the display does not pass', () => {
+  let s = levelSpace(40);
+  s = link(s, [s.task.circuit.parts.find(p => p.type === 'button'), 'a'], [s.task.circuit.parts.find(p => p.type === 'display'), 'i1']);
+  const got = [];
+  for (let i = 0; i < 6; i++) { s = press(s); got.push(shown(s)); s = release(s); got.push(shown(s)); }
+  assert.deepEqual(got.slice(0, 4), [1, 0, 1, 0]);
+  assert.equal(s.task.passed, false);
+});
+
+// 第 41 关：0 1 2 转圈圈。「按」按预置顺序：0 接现1、1 接下1、2 接现2、3 接下2；「现2」0 是最左那个（只算下一个数）。
+const nextTwo = s => link(s, [tagged(s, '现1'), 'no'], [tagged(s, '按', 3), 'nc']);
+const nextOne = s => link(s, [tagged(s, '现1'), 'nc'], [tagged(s, '现2', 0), 'com']);
+
+test('41 count to 2: preset is tidy with nine relays', () => {
+  const c = T(41).preset();
+  assert.ok(c.parts.every(p => p.preset) && c.wires.every(w => w.preset));
+  assert.deepEqual(c.parts.filter(p => p.type === 'relay').map(p => p.tag), ['按', '现1', '按', '下1', '现2', '按', '现2', '按', '下2']);
+  checkLayout(c);
+});
+
+test('41 count to 2: both wires count 0,1,2 round and pass after two rounds', () => {
+  let s = nextOne(nextTwo(levelSpace(41)));
+  assert.equal(shown(s), 0);
+  const got = [];
+  for (let i = 0; i < 7; i++) {
+    s = tap(s);
+    got.push(shown(s));
+    if (i < 5) assert.equal(s.task.passed, false, `第 ${i + 1} 下`);
+  }
+  assert.deepEqual(got, [1, 2, 0, 1, 2, 0, 1]);
+  assert.equal(s.task.passed, true);
+});
+
+test('41 count to 2: holding the button adds only 1', () => {
+  let s = nextOne(nextTwo(levelSpace(41)));
+  s = press(s, 40);
+  assert.equal(shown(s), 1);
+  s = release(s);
+  assert.equal(shown(s), 1);
+});
+
+test('41 count to 2: one wire alone does not pass', () => {
+  for (const add of [nextTwo, nextOne]) {
+    let s = add(levelSpace(41));
+    for (let i = 0; i < 8; i++) s = tap(s);
+    assert.equal(s.task.passed, false);
+  }
+});
+
+test('39-41: relay and switch labels stay clear of terminals and each other', () => {
+  // 每个继电器有常开、常闭和名字三处文字；第 39 关还有「清零」开关的名字。
+  checkLabels(T(39).preset(), 3 + 1);
+  checkLabels(T(40).preset(), 4 * 3);
+  checkLabels(T(41).preset(), 9 * 3);
+});
+
+// 评审发现的两种情况：60 帧下很快的一点（约 67 ms，数在松手后才变）；按住时显示器闪、松手后不前进的错接法。
+const frames = (s, n) => play(s, ...Array.from({ length: n }, () => ({ type: 'tick', dt: 1 / 60 })));
+const quickTap = s => {
+  const id = s.task.circuit.parts.find(p => p.type === 'button').id;
+  return frames(play(frames(play(s, { type: 'press', id }), 4), { type: 'release', id }), 20);
+};
+
+test('40/41: quick taps whose change lands after release still count', () => {
+  for (const [id, wire, n, want] of [[40, s => toggleNext(toggleHold(s)), 4, [1, 0, 1, 0]], [41, s => nextOne(nextTwo(s)), 6, [1, 2, 0, 1, 2, 0]]]) {
+    let s = wire(levelSpace(id));
+    const got = [];
+    for (let i = 0; i < n; i++) { s = quickTap(s); got.push(shown(s)); }
+    assert.deepEqual(got, want, `第 ${id} 关`);
+    assert.equal(s.task.passed, true, `第 ${id} 关`);
+  }
+});
+
+test('40 toggle: wirings that only flicker while the button is held do not pass', () => {
+  const button = s => s.task.circuit.parts.find(p => p.type === 'button');
+  const cases = [
+    s => link(s, [button(s), 'a'], [tagged(s, '按', 0), 'nc']),
+    s => link(toggleHold(s), [tagged(s, '现'), 'y'], [tagged(s, '现'), 'nc']),
+  ];
+  for (const [i, wire] of cases.entries()) {
+    let s = wire(levelSpace(40));
+    for (let k = 0; k < 8; k++) s = tap(s);
+    assert.equal(s.task.passed, false, `接法 ${i}`);
+  }
 });

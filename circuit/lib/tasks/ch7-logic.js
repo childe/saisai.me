@@ -2,10 +2,14 @@
 import { connectivity } from '../solve.js';
 import { brokenSet } from '../damage.js';
 import { createCircuit } from '../circuit.js';
+import { createRelays, relayOnSet, wantOn } from '../relay.js';
+import { relayKeyOf } from '../solve.js';
 import {
   lampLit, withParams, ofType, result, noProgress, truth, stableSolve, relayMatters, displayValue, presetCircuit,
 } from '../task-kit.js';
 import { counterPreset } from './counter-preset.js';
+import { togglePreset } from './toggle-preset.js';
+import { count3Preset } from './count3-preset.js';
 
 const BITS = [[1, 1], [1, 0], [0, 1], [0, 0]];
 const flip = t => (t === 'a' ? 'b' : 'a');
@@ -108,15 +112,79 @@ function fullAdderOk(ws) {
   return true;
 }
 
+// 第 39 关预置：电池经「清零」开关供电，一路经按钮到继电器线圈，一路到继电器公共端；常开触点接灯。
+// 缺的是常开触点回到线圈（按钮那一端）的自锁线。继电器转 90°，线圈朝上、触点朝下。
+const latchPreset = () => presetCircuit([
+  ['BAT', 'battery', 8, 16, { cells: 2 }, { rot: 1 }],
+  ['S', 'switch', 14, 6, { closed: true }, { tag: '清零' }],
+  ['K', 'button', 22, 6],
+  ['R', 'relay', 26, 12, {}, { tag: '继电器', rot: 1 }],
+  ['L', 'lamp', 32, 18, {}, { rot: 1 }],
+], [
+  ['BAT.p', 'S.a', { via: [[8, 6]] }],
+  ['S.b', 'K.a'],
+  ['K.b', 'R.y', { via: [[25, 6]] }],
+  ['S.b', 'R.com', { via: [[16, 18], [26, 18]] }],
+  ['R.no', 'L.a', { via: [[27, 16]] }],
+  ['R.x', 'L.b', { via: [[27, 8], [36, 8], [36, 20]] }],
+  ['BAT.n', 'L.b', { via: [[8, 24], [32, 24]] }],
+]);
+
+const presetPressed = ws => ofType(ws.circuit, 'button').some(b => b.preset && b.params.pressed);
+
+// 继电器都稳住了：按现在的电流，没有哪个还想翻转。
+function relaysSettled(ws) {
+  const on = relayOnSet(ws.relays ?? createRelays());
+  return relayKeyOf(wantOn(ws.circuit, ws.result, on)) === relayKeyOf(on);
+}
+
+// 自锁：灯在按钮按着时由灭变亮，之后松开按钮灯还亮、继电器也稳住了，才算记住了。
+// 刚松手那一下继电器还没来得及释放，灯会多亮一瞬，所以要等继电器稳住。
+function latchStep(progress, ws) {
+  const br = brokenSet(ws.damage);
+  const lamp = ofType(ws.circuit, 'lamp').find(p => p.preset);
+  const lit = !!lamp && lampLit(ws.result, br, lamp.id);
+  const pressed = presetPressed(ws);
+  const byPress = lit && (progress.lit ? progress.byPress : pressed);
+  const next = lit === progress.lit && byPress === progress.byPress ? progress : { lit, byPress };
+  return result(byPress && !pressed && relaysSettled(ws), next);
+}
+
+const presetDisplayValue = ws => {
+  const d = ofType(ws.circuit, 'display').find(p => p.preset);
+  return d ? displayValue(ws.result, brokenSet(ws.damage), d.id) : null;
+};
+
 // 计数器：显示器每次变化都是「加 1，9 之后回到 0」才算数，连着数满 10 次（转一圈）过关；跳了或倒退就从头数。
 function countStep(progress, ws) {
-  const br = brokenSet(ws.damage);
-  const d = ofType(ws.circuit, 'display').find(p => p.preset);
-  const v = d ? displayValue(ws.result, br, d.id) : null;
+  const v = presetDisplayValue(ws);
   if (v == null || v === progress.last) return progress;
   const steps = progress.last != null && v === (progress.last + 1) % 10 ? progress.steps + 1 : 0;
   return { last: v, steps };
 }
+
+// 按一下数一下：每次按下再松开、继电器稳住以后读一次显示器，比上次松手后的数正好加 1（到 mod - 1 之后回到 0）才算一步；
+// 跳了或倒退就从头数，没变不算也不清零。只看松手后的数，所以按住时显示器闪几下、按钮直接接显示器（松手就回 0）都数不上去；
+// 点得很快、数在松手后才变也照样算。
+function tapStep(progress, ws, mod) {
+  if (presetPressed(ws)) return progress.armed ? progress : { ...progress, armed: true };
+  if (!relaysSettled(ws)) return progress;
+  const v = presetDisplayValue(ws);
+  if (v == null) return progress;
+  if (progress.last == null) return { last: v, steps: 0, armed: false };
+  if (!progress.armed) return progress;
+  if (v === progress.last) return { ...progress, armed: false };
+  return { last: v, steps: v === (progress.last + 1) % mod ? progress.steps + 1 : 0, armed: false };
+}
+
+// 连续数满 need 步过关。
+const countTask = (mod, need) => ({
+  initProgress: () => ({ last: null, steps: 0, armed: false }),
+  check(progress, ws) {
+    const next = tapStep(progress, ws, mod);
+    return result(next.steps >= need, next);
+  },
+});
 
 const RELAY_PALETTE ={ battery: 2, switch: 1, relay: 1, lamp: 1 };
 
@@ -180,7 +248,24 @@ export const CH7 = [
     check: (progress, ws) => result(fullAdderOk(ws), progress),
   },
   {
-    id: 39, chapter: 7, name: '按钮计数器',
+    id: 39, chapter: 7, name: '会记住的继电器',
+    goal: '按一下按钮，松手后灯还亮着。把继电器的常开触点接回它自己的线圈（按钮接的那一头），让它自己拉住自己。断开「清零」开关，它就忘了',
+    palette: {}, paletteNote: '只需要接一根导线', lockPreset: true, preset: latchPreset,
+    initProgress: () => ({ lit: false, byPress: false }),
+    check: latchStep,
+  },
+  {
+    id: 40, chapter: 7, name: '按一下换一下',
+    goal: '按一下，显示器在 0 和 1 之间换一下。接两根线：「现」的常开触点接到左边「按」的常闭触点，让「现」记住现在的数；「现」的常闭触点接到右边「按」的常闭触点，下一个数就是现在反过来。连着换 4 次过关',
+    palette: {}, paletteNote: '只需要接两根导线', lockPreset: true, preset: togglePreset, ...countTask(2, 4),
+  },
+  {
+    id: 41, chapter: 7, name: '0 1 2 转圈圈',
+    goal: '按一下加 1：0、1、2，再回到 0。接两根线：「现1」的常开触点接到「下2」旁边「按」的常闭触点（现在是 1，下一个就是 2）；「现1」的常闭触点接到最左边「现2」的公共端（现1、现2 都没吸合，下一个就是 1）。转两圈过关',
+    palette: {}, paletteNote: '只需要接两根导线', lockPreset: true, preset: count3Preset, ...countTask(3, 6),
+  },
+  {
+    id: 42, chapter: 7, name: '按钮计数器',
     goal: '按一下按钮，显示器加 1，到 9 再按回到 0。「现」记住现在的数，「下」算好下一个数，「按」跟着按钮换接法。连按 10 次看它转一圈',
     palette: {}, paletteNote: '只需要按按钮', lockPreset: true, preset: counterPreset, initProgress: () => ({ last: null, steps: 0 }),
     check(progress, ws) {
