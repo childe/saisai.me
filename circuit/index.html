@@ -21,6 +21,7 @@
       <button class="btn" data-style="symbol">⊗ 符号</button>
     </div>
     <span class="spacer"></span>
+    <button class="btn" id="shareBtn">🔗 分享</button>
     <button class="btn" id="muteBtn" aria-label="静音">🔊</button>
     <button class="btn" id="undoBtn">↶ 撤销</button>
     <button class="btn" id="clearBtn">🗑 清空</button>
@@ -44,6 +45,16 @@
       </svg>
       <div id="panel" hidden></div>
       <div id="banner" hidden>暂时无法计算</div>
+      <div id="toast" hidden></div>
+      <div id="shareBox" hidden>
+        <div class="confirm-box">
+          <p>复制下面的链接发给朋友</p>
+          <input type="text" readonly>
+          <div class="confirm-actions">
+            <button class="btn" data-share="close">关闭</button>
+          </div>
+        </div>
+      </div>
       <div id="tasklist" hidden>
         <div class="tasklist-box">
           <h2>选一关</h2>

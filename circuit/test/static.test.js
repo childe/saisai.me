@@ -11,7 +11,7 @@ test('index.html wiring', () => {
   assert.match(html, /user-scalable=no/);
   assert.match(html, /<script type="module" src="app\.js">/);
   assert.match(html, /<svg[^>]*id="board"/);
-  for (const id of ['palette', 'panel', 'banner', 'confirm', 'taskbar']) assert.match(html, new RegExp(`id="${id}"`));
+  for (const id of ['palette', 'panel', 'banner', 'confirm', 'taskbar', 'shareBtn', 'toast', 'shareBox']) assert.match(html, new RegExp(`id="${id}"`));
   assert.doesNotMatch(html, /https?:\/\//);
 });
 

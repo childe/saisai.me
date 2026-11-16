@@ -119,6 +119,7 @@ function renderToolbar(dom, state, space) {
   for (const b of dom.modeButtons) b.classList.toggle('on', b.dataset.mode === state.mode);
   for (const b of dom.styleButtons) b.classList.toggle('on', b.dataset.style === state.style);
   dom.undoBtn.disabled = space.history.length === 0;
+  if (dom.shareBtn) dom.shareBtn.hidden = state.mode === 'task';
   if (dom.muteBtn) dom.muteBtn.textContent = state.muted ? '🔇' : '🔊';
 }
 

@@ -6,6 +6,7 @@ import {
 import { render, miniArt, buzzerVolume } from './view.js';
 import { createBuzzer } from './sound.js';
 import { taskListHtml, parseAnswer } from './lib/taskbar.js';
+import { encodeCircuit, decodeCircuit, shareUrl, codeFromHash } from './lib/share.js';
 import { HOME, fitView, clampView, viewBox, zoomAt, panBy, contentRect } from './lib/viewport.js';
 
 const $ = sel => document.querySelector(sel);
@@ -28,6 +29,9 @@ const dom = {
   styleButtons: [...document.querySelectorAll('#styleSeg [data-style]')],
   muteBtn: $('#muteBtn'),
   undoBtn: $('#undoBtn'),
+  shareBtn: $('#shareBtn'),
+  toast: $('#toast'),
+  shareBox: $('#shareBox'),
 };
 const ghost = $('#ghost');
 
@@ -385,10 +389,40 @@ dom.confirm.addEventListener('click', e => {
   if (b) dispatch({ type: b.dataset.confirm === 'yes' ? 'confirmClear' : 'cancelClear' });
 });
 
+// ---------- 分享 ----------
+let toastTimer = null;
+function showToast(text) {
+  dom.toast.textContent = text;
+  dom.toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { dom.toast.hidden = true; }, 2500);
+}
+
+// 链接只记录点分享那一刻的电路，地址栏不动。
+dom.shareBtn.addEventListener('click', async () => {
+  const c = state.free.circuit;
+  if (!c.parts.length) { showToast('先搭一个电路再分享'); return; }
+  const url = shareUrl(location.href, await encodeCircuit(c));
+  try {
+    await navigator.clipboard.writeText(url);
+    showToast('链接已复制，发给朋友吧');
+  } catch {
+    // 剪贴板不可用：弹框让人手动复制。
+    const input = dom.shareBox.querySelector('input');
+    input.value = url;
+    dom.shareBox.hidden = false;
+    input.select();
+  }
+});
+dom.shareBox.addEventListener('click', e => {
+  if (e.target.closest('[data-share="close"]')) dom.shareBox.hidden = true;
+});
+
 // ---------- 防干扰 ----------
 document.addEventListener('gesturestart', e => e.preventDefault());
 document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
 document.addEventListener('keydown', e => {
+  if (e.target.closest?.('input')) return; // 输入框里的按键（含退格）不当作编辑快捷键
   if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); dispatch({ type: 'undo' }); return; }
   const sel = state.selection;
   if (sel && (e.key === 'Delete' || e.key === 'Backspace')) {
@@ -441,3 +475,15 @@ function frame(t) {
 requestAnimationFrame(frame);
 
 render(dom, state);
+
+// 打开分享链接：载入链接里的电路。页面已开着时把链接粘进地址栏只触发 hashchange，也要载入。
+async function loadFromHash() {
+  const code = codeFromHash(location.hash);
+  if (!code) return;
+  const c = await decodeCircuit(code);
+  if (!c) { showToast('链接里的电路打不开'); return; }
+  dispatch({ type: 'loadShared', circuit: c });
+  fitContent();
+}
+window.addEventListener('hashchange', loadFromHash);
+loadFromHash();
