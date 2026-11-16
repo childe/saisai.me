@@ -189,6 +189,12 @@ body {
 #panel .row .btn { padding: 0 10px; flex: 1 0 auto; }
 #panel .param-name { font-size: 0.9rem; color: #7a6a58; }
 #panel input[type="range"] { width: 100%; height: 44px; }
+#panel .specs { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; margin: 0; font-size: 0.85rem; line-height: 1.35; }
+#panel .specs dt { color: #7a6a58; }
+#panel .specs dd { margin: 0; }
+/* 标题后面的实时读数：放不下就整体换到名字下面。 */
+#panel h2 { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; }
+#panel .reading { font-size: 0.9rem; font-weight: 600; color: var(--accent); white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 #banner {
   position: absolute;

@@ -1,8 +1,9 @@
 // 把编辑器 state 画进 SVG 与面板。state 未变时直接返回；元件、导线按 id 做最小更新。
 import { activeSpace } from './lib/editor.js';
-import { PARTS, PART_TYPES } from './lib/parts.js';
+import { PARTS, PART_TYPES, wireR } from './lib/parts.js';
 import { GRID, wirePoints, LEVER_RECT } from './lib/geometry.js';
 import { partVisual, wireFlow } from './lib/viewmodel.js';
+import { specRows, readingText, formatOhms } from './lib/specs.js';
 import { drawPart } from './lib/drawings.js';
 import { TASKS, remainingPalette } from './lib/tasks.js';
 import { taskbarHtml, taskbarCacheKey } from './lib/taskbar.js';
@@ -146,6 +147,7 @@ function renderPalette(dom, state, space) {
 
 function renderPanel(dom, state, space) {
   const sel = state.selection;
+  let readingNow = null;
   const { circuit, damage } = space;
   let html = null, key = 'none';
   if (sel?.kind === 'part') {
@@ -161,7 +163,14 @@ function renderPanel(dom, state, space) {
       const burnt = !!damage.broken[p.id];
       key = JSON.stringify(['part', p.id, rest, burnt, locked, state.mode]);
       if (key !== panelKey) {
-        let body = `<h2>${def.label}</h2>`;
+        // 规格和读数只在自由搭建里给：小任务里有猜读数、测极限、找故障的关，会被它们泄题。
+        const free = state.mode === 'free';
+        const hasReading = free && readingText(p, undefined, false) !== null;
+        let body = `<h2>${def.label}${hasReading ? '<span class="reading"></span>' : ''}</h2>`;
+        if (free) {
+          const rows = specRows(p);
+          if (rows.length) body += `<dl class="specs">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>`;
+        }
         for (const [k, d] of Object.entries(def.params)) {
           if (locked.includes(k) || !PARAM_UI[k] || !d.options) continue;
           body += `<div class="param-name">${PARAM_UI[k].name}</div><div class="row">` +
@@ -179,12 +188,18 @@ function renderPanel(dom, state, space) {
         body += '<div class="row"><button class="btn" data-action="rotate">旋转 90°</button><button class="btn danger" data-action="deletePart">删除</button></div>';
         html = body;
       }
+      readingNow = readingText(p, space.result.ok ? space.result.parts[p.id] : undefined, space.result.ok);
       const range = dom.panel.querySelector('input[type="range"]');
       if (html === null && range && document.activeElement !== range) range.value = String(p.params.pos);
     }
   } else if (sel?.kind === 'wire' && circuit.wires.some(w => w.id === sel.id)) {
-    key = JSON.stringify(['wire', sel.id]);
-    if (key !== panelKey) html = '<h2>导线</h2><div class="row"><button class="btn danger" data-action="deleteWire">删除</button></div>';
+    const w = circuit.wires.find(x => x.id === sel.id);
+    key = JSON.stringify(['wire', sel.id, state.mode]);
+    if (key !== panelKey) {
+      html = '<h2>导线</h2>' +
+        (state.mode === 'free' ? `<dl class="specs"><dt>电阻</dt><dd>${formatOhms(wireR(w))}</dd></dl>` : '') +
+        '<div class="row"><button class="btn danger" data-action="deleteWire">删除</button></div>';
+    }
   }
   if (key === 'none') {
     dom.panel.hidden = true;
@@ -196,6 +211,9 @@ function renderPanel(dom, state, space) {
     dom.panel.innerHTML = html;
     panelKey = key;
   }
+  // 读数每帧都会变，单独更新这一行，不重建面板（重建会打断拖滑块）。
+  const readingEl = dom.panel.querySelector('.reading');
+  if (readingEl && readingNow !== null && readingEl.textContent !== `(${readingNow})`) readingEl.textContent = `(${readingNow})`;
   dom.panel.hidden = false;
 }
 
