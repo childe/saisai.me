@@ -101,3 +101,22 @@ export function codeFromHash(hash) {
   const m = /^#c=(.+)$/.exec(hash ?? '');
   return m ? m[1] : null;
 }
+
+// 老浏览器（如 iPadOS 15）没有 CompressionStream，既不能生成也不能打开分享链接。
+export const canShare = () => typeof globalThis.CompressionStream === 'function';
+
+// 复制链接。必须在点击回调里同步调用：Safari 只在用户手势当下允许写剪贴板，
+// 所以优先把「还没算完的链接」直接交给 ClipboardItem。成功返回 true，任何失败返回 false，不抛异常。
+export async function copyLink({ clipboard, ClipboardItem: Item } = {}, urlPromise) {
+  try {
+    if (clipboard?.write && Item) {
+      await clipboard.write([new Item({ 'text/plain': urlPromise.then(u => new Blob([u], { type: 'text/plain' })) })]);
+      return true;
+    }
+    if (!clipboard?.writeText) return false;
+    await clipboard.writeText(await urlPromise);
+    return true;
+  } catch {
+    return false;
+  }
+}

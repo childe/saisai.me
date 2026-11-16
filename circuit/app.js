@@ -6,7 +6,8 @@ import {
 import { render, miniArt, buzzerVolume } from './view.js';
 import { createBuzzer } from './sound.js';
 import { taskListHtml, parseAnswer } from './lib/taskbar.js';
-import { encodeCircuit, decodeCircuit, shareUrl, codeFromHash } from './lib/share.js';
+import { encodeCircuit, decodeCircuit, shareUrl, codeFromHash, copyLink, canShare } from './lib/share.js';
+import { isTextEntry } from './lib/keys.js';
 import { HOME, fitView, clampView, viewBox, zoomAt, panBy, contentRect } from './lib/viewport.js';
 
 const $ = sel => document.querySelector(sel);
@@ -398,21 +399,21 @@ function showToast(text) {
   toastTimer = setTimeout(() => { dom.toast.hidden = true; }, 2500);
 }
 
-// 链接只记录点分享那一刻的电路，地址栏不动。
-dom.shareBtn.addEventListener('click', async () => {
+// 链接只记录点分享那一刻的电路，地址栏不动。copyLink 要在点击回调里同步发起（Safari 的剪贴板限制）。
+dom.shareBtn.addEventListener('click', () => {
   const c = state.free.circuit;
   if (!c.parts.length) { showToast('先搭一个电路再分享'); return; }
-  const url = shareUrl(location.href, await encodeCircuit(c));
-  try {
-    await navigator.clipboard.writeText(url);
-    showToast('链接已复制，发给朋友吧');
-  } catch {
+  if (!canShare()) { showToast('这个浏览器太旧，不能分享'); return; }
+  const urlPromise = encodeCircuit(c).then(code => shareUrl(location.href, code));
+  copyLink({ clipboard: navigator.clipboard, ClipboardItem: window.ClipboardItem }, urlPromise).then(async ok => {
+    if (ok) { showToast('链接已复制，发给朋友吧'); return; }
     // 剪贴板不可用：弹框让人手动复制。
     const input = dom.shareBox.querySelector('input');
-    input.value = url;
+    input.value = await urlPromise;
     dom.shareBox.hidden = false;
     input.select();
-  }
+    input.setSelectionRange(0, input.value.length); // iOS 上 select() 对只读框常常选不中
+  });
 });
 dom.shareBox.addEventListener('click', e => {
   if (e.target.closest('[data-share="close"]')) dom.shareBox.hidden = true;
@@ -422,7 +423,7 @@ dom.shareBox.addEventListener('click', e => {
 document.addEventListener('gesturestart', e => e.preventDefault());
 document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
 document.addEventListener('keydown', e => {
-  if (e.target.closest?.('input')) return; // 输入框里的按键（含退格）不当作编辑快捷键
+  if (isTextEntry(e.target)) return; // 文字输入框里的按键（含退格）不当作编辑快捷键
   if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); dispatch({ type: 'undo' }); return; }
   const sel = state.selection;
   if (sel && (e.key === 'Delete' || e.key === 'Backspace')) {
@@ -480,6 +481,7 @@ render(dom, state);
 async function loadFromHash() {
   const code = codeFromHash(location.hash);
   if (!code) return;
+  if (!canShare()) { showToast('这个浏览器太旧，打不开分享的电路'); return; }
   const c = await decodeCircuit(code);
   if (!c) { showToast('链接里的电路打不开'); return; }
   dispatch({ type: 'loadShared', circuit: c });

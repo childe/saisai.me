@@ -75,3 +75,34 @@ test('codeFromHash', () => {
   assert.equal(codeFromHash('#c=abc'), 'abc');
   for (const h of ['', '#', '#c=', '#x=1']) assert.equal(codeFromHash(h), null, h);
 });
+
+test('copyLink uses ClipboardItem with a pending url when available', async () => {
+  const { copyLink } = await import('../lib/share.js');
+  let written = null;
+  class Item { constructor(data) { this.data = data; } }
+  const env = { ClipboardItem: Item, clipboard: { write: async items => { written = await (await items[0].data['text/plain']).text(); } } };
+  assert.equal(await copyLink(env, Promise.resolve('U')), true);
+  assert.equal(written, 'U');
+});
+
+test('copyLink falls back to writeText, and reports failure instead of throwing', async () => {
+  const { copyLink } = await import('../lib/share.js');
+  let text = null;
+  assert.equal(await copyLink({ clipboard: { writeText: async t => { text = t; } } }, Promise.resolve('U')), true);
+  assert.equal(text, 'U');
+  assert.equal(await copyLink({ clipboard: { writeText: () => Promise.reject(new Error('denied')) } }, Promise.resolve('U')), false);
+  assert.equal(await copyLink({}, Promise.resolve('U')), false);
+  assert.equal(await copyLink({ clipboard: { writeText: async () => {} } }, Promise.reject(new Error('no stream'))), false);
+});
+
+test('canShare depends on CompressionStream support', async () => {
+  const { canShare } = await import('../lib/share.js');
+  assert.equal(canShare(), true);
+  const saved = globalThis.CompressionStream;
+  try {
+    delete globalThis.CompressionStream;
+    assert.equal(canShare(), false);
+  } finally {
+    globalThis.CompressionStream = saved;
+  }
+});
