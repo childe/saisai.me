@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { TASKS, CHAPTERS, evaluateTask } from '../lib/tasks.js';
 import { settle, tick } from '../lib/engine.js';
 import { createDamage } from '../lib/damage.js';
-import { setParam } from '../lib/circuit.js';
+import { setParam, addPart, addWire } from '../lib/circuit.js';
 import { build } from './helpers.js';
 
 const T40 = TASKS.find(t => t.id === 40);
@@ -122,4 +122,46 @@ test('42 progress starts empty', () => {
   const a = T42.initProgress(), b = T42.initProgress();
   assert.deepEqual(a, { state: null, v: {}, count: 0 });
   assert.notEqual(a, b);
+});
+
+// —— 第 43 关「自动红绿灯」——
+const T43 = TASKS.find(t => t.id === 43);
+// 在预置闪光电路上，常闭接 ncColor 的 LED、常开接 noColor 的 LED，各串 100Ω。
+const withLeds = (ncColor, noColor) => {
+  let c = T43.preset();
+  const id = type => c.parts.find(p => p.type === type).id;
+  const K = id('relay'), B = id('battery');
+  const add = (type, x, y, params) => { const r = addPart(c, type, x, y, params); c = r.circuit; return r.id; };
+  const wire = (a, b) => { c = addWire(c, a, b).circuit; };
+  for (const [contact, color, y] of [['nc', ncColor, 30], ['no', noColor, 40]]) {
+    const R = add('resistor', 50, y, { ohms: 100 }), D = add('led', 60, y, { color });
+    wire({ part: K, term: contact }, { part: R, term: 'a' });
+    wire({ part: R, term: 'b' }, { part: D, term: 'a' });
+    wire({ part: D, term: 'k' }, { part: B, term: 'n' });
+  }
+  return c;
+};
+
+test('43 preset is locked flasher', () => {
+  const c = T43.preset();
+  const of = type => c.parts.filter(p => p.type === type);
+  assert.equal(T43.lockPreset, true);
+  assert.deepEqual(T43.palette, { led: 2, resistor: 2 });
+  assert.equal(of('battery')[0].params.cells, 2);
+  assert.equal(of('resistor')[0].params.ohms, 47);
+  assert.equal(of('capacitor')[0].params.farads, 0.5);
+  assert.equal(of('relay').length, 1);
+  assert.ok(c.parts.every(p => p.preset) && c.wires.every(w => w.preset));
+});
+
+test('43 passes with red on nc and green on no', () => {
+  assert.equal(playFor(T43, withLeds('red', 'green'), 60), true);
+});
+
+test('43 passes with colors swapped', () => {
+  assert.equal(playFor(T43, withLeds('green', 'red'), 60), true);
+});
+
+test('43 fails with two red LEDs', () => {
+  assert.equal(playFor(T43, withLeds('red', 'red'), 60), false);
 });

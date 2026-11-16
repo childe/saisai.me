@@ -2,7 +2,7 @@
 import { brokenSet } from '../damage.js';
 import { createCircuit } from '../circuit.js';
 import { solve } from '../solve.js';
-import { lampLit, ofType, result, noProgress } from '../task-kit.js';
+import { lampLit, ledLit, ofType, result, noProgress, presetCircuit } from '../task-kit.js';
 
 const BATTERY_IDLE_A = 0.001;
 
@@ -25,6 +25,21 @@ function slowToggle(progress, ws, stateOf) {
   if (progress.state === null) return { ...progress, state, v };
   const moved = Object.keys(v).some(id => Math.abs(v[id] - (progress.v[id] ?? 0)) >= SLOW_DV);
   return moved ? { state, v, count: progress.count + 1 } : { ...progress, state };
+}
+
+// 第「自己闪的灯」关的闪光电路，不带灯：电池 → com，nc → 电阻 → 电容∥线圈。右侧留空放 LED。
+const flasherPreset = () => presetCircuit(
+  [['B', 'battery', 8, 14, { cells: 2 }], ['K', 'relay', 20, 8], ['R', 'resistor', 30, 14, { ohms: 47 }], ['C', 'capacitor', 18, 22, { farads: 0.5 }]],
+  [['B.p', 'K.com'], ['K.nc', 'R.a'], ['R.b', 'K.x'], ['K.y', 'B.n'], ['R.b', 'C.a'], ['C.b', 'B.n']],
+);
+
+// 只有红色 LED 亮 → 'red'，只有绿色亮 → 'green'，其他时刻不算状态。
+function ledColorState(ws) {
+  const br = brokenSet(ws.damage);
+  const litColors = new Set(ofType(ws.circuit, 'led').filter(d => ledLit(ws.result, br, d.id)).map(d => d.params.color));
+  if (litColors.size !== 1) return null;
+  const [color] = litColors;
+  return color === 'red' || color === 'green' ? color : null;
 }
 
 export const CH8 = [
@@ -60,6 +75,15 @@ export const CH8 = [
     check(progress, ws) {
       const br = brokenSet(ws.damage);
       const next = slowToggle(progress, ws, w => (ofType(w.circuit, 'lamp').some(l => lampLit(w.result, br, l.id)) ? 'on' : 'off'));
+      return result(next.count >= SLOW_COUNT, next);
+    },
+  },
+  {
+    id: 43, chapter: 8, name: '自动红绿灯',
+    goal: '给闪光电路接上红灯和绿灯，让它们自己轮流亮。绿灯比红灯亮得久，因为电容充电比放电快',
+    palette: { led: 2, resistor: 2 }, lockPreset: true, preset: flasherPreset, initProgress: emptyToggle,
+    check(progress, ws) {
+      const next = slowToggle(progress, ws, ledColorState);
       return result(next.count >= SLOW_COUNT, next);
     },
   },
