@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { TASKS, CHAPTERS, evaluateTask } from '../lib/tasks.js';
 import { settle, tick } from '../lib/engine.js';
 import { createDamage } from '../lib/damage.js';
-import { setParam, addPart, addWire } from '../lib/circuit.js';
+import { setParam, addPart, addWire, removeWire } from '../lib/circuit.js';
+import { PARTS } from '../lib/parts.js';
+import { terminalPoint, wirePoints, rotatePoint } from '../lib/geometry.js';
 import { build } from './helpers.js';
 
 const T40 = TASKS.find(t => t.id === 40);
@@ -120,7 +122,7 @@ test('42 fails when the relay buzzes without a capacitor', () => {
 
 test('42 progress starts empty', () => {
   const a = T42.initProgress(), b = T42.initProgress();
-  assert.deepEqual(a, { state: null, v: {}, count: 0 });
+  assert.deepEqual(a, { state: null, v: {}, count: 0, flips: 0, dir: 0 });
   assert.notEqual(a, b);
 });
 
@@ -164,4 +166,86 @@ test('43 passes with colors swapped', () => {
 
 test('43 fails with two red LEDs', () => {
   assert.equal(playFor(T43, withLeds('red', 'red'), 60), false);
+});
+
+// —— 评审后补的用例 ——
+
+test('41 fails the instant the switch opens without a capacitor', () => {
+  assert.equal(run41(openAfter(delayCircuit({ withCap: false }), 1, 0)).passed, false);
+});
+
+test('41 fails with a self-latching relay', () => {
+  const c = delayCircuit({ withCap: false });
+  c.wires.push({ id: 'latch', a: { part: 'K', term: 'no' }, b: { part: 'K', term: 'x' } });
+  assert.equal(run41(openAfter(c, 1, 0.5)).passed, false);
+});
+
+test('42 fails with a buzzing relay next to a separately charging capacitor', () => {
+  const c = build({
+    parts: { B: ['battery'], K: ['relay'], L: ['lamp'], R: ['resistor', { ohms: 47 }], C: ['capacitor', { farads: 0.5 }] },
+    wires: [['B.p', 'K.com'], ['K.nc', 'K.x'], ['K.y', 'B.n'], ['K.nc', 'L.a'], ['L.b', 'B.n'], ['B.p', 'R.a'], ['R.b', 'C.a'], ['C.b', 'B.n']],
+  });
+  assert.equal(playFor(T42, c, 40), false);
+});
+
+test('42 fails when the lamp wire is pulled and replaced by hand', () => {
+  const c = build({
+    parts: { B: ['battery'], R: ['resistor', { ohms: 220 }], C: ['capacitor', { farads: 0.5 }], L: ['lamp'] },
+    wires: [['B.p', 'R.a'], ['R.b', 'C.a'], ['C.b', 'B.n'], ['B.p', 'L.a'], ['L.b', 'B.n']],
+  });
+  let ws = settle(c, createDamage());
+  let progress = T42.initProgress();
+  let passed = false;
+  for (let k = 0; k < 60 / 0.02 && !passed; k++) {
+    if (k % 200 === 100) {
+      const lw = ws.circuit.wires.find(w => w.a.part === 'L' && w.a.term === 'b');
+      ws = settle(removeWire(ws.circuit, lw.id), ws.damage, ws.relays, ws.caps);
+    } else if (k % 200 === 0 && k > 0) {
+      ws = settle(addWire(ws.circuit, { part: 'L', term: 'b' }, { part: 'B', term: 'n' }).circuit, ws.damage, ws.relays, ws.caps);
+    }
+    ws = tick(ws, 0.02);
+    const r = evaluateTask(T42, progress, ws);
+    passed = r.passed;
+    progress = r.progress;
+  }
+  assert.equal(passed, false);
+});
+
+test('42 defaults the resistor to 10 ohms', () => {
+  assert.deepEqual(T42.defaults, { resistor: { ohms: 10 } });
+});
+
+test('43 hints when no LED is green', () => {
+  let ws = settle(withLeds('red', 'red'), createDamage());
+  for (let k = 0; k < 10; k++) ws = tick(ws, 0.02);
+  assert.equal(evaluateTask(T43, T43.initProgress(), ws).hint, '把一个 LED 的颜色改成绿色');
+});
+
+// 预置导线不压在任何元件本体和引线上，也不经过别的端点。
+const zoneOf = p => {
+  const h = p.type === 'relay' ? 1.35 : 0.7;
+  const [a, b] = [rotatePoint([-1.9, -h], p.rot), rotatePoint([1.9, h], p.rot)];
+  return { x0: p.x + Math.min(a[0], b[0]), x1: p.x + Math.max(a[0], b[0]), y0: p.y + Math.min(a[1], b[1]), y1: p.y + Math.max(a[1], b[1]) };
+};
+const hitsZone = ([x1, y1], [x2, y2], z) =>
+  Math.max(x1, x2) > z.x0 && Math.min(x1, x2) < z.x1 && Math.max(y1, y2) > z.y0 && Math.min(y1, y2) < z.y1;
+const onSeg = ([x, y], [x1, y1], [x2, y2]) =>
+  (x1 === x2 && x === x1 && y >= Math.min(y1, y2) && y <= Math.max(y1, y2)) || (y1 === y2 && y === y1 && x >= Math.min(x1, x2) && x <= Math.max(x1, x2));
+
+test('43 preset wires stay clear of parts and other terminals', () => {
+  const c = T43.preset();
+  for (const w of c.wires) {
+    const pts = wirePoints(c, w);
+    const ends = [terminalPoint(c.parts.find(p => p.id === w.a.part), w.a.term), terminalPoint(c.parts.find(p => p.id === w.b.part), w.b.term)];
+    for (let i = 1; i < pts.length; i++) {
+      for (const p of c.parts) {
+        assert.ok(!hitsZone(pts[i - 1], pts[i], zoneOf(p)), `${w.a.part}.${w.a.term}-${w.b.part}.${w.b.term} 压在 ${p.type} 上`);
+        for (const t of PARTS[p.type].terms) {
+          const tp = terminalPoint(p, t);
+          if (ends.some(e => e[0] === tp[0] && e[1] === tp[1])) continue;
+          assert.ok(!onSeg(tp, pts[i - 1], pts[i]), `${w.a.part}.${w.a.term}-${w.b.part}.${w.b.term} 经过 ${p.type}.${t}`);
+        }
+      }
+    }
+  }
 });
