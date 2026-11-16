@@ -47,3 +47,40 @@ test('chapter 8 is listed', () => {
   assert.deepEqual(T40.palette, { battery: 1, switch: 1, lamp: 1, capacitor: 1 });
   assert.equal(T40.goal, '断开开关以后，让灯再亮一会儿');
 });
+
+// —— 第 41 关「延时关灯」——
+const T41 = TASKS.find(t => t.id === 41);
+const run41 = ws => evaluateTask(T41, T41.initProgress(), ws);
+// 开关管线圈，电容并在线圈上；继电器常开触点点灯。lampDirect：灯直接接电池（作弊）。
+const delayCircuit = ({ withCap = true, lampDirect = false } = {}) => build({
+  parts: { B: ['battery'], S: ['switch', { closed: true }], K: ['relay'], L: ['lamp'], ...(withCap ? { C: ['capacitor', { farads: 0.1 }] } : {}) },
+  wires: [['B.p', 'S.a'], ['S.b', 'K.x'], ['K.y', 'B.n'], ...(withCap ? [['S.b', 'C.a'], ['C.b', 'B.n']] : []),
+    ['B.p', 'K.com'], lampDirect ? ['B.p', 'L.a'] : ['K.no', 'L.a'], ['L.b', 'B.n']],
+});
+const openAfter = (c, seconds, after = 0) => {
+  let ws = settle(c, createDamage());
+  for (let k = 0; k < seconds / 0.02; k++) ws = tick(ws, 0.02);
+  ws = settle(setParam(ws.circuit, 'S', 'closed', false), ws.damage, ws.relays, ws.caps);
+  for (let k = 0; k < after / 0.02; k++) ws = tick(ws, 0.02);
+  return ws;
+};
+
+test('41 passes when relay holds the lamp after the switch opens', () => {
+  assert.equal(run41(openAfter(delayCircuit(), 1)).passed, true);
+});
+
+test('41 hints while the switch is closed', () => {
+  let ws = settle(delayCircuit(), createDamage());
+  for (let k = 0; k < 50; k++) ws = tick(ws, 0.02);
+  const r = run41(ws);
+  assert.equal(r.passed, false);
+  assert.equal(r.hint, '灯亮了。断开开关，看灯能不能晚一点再灭');
+});
+
+test('41 fails with the lamp wired to the battery', () => {
+  assert.equal(run41(openAfter(delayCircuit({ lampDirect: true }), 1)).passed, false);
+});
+
+test('41 fails without the capacitor', () => {
+  assert.equal(run41(openAfter(delayCircuit({ withCap: false }), 1, 0.2)).passed, false);
+});
