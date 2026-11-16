@@ -5,6 +5,7 @@ import { createCircuit } from '../circuit.js';
 import {
   lampLit, withParams, ofType, result, noProgress, truth, stableSolve, relayMatters, displayValue, presetCircuit,
 } from '../task-kit.js';
+import { counterPreset } from './counter-preset.js';
 
 const BITS = [[1, 1], [1, 0], [0, 1], [0, 0]];
 const flip = t => (t === 'a' ? 'b' : 'a');
@@ -107,7 +108,17 @@ function fullAdderOk(ws) {
   return true;
 }
 
-const RELAY_PALETTE = { battery: 2, switch: 1, relay: 1, lamp: 1 };
+// 计数器：显示器每次变化都是「加 1，9 之后回到 0」才算数，连着数满 10 次（转一圈）过关；跳了或倒退就从头数。
+function countStep(progress, ws) {
+  const br = brokenSet(ws.damage);
+  const d = ofType(ws.circuit, 'display').find(p => p.preset);
+  const v = d ? displayValue(ws.result, br, d.id) : null;
+  if (v == null || v === progress.last) return progress;
+  const steps = progress.last != null && v === (progress.last + 1) % 10 ? progress.steps + 1 : 0;
+  return { last: v, steps };
+}
+
+const RELAY_PALETTE ={ battery: 2, switch: 1, relay: 1, lamp: 1 };
 
 // 两个开关经继电器控制一盏灯；want 列出灯该亮的组合，键 tt、tf、ft、ff 对应 BITS 顺序
 const relayGateTask = (id, name, goal, want) => ({
@@ -167,5 +178,14 @@ export const CH7 = [
     id: 37, chapter: 7, name: '全加器', goal: '三个开关 A、B、C：断开是 0，合上是 1。让显示器显示 A+B+C', palette: {}, lockPreset: true,
     preset: fullAdderPreset, initProgress: noProgress,
     check: (progress, ws) => result(fullAdderOk(ws), progress),
+  },
+  {
+    id: 38, chapter: 7, name: '按钮计数器',
+    goal: '按一下按钮，显示器加 1，到 9 再按回到 0。「现」记住现在的数，「下」算好下一个数，「按」跟着按钮换接法。连按 10 次看它转一圈',
+    palette: {}, paletteNote: '只需要按按钮', lockPreset: true, preset: counterPreset, initProgress: () => ({ last: null, steps: 0 }),
+    check(progress, ws) {
+      const next = countStep(progress, ws);
+      return result(next.steps >= 10, next);
+    },
   },
 ];

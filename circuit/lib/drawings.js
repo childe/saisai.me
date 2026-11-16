@@ -360,9 +360,11 @@ export function drawPart(part, style, visual) {
 
 // 开关、继电器带 tag 时画出名字（预置电路里的 A、B、C、A1…），让孩子分得清谁是谁。
 // 字画在本地坐标里，由 upright 转回正向。开关放在本体旁（本地 (0,32)，不压导线）；
-// 继电器放在板面上本体正上方、两个线圈端点之间（本地坐标按 rot 反转），避开下方的常开常闭标签。
+// 继电器放在板面上本体正上方、两个线圈端点之间（本地坐标按 rot 反转），避开下方的常开常闭标签；
+// 转 270°（触点朝上）时板面上方是触点，改放到线圈那一侧。
 export function tagLabelAt(part) {
-  return part.type === 'relay' ? rotatePoint([0, -76], -part.rot) : [0, 32];
+  if (part.type !== 'relay') return [0, 32];
+  return part.rot % 4 === 3 ? [-76, 0] : rotatePoint([0, -76], -part.rot);
 }
 function tagLabel(part) {
   if (!part.tag || (part.type !== 'switch' && part.type !== 'relay')) return '';
