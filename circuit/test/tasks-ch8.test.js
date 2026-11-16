@@ -249,3 +249,76 @@ test('46 preset wires stay clear of parts and other terminals', () => {
     }
   }
 });
+
+// —— 第 47 关「能调亮度的闪光灯」——
+const T47 = TASKS.find(t => t.id === 47);
+// 电池 → com，nc → 线圈（像电铃一样自己跳）；no → 变阻器 a–w → 灯。lampOn 换灯接的触点，fixed 把变阻器接成 a–b 定值。
+const dimBlinker = ({ lampOn = 'no', fixed = false, cells = 1 } = {}) => build({
+  parts: { B: ['battery', { cells }], K: ['relay'], V: ['rheostat', { pos: 0 }], L: ['lamp'] },
+  wires: [['B.p', 'K.com'], ['K.nc', 'K.x'], ['K.y', 'B.n'], [`K.${lampOn}`, 'V.a'], [fixed ? 'V.b' : 'V.w', 'L.a'], ['L.b', 'B.n']],
+});
+// 闪 seconds 秒，每 slideEvery 秒把变阻器在 0 和 0.15 之间换一下；每帧推进 progress。
+const blinkAndSlide = (c, seconds, { slideEvery = 0, change = null } = {}) => {
+  let ws = settle(c, createDamage());
+  let progress = T47.initProgress();
+  let r = null;
+  const per = Math.round(slideEvery / 0.02);
+  for (let k = 1; k <= seconds / 0.02; k++) {
+    if (per && k % per === 0) ws = settle(setParam(ws.circuit, 'V', 'pos', (k / per) % 2 ? 0.15 : 0), ws.damage, ws.relays, ws.caps);
+    if (change && k === change.at) ws = settle(change.apply(ws.circuit), ws.damage, ws.relays, ws.caps);
+    ws = tick(ws, 0.02);
+    r = evaluateTask(T47, progress, ws);
+    if (r.passed) return r;
+    progress = r.progress;
+  }
+  return r;
+};
+
+test('47 lists its parts and goal', () => {
+  assert.equal(T47.chapter, 8);
+  assert.equal(T47.name, '能调亮度的闪光灯');
+  assert.deepEqual(T47.palette, { battery: 1, relay: 1, rheostat: 1, lamp: 1 });
+});
+
+test('47 passes when the lamp blinks and the slider changes its brightness', () => {
+  assert.equal(blinkAndSlide(dimBlinker(), 6, { slideEvery: 1 }).passed, true);
+});
+
+test('47 passes with the lamp on nc', () => {
+  assert.equal(blinkAndSlide(dimBlinker({ lampOn: 'nc' }), 6, { slideEvery: 1 }).passed, true);
+});
+
+test('47 hints to slide when the lamp blinks at one brightness', () => {
+  const r = blinkAndSlide(dimBlinker(), 6);
+  assert.equal(r.passed, false);
+  assert.equal(r.hint, '灯在闪了。拖动滑动变阻器的滑片，让灯变亮、变暗');
+});
+
+test('47 fails when the rheostat is wired as a fixed resistor', () => {
+  const r = blinkAndSlide(dimBlinker({ fixed: true, cells: 4 }), 6, { slideEvery: 1 });
+  assert.equal(r.passed, false);
+  assert.equal(r.hint, '灯在闪了。拖动滑动变阻器的滑片，让灯变亮、变暗');
+});
+
+test('47 fails when only the battery cells change the brightness', () => {
+  const change = { at: 100, apply: circuit => setParam(circuit, 'B', 'cells', 2) };
+  assert.equal(blinkAndSlide(dimBlinker(), 6, { change }).passed, false);
+});
+
+test('47 fails when the lamp does not blink', () => {
+  // 灯经变阻器直接接电池，继电器另外自己跳
+  const c = build({
+    parts: { B: ['battery'], K: ['relay'], V: ['rheostat', { pos: 0 }], L: ['lamp'] },
+    wires: [['B.p', 'K.com'], ['K.nc', 'K.x'], ['K.y', 'B.n'], ['B.p', 'V.a'], ['V.w', 'L.a'], ['L.b', 'B.n']],
+  });
+  assert.equal(blinkAndSlide(c, 6, { slideEvery: 1 }).passed, false);
+});
+
+test('47 fails when a wire across the rheostat makes the lamp brighter', () => {
+  const c = dimBlinker();
+  c.parts.find(p => p.id === 'V').params.pos = 0.15;
+  const change = { at: 100, apply: circuit => addWire(circuit, { part: 'V', term: 'a' }, { part: 'V', term: 'w' }).circuit };
+  const r = blinkAndSlide(c, 6, { change });
+  assert.equal(r.passed, false);
+  assert.equal(r.hint, '灯在闪了。拖动滑动变阻器的滑片，让灯变亮、变暗');
+});
