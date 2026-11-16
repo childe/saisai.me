@@ -84,3 +84,42 @@ test('41 fails with the lamp wired to the battery', () => {
 test('41 fails without the capacitor', () => {
   assert.equal(run41(openAfter(delayCircuit({ withCap: false }), 1, 0.2)).passed, false);
 });
+
+// —— 第 42 关「自己闪的灯」——
+const T42 = TASKS.find(t => t.id === 42);
+// 每帧 tick 并推进 progress，seconds 秒内过关返回 true。
+const playFor = (task, c, seconds) => {
+  let ws = settle(c, createDamage());
+  let progress = task.initProgress();
+  for (let k = 0; k < seconds / 0.02; k++) {
+    ws = tick(ws, 0.02);
+    const r = evaluateTask(task, progress, ws);
+    if (r.passed) return true;
+    progress = r.progress;
+  }
+  return false;
+};
+// 电池 → com，nc → 电阻 → 电容∥线圈；灯接在 lampOn 触点上。
+const blinker = ({ withCap = true, lampOn = 'nc' } = {}) => build({
+  parts: { B: ['battery'], K: ['relay'], R: ['resistor', { ohms: 10 }], L: ['lamp'], ...(withCap ? { C: ['capacitor', { farads: 0.5 }] } : {}) },
+  wires: [['B.p', 'K.com'], ['K.nc', 'R.a'], ['R.b', 'K.x'], ['K.y', 'B.n'], ...(withCap ? [['R.b', 'C.a'], ['C.b', 'B.n']] : []),
+    [`K.${lampOn}`, 'L.a'], ['L.b', 'B.n']],
+});
+
+test('42 passes after the lamp blinks on its own', () => {
+  assert.equal(playFor(T42, blinker(), 20), true);
+});
+
+test('42 passes with lamp on no', () => {
+  assert.equal(playFor(T42, blinker({ lampOn: 'no' }), 40), true);
+});
+
+test('42 fails when the relay buzzes without a capacitor', () => {
+  assert.equal(playFor(T42, blinker({ withCap: false }), 40), false);
+});
+
+test('42 progress starts empty', () => {
+  const a = T42.initProgress(), b = T42.initProgress();
+  assert.deepEqual(a, { state: null, v: {}, count: 0 });
+  assert.notEqual(a, b);
+});

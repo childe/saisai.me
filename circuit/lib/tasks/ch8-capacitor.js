@@ -12,6 +12,21 @@ function litByRelay(ws, br, id) {
   return off.ok && !lampLit(off, br, id);
 }
 
+const SLOW_DV = 0.1;
+const SLOW_COUNT = 4;
+const emptyToggle = () => ({ state: null, v: {}, count: 0 });
+
+// 慢速切换计数：stateOf 给出的状态变了，且自上次计数以来某个电容电压变了 SLOW_DV 以上，才计一次。
+// 继电器不靠电容、自己哒哒乱跳时电容电压不变，不计数。stateOf 返回 null 表示这一刻不算状态，跳过。
+function slowToggle(progress, ws, stateOf) {
+  const state = stateOf(ws);
+  if (state === null || state === progress.state) return progress;
+  const v = ws.caps?.v ?? {};
+  if (progress.state === null) return { ...progress, state, v };
+  const moved = Object.keys(v).some(id => Math.abs(v[id] - (progress.v[id] ?? 0)) >= SLOW_DV);
+  return moved ? { state, v, count: progress.count + 1 } : { ...progress, state };
+}
+
 export const CH8 = [
   {
     id: 40, chapter: 8, name: '会存电的电容', goal: '断开开关以后，让灯再亮一会儿',
@@ -36,6 +51,16 @@ export const CH8 = [
       if (!lit.length) return result(false, progress);
       if (ofType(ws.circuit, 'switch').some(s => s.params.closed)) return result(false, progress, '灯亮了。断开开关，看灯能不能晚一点再灭');
       return result(lit.some(l => litByRelay(ws, br, l.id)), progress);
+    },
+  },
+  {
+    id: 42, chapter: 8, name: '自己闪的灯', goal: '不用开关，让灯自己一亮一灭',
+    palette: { battery: 1, relay: 1, resistor: 1, capacitor: 1, lamp: 1 },
+    preset: () => createCircuit(), initProgress: emptyToggle,
+    check(progress, ws) {
+      const br = brokenSet(ws.damage);
+      const next = slowToggle(progress, ws, w => (ofType(w.circuit, 'lamp').some(l => lampLit(w.result, br, l.id)) ? 'on' : 'off'));
+      return result(next.count >= SLOW_COUNT, next);
     },
   },
 ];
