@@ -75,3 +75,13 @@ test('capacitor charge follows voltage', () => {
   assert.equal(partVisual(cap, { v: 1.5, i: 0, p: 0 }, d, false).charge, 0);
   assert.equal(partVisual(lamp, { v: 1, i: 0.1, p: 0.45 }, d, true).charge, 0);
 });
+
+// 电容充放电时电流每帧变一点：速度要落在固定几档上，导线 html 才不会每帧重建、小点才不会停住。
+test('wire flow speed stays put when current drifts slightly', () => {
+  assert.equal(wireFlow({ i: 0.15 }, true).speed, wireFlow({ i: 0.151 }, true).speed);
+  assert.equal(wireFlow({ i: 0.9 }, true).speed, wireFlow({ i: 0.905 }, true).speed);
+  const speeds = new Set();
+  for (let i = 0.001; i < 3; i *= 1.01) speeds.add(wireFlow({ i }, true).speed);
+  assert.ok(speeds.size <= 8, `${speeds.size} 档`);
+  assert.ok(wireFlow({ i: 1 }, true).speed > wireFlow({ i: 0.2 }, true).speed);
+});
