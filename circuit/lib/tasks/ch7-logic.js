@@ -130,37 +130,58 @@ const latchPreset = () => presetCircuit([
   ['BAT.n', 'L.b', { via: [[8, 24], [32, 24]] }],
 ]);
 
-// 自锁：灯在按钮按着时由灭变亮，之后松开按钮灯还亮、继电器也不再想翻转，才算记住了。
+const presetPressed = ws => ofType(ws.circuit, 'button').some(b => b.preset && b.params.pressed);
+
+// 继电器都稳住了：按现在的电流，没有哪个还想翻转。
+function relaysSettled(ws) {
+  const on = relayOnSet(ws.relays ?? createRelays());
+  return relayKeyOf(wantOn(ws.circuit, ws.result, on)) === relayKeyOf(on);
+}
+
+// 自锁：灯在按钮按着时由灭变亮，之后松开按钮灯还亮、继电器也稳住了，才算记住了。
 // 刚松手那一下继电器还没来得及释放，灯会多亮一瞬，所以要等继电器稳住。
 function latchStep(progress, ws) {
   const br = brokenSet(ws.damage);
   const lamp = ofType(ws.circuit, 'lamp').find(p => p.preset);
   const lit = !!lamp && lampLit(ws.result, br, lamp.id);
-  const pressed = ofType(ws.circuit, 'button').some(b => b.preset && b.params.pressed);
+  const pressed = presetPressed(ws);
   const byPress = lit && (progress.lit ? progress.byPress : pressed);
   const next = lit === progress.lit && byPress === progress.byPress ? progress : { lit, byPress };
-  const on = relayOnSet(ws.relays ?? createRelays());
-  const settled = relayKeyOf(wantOn(ws.circuit, ws.result, on)) === relayKeyOf(on);
-  return result(byPress && !pressed && settled, next);
+  return result(byPress && !pressed && relaysSettled(ws), next);
 }
 
-// 计数：显示器每次变化都是「加 1，到 mod - 1 之后回到 0」才算一步；跳了或倒退就从头数。
-// onPress 时变化还得发生在预置按钮按着的时候，按钮直接接显示器那种「松手就变」的不算。
-function countStep(progress, ws, { mod = 10, onPress = false } = {}) {
-  const br = brokenSet(ws.damage);
+const presetDisplayValue = ws => {
   const d = ofType(ws.circuit, 'display').find(p => p.preset);
-  const v = d ? displayValue(ws.result, br, d.id) : null;
+  return d ? displayValue(ws.result, brokenSet(ws.damage), d.id) : null;
+};
+
+// 计数器：显示器每次变化都是「加 1，9 之后回到 0」才算数，连着数满 10 次（转一圈）过关；跳了或倒退就从头数。
+function countStep(progress, ws) {
+  const v = presetDisplayValue(ws);
   if (v == null || v === progress.last) return progress;
-  const pressed = ofType(ws.circuit, 'button').some(b => b.preset && b.params.pressed);
-  const ok = progress.last != null && v === (progress.last + 1) % mod && (!onPress || pressed);
-  return { last: v, steps: ok ? progress.steps + 1 : 0 };
+  const steps = progress.last != null && v === (progress.last + 1) % 10 ? progress.steps + 1 : 0;
+  return { last: v, steps };
+}
+
+// 按一下数一下：每次按下再松开、继电器稳住以后读一次显示器，比上次松手后的数正好加 1（到 mod - 1 之后回到 0）才算一步；
+// 跳了或倒退就从头数，没变不算也不清零。只看松手后的数，所以按住时显示器闪几下、按钮直接接显示器（松手就回 0）都数不上去；
+// 点得很快、数在松手后才变也照样算。
+function tapStep(progress, ws, mod) {
+  if (presetPressed(ws)) return progress.armed ? progress : { ...progress, armed: true };
+  if (!relaysSettled(ws)) return progress;
+  const v = presetDisplayValue(ws);
+  if (v == null) return progress;
+  if (progress.last == null) return { last: v, steps: 0, armed: false };
+  if (!progress.armed) return progress;
+  if (v === progress.last) return { ...progress, armed: false };
+  return { last: v, steps: v === (progress.last + 1) % mod ? progress.steps + 1 : 0, armed: false };
 }
 
 // 连续数满 need 步过关。
 const countTask = (mod, need) => ({
-  initProgress: () => ({ last: null, steps: 0 }),
+  initProgress: () => ({ last: null, steps: 0, armed: false }),
   check(progress, ws) {
-    const next = countStep(progress, ws, { mod, onPress: true });
+    const next = tapStep(progress, ws, mod);
     return result(next.steps >= need, next);
   },
 });

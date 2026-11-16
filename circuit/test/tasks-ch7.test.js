@@ -552,3 +552,33 @@ test('39-41: relay and switch labels stay clear of terminals and each other', ()
   checkLabels(T(40).preset(), 4 * 3);
   checkLabels(T(41).preset(), 9 * 3);
 });
+
+// 评审发现的两种情况：60 帧下很快的一点（约 67 ms，数在松手后才变）；按住时显示器闪、松手后不前进的错接法。
+const frames = (s, n) => play(s, ...Array.from({ length: n }, () => ({ type: 'tick', dt: 1 / 60 })));
+const quickTap = s => {
+  const id = s.task.circuit.parts.find(p => p.type === 'button').id;
+  return frames(play(frames(play(s, { type: 'press', id }), 4), { type: 'release', id }), 20);
+};
+
+test('40/41: quick taps whose change lands after release still count', () => {
+  for (const [id, wire, n, want] of [[40, s => toggleNext(toggleHold(s)), 4, [1, 0, 1, 0]], [41, s => nextOne(nextTwo(s)), 6, [1, 2, 0, 1, 2, 0]]]) {
+    let s = wire(levelSpace(id));
+    const got = [];
+    for (let i = 0; i < n; i++) { s = quickTap(s); got.push(shown(s)); }
+    assert.deepEqual(got, want, `第 ${id} 关`);
+    assert.equal(s.task.passed, true, `第 ${id} 关`);
+  }
+});
+
+test('40 toggle: wirings that only flicker while the button is held do not pass', () => {
+  const button = s => s.task.circuit.parts.find(p => p.type === 'button');
+  const cases = [
+    s => link(s, [button(s), 'a'], [tagged(s, '按', 0), 'nc']),
+    s => link(toggleHold(s), [tagged(s, '现'), 'y'], [tagged(s, '现'), 'nc']),
+  ];
+  for (const [i, wire] of cases.entries()) {
+    let s = wire(levelSpace(40));
+    for (let k = 0; k < 8; k++) s = tap(s);
+    assert.equal(s.task.passed, false, `接法 ${i}`);
+  }
+});
