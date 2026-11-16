@@ -196,6 +196,21 @@ const DRAW = {
       `<text x="-36" y="-8" class="pol">+</text>` + waves;
   },
 
+  // 电容：简笔画两块平行极板，卡通画一个电解电容罐子；右上角竖条按 vis.charge 显示存了多少电。
+  capacitor(part, style, vis) {
+    const h = n(32 * Math.min(1, Math.max(0, vis.charge ?? 0)));
+    const gauge = `<rect x="30" y="-46" width="10" height="32" fill="#fff" stroke="${INK}" stroke-width="2"/>` +
+      `<rect class="charge" x="31" y="${n(-15 - h)}" width="8" height="${h}" fill="#f0a020"/>`;
+    const label = `<text x="0" y="46" text-anchor="middle" class="label">${part.params.farads}F</text>`;
+    if (style === 'cartoon') {
+      return line(-80, 0, -22, 0) + line(80, 0, 22, 0) +
+        `<rect x="-22" y="-26" width="44" height="52" rx="8" fill="#3c6fb3" stroke="${INK}" stroke-width="3"/>` +
+        `<rect x="10" y="-26" width="8" height="52" fill="#dfe8f5" opacity="0.7"/>` + gauge + label;
+    }
+    return line(-80, 0, -8, 0) + line(80, 0, 8, 0) +
+      `<path d="M-8 -22 V22 M8 -22 V22" stroke="${INK}" stroke-width="6"/>` + gauge + label;
+  },
+
   rheostat(part, style) {
     const sx = -50 + 100 * part.params.pos;
     const wiper = line(0, -80, 0, -42) + line(0, -42, sx, -42) +
