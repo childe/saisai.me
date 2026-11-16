@@ -131,7 +131,7 @@ function renderPalette(dom, state, space) {
   paletteKey = key;
   const list = dom.palette.querySelector('.palette-list');
   if (!types.length) {
-    list.innerHTML = '<div class="pal-note">只需要改导线</div>';
+    list.innerHTML = `<div class="pal-note">${task?.paletteNote ?? '只需要改导线'}</div>`;
     return;
   }
   list.innerHTML = types.map(t => {

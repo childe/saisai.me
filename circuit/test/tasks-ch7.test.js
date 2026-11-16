@@ -138,9 +138,9 @@ test('34 and / 35 or goal text', () => {
   assert.equal(T(35).goal, '随便合上一个开关，灯就亮');
 });
 
-test('chapter 7 is listed with 8 tasks', () => {
+test('chapter 7 is listed with 9 tasks', () => {
   assert.ok(CHAPTERS.some(c => c.n === 7 && c.name === '逻辑与加法器'));
-  assert.deepEqual(TASKS.filter(t => t.chapter === 7).map(t => t.id), [30, 31, 32, 33, 34, 35, 36, 37]);
+  assert.deepEqual(TASKS.filter(t => t.chapter === 7).map(t => t.id), [30, 31, 32, 33, 34, 35, 36, 37, 39]);
 });
 
 // 进入第 36 关，把电路装进关卡空间，然后依次执行动作。
@@ -319,4 +319,79 @@ test('36 full adder: relay contact labels and tag names do not overlap each othe
       if (Math.abs(a.y - b.y) < 0.4) assert.ok(Math.abs(a.x - b.x) >= (a.w + b.w) / 2 + 0.1, `${style}/${a.text}@${a.x},${a.y} 和 ${b.text}@${b.x},${b.y} 重叠`);
     }
   }
+});
+
+// 第 39 关：预置好的继电器计数器，只能按按钮。
+const counterSpace = () => play(createEditor(), { type: 'setMode', mode: 'task' }, { type: 'chooseTask', index: TASKS.indexOf(T(39)) });
+const shown = s => displayValue(s.task.result, new Set(), s.task.circuit.parts.find(p => p.type === 'display').id);
+const tap = (s, holdTicks = 4) => {
+  const id = s.task.circuit.parts.find(p => p.type === 'button').id;
+  return ticks(play(ticks(play(s, { type: 'press', id }), holdTicks), { type: 'release', id }), 4);
+};
+
+test('39 counter: preset fits the board, nothing overlaps, wires stay off other terminals', () => {
+  const c = T(39).preset();
+  assert.ok(c.parts.every(p => p.preset) && c.wires.every(w => w.preset));
+  assert.equal(c.parts.filter(p => p.type === 'relay').length, 29);
+  const seen = new Map();
+  for (const p of c.parts) for (const term of PARTS[p.type].terms) {
+    const [x, y] = terminalPoint(p, term);
+    assert.ok(x >= 3 && x <= BOARD.w - 3 && y >= 3 && y <= BOARD.h - 3, `${p.id}.${term}`);
+    const k = `${x},${y}`;
+    assert.ok(!seen.has(k), `${p.id}.${term} 和 ${seen.get(k)} 重合`);
+    seen.set(k, `${p.id}.${term}`);
+  }
+  for (const p of c.parts) for (const q of c.parts) if (q !== p) assert.ok(!overlap(bodyOf(p), bodyOf(q)), `${p.id} 和 ${q.id} 重叠`);
+  const terms = c.parts.flatMap(p => PARTS[p.type].terms.map(t => ({ k: `${p.id}.${t}`, pt: terminalPoint(p, t) })));
+  for (const w of c.wires) {
+    const pts = wirePoints(c, w);
+    assert.ok(pts.every(([x, y]) => x >= 0 && x <= BOARD.w && y >= 0 && y <= BOARD.h), w.id);
+    const ends = [`${w.a.part}.${w.a.term}`, `${w.b.part}.${w.b.term}`];
+    for (const { k, pt } of terms) {
+      if (ends.includes(k)) continue;
+      for (let i = 1; i < pts.length; i++) {
+        const [a, b] = [pts[i - 1], pts[i]];
+        const on = Math.min(a[0], b[0]) <= pt[0] && pt[0] <= Math.max(a[0], b[0])
+          && Math.min(a[1], b[1]) <= pt[1] && pt[1] <= Math.max(a[1], b[1]);
+        assert.ok(!on, `${w.id} 压在 ${k} 上`);
+      }
+    }
+  }
+});
+
+test('39 counter: wires of different nets never overlap or touch', () => {
+  const c = T(39).preset();
+  const root = {};
+  const find = k => (root[k] && root[k] !== k ? (root[k] = find(root[k])) : k);
+  for (const w of c.wires) root[find(`${w.a.part}.${w.a.term}`)] = find(`${w.b.part}.${w.b.term}`);
+  const segs = c.wires.map(w => ({ id: w.id, net: find(`${w.a.part}.${w.a.term}`), pts: wirePoints(c, w) }));
+  const onSeg = (p, a, b) => Math.min(a[0], b[0]) <= p[0] && p[0] <= Math.max(a[0], b[0])
+    && Math.min(a[1], b[1]) <= p[1] && p[1] <= Math.max(a[1], b[1]);
+  // 只许直角相交：一条线的拐点或端点落在另一条线上就算碰到
+  for (const A of segs) for (const B of segs) {
+    if (A.net === B.net) continue;
+    for (const p of A.pts) for (let i = 1; i < B.pts.length; i++) assert.ok(!onSeg(p, B.pts[i - 1], B.pts[i]), `${A.id} 碰到 ${B.id}`);
+  }
+});
+
+test('39 counter: starts at 0, each tap adds 1, 9 wraps to 0, passes after a full round', () => {
+  let s = ticks(counterSpace(), 10);
+  assert.equal(shown(s), 0);
+  const got = [];
+  for (let i = 0; i < 12; i++) {
+    s = tap(s);
+    got.push(shown(s));
+    if (i < 9) assert.equal(s.task.passed, false, `第 ${i + 1} 下`);
+  }
+  assert.deepEqual(got, [1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2]);
+  assert.equal(s.task.passed, true);
+});
+
+test('39 counter: holding the button adds only 1, and the number changes on press', () => {
+  let s = ticks(counterSpace(), 10);
+  const id = s.task.circuit.parts.find(p => p.type === 'button').id;
+  s = ticks(play(s, { type: 'press', id }), 40);
+  assert.equal(shown(s), 1);
+  s = ticks(play(s, { type: 'release', id }), 10);
+  assert.equal(shown(s), 1);
 });
