@@ -224,6 +224,13 @@ export function reduce(state, action) {
       const history = [...space.history, c].slice(-HISTORY_MAX);
       return withSpace(state, { ...space, ...settle(fresh, createDamage(), createRelays()), history }, { confirmClear: false, selection: null });
     }
+    case 'loadShared': {
+      // 打开分享链接：换掉自由搭建的电路，撤销栈清空；小任务那边不动。
+      if (!action.circuit || typeof action.circuit !== 'object') return state;
+      const old = state.free.circuit;
+      const circuit = { ...action.circuit, rev: old.rev + 1, topoRev: old.topoRev + 1 };
+      return { ...state, mode: 'free', free: makeSpace(circuit), selection: null, confirmClear: false };
+    }
     case 'submitAnswer': {
       if (space.passed) return state; // 过关后再答不改结果
       const r = task?.submit?.(space.progress, action.value, space);

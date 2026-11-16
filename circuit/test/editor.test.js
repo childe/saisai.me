@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createEditor, reduce, activeSpace } from '../lib/editor.js';
+import { build } from './helpers.js';
 
 const play = (s, ...as) => as.reduce(reduce, s);
 const parts = s => activeSpace(s).circuit.parts;
@@ -86,4 +87,32 @@ test('free and task spaces are independent; toggle flips switches', () => {
   s = play(s, { type: 'setMode', mode: 'task' });
   assert.equal(s.free.circuit.parts.length, 1);
   assert.notEqual(activeSpace(s), s.free);
+});
+
+test('loadShared replaces free space and clears history', () => {
+  let s = play(createEditor(), { type: 'place', partType: 'battery', x: 5, y: 5 });
+  const rev = activeSpace(s).circuit.rev;
+  const shared = build({ parts: { p1: ['battery'], p2: ['lamp'] }, wires: [['p1.p', 'p2.a'], ['p2.b', 'p1.n']] });
+  s = play(s, { type: 'select', target: { kind: 'part', id: 'p1' } }, { type: 'loadShared', circuit: shared });
+  assert.equal(s.mode, 'free');
+  assert.deepEqual(parts(s), shared.parts);
+  assert.deepEqual(activeSpace(s).circuit.wires, shared.wires);
+  assert.equal(activeSpace(s).history.length, 0);
+  assert.ok(activeSpace(s).circuit.rev > rev);
+  assert.equal(s.selection, null);
+});
+
+test('loadShared from task mode keeps task progress', () => {
+  let s = play(createEditor(), { type: 'setMode', mode: 'task' });
+  const task = s.task;
+  s = play(s, { type: 'loadShared', circuit: build({ parts: { p1: ['lamp'] } }) });
+  assert.equal(s.mode, 'free');
+  assert.equal(s.task, task);
+});
+
+test('loadShared then place gets a fresh id', () => {
+  const shared = { ...build({ parts: { p1: ['battery'], p2: ['lamp'] } }), nextId: 10 };
+  const s = play(createEditor(), { type: 'loadShared', circuit: shared }, { type: 'place', partType: 'switch', x: 20, y: 5 });
+  assert.equal(parts(s).at(-1).id, 'p10');
+  assert.equal(new Set(parts(s).map(p => p.id)).size, 3);
 });
