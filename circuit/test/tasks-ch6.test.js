@@ -63,7 +63,48 @@ test('task 28: switch across the buzzer passes; across the battery or in series 
   assert.equal(run(28, series).passed, false);
 });
 
-test('chapter 6 lists tasks 24..29 in order', () => {
-  assert.deepEqual(TASKS.filter(t => t.chapter === 6).map(t => t.id), [24, 25, 26, 27, 28, 29]);
+// 第 38 关：电池正极接滑片，a 端串 A、b 端串 B，C 直接并在电池两端。
+const lamps = { A: ['lamp', {}, { tag: 'A', preset: true }], B: ['lamp', {}, { tag: 'B', preset: true }], C: ['lamp', {}, { tag: 'C', preset: true }] };
+const RHEO_OK = [['P.p', 'R.w'], ['R.a', 'A.a'], ['A.b', 'P.n'], ['R.b', 'B.a'], ['B.b', 'P.n'], ['P.p', 'C.a'], ['C.b', 'P.n']];
+const rheo = (wires, rot = 0, cells = 2) =>
+  build({ parts: { P: ['battery', { cells }], R: ['rheostat', {}, { rot }], ...lamps }, wires });
+
+test('task 38: preset has lamps A B C and nothing else; preset fails', () => {
+  const c = T(38).preset();
+  assert.deepEqual(c.parts.map(p => [p.type, p.tag]), [['lamp', 'A'], ['lamp', 'B'], ['lamp', 'C']]);
+  assert.equal(T(38).lockPreset, true);
+  assert.equal(run(38, c).passed, false);
+});
+
+test('task 38: wiper to battery, A on a end, B on b end, C across battery passes', () => {
+  assert.equal(run(38, rheo(RHEO_OK)).passed, true);
+});
+
+test('task 38: rheostat turned around needs A and B swapped', () => {
+  assert.equal(run(38, rheo(RHEO_OK, 2)).passed, false);
+  const swapped = [['P.p', 'R.w'], ['R.a', 'B.a'], ['B.b', 'P.n'], ['R.b', 'A.a'], ['A.b', 'P.n'], ['P.p', 'C.a'], ['C.b', 'P.n']];
+  assert.equal(run(38, rheo(swapped, 2)).passed, true);
+});
+
+test('task 38: standing rheostat gets a hint', () => {
+  const r = run(38, rheo(RHEO_OK, 1));
+  assert.equal(r.passed, false);
+  assert.match(r.hint, /横着放/);
+});
+
+test('task 38: A and B swapped, C on the rheostat or burning lamps fail; one cell is enough', () => {
+  const swapped = [['P.p', 'R.w'], ['R.a', 'B.a'], ['B.b', 'P.n'], ['R.b', 'A.a'], ['A.b', 'P.n'], ['P.p', 'C.a'], ['C.b', 'P.n']];
+  assert.equal(run(38, rheo(swapped)).passed, false);
+  // C 串在 a 端后面，跟着 A 变
+  const cOnA = [['P.p', 'R.w'], ['R.a', 'A.a'], ['A.b', 'C.a'], ['C.b', 'P.n'], ['R.b', 'B.a'], ['B.b', 'P.n']];
+  assert.equal(run(38, rheo(cOnA)).passed, false);
+  // 1 节电池也行：滑到头那盏亮，一路明暗照样变
+  assert.equal(run(38, rheo(RHEO_OK, 0, 1)).passed, true);
+  // 4 节电池：滑到头 A 会烧
+  assert.equal(run(38, rheo(RHEO_OK, 0, 4)).passed, false);
+});
+
+test('chapter 6 lists tasks 24..29 then 38', () => {
+  assert.deepEqual(TASKS.filter(t => t.chapter === 6).map(t => t.id), [24, 25, 26, 27, 28, 29, 38]);
 });
 

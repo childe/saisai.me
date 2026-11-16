@@ -180,7 +180,7 @@ export const CH7 = [
     check: (progress, ws) => result(fullAdderOk(ws), progress),
   },
   {
-    id: 38, chapter: 7, name: '按钮计数器',
+    id: 39, chapter: 7, name: '按钮计数器',
     goal: '按一下按钮，显示器加 1，到 9 再按回到 0。「现」记住现在的数，「下」算好下一个数，「按」跟着按钮换接法。连按 10 次看它转一圈',
     palette: {}, paletteNote: '只需要按按钮', lockPreset: true, preset: counterPreset, initProgress: () => ({ last: null, steps: 0 }),
     check(progress, ws) {

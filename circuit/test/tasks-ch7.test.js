@@ -140,7 +140,7 @@ test('34 and / 35 or goal text', () => {
 
 test('chapter 7 is listed with 9 tasks', () => {
   assert.ok(CHAPTERS.some(c => c.n === 7 && c.name === '逻辑与加法器'));
-  assert.deepEqual(TASKS.filter(t => t.chapter === 7).map(t => t.id), [30, 31, 32, 33, 34, 35, 36, 37, 38]);
+  assert.deepEqual(TASKS.filter(t => t.chapter === 7).map(t => t.id), [30, 31, 32, 33, 34, 35, 36, 37, 39]);
 });
 
 // 进入第 36 关，把电路装进关卡空间，然后依次执行动作。
@@ -321,16 +321,16 @@ test('36 full adder: relay contact labels and tag names do not overlap each othe
   }
 });
 
-// 第 38 关：预置好的继电器计数器，只能按按钮。
-const counterSpace = () => play(createEditor(), { type: 'setMode', mode: 'task' }, { type: 'chooseTask', index: TASKS.indexOf(T(38)) });
+// 第 39 关：预置好的继电器计数器，只能按按钮。
+const counterSpace = () => play(createEditor(), { type: 'setMode', mode: 'task' }, { type: 'chooseTask', index: TASKS.indexOf(T(39)) });
 const shown = s => displayValue(s.task.result, new Set(), s.task.circuit.parts.find(p => p.type === 'display').id);
 const tap = (s, holdTicks = 4) => {
   const id = s.task.circuit.parts.find(p => p.type === 'button').id;
   return ticks(play(ticks(play(s, { type: 'press', id }), holdTicks), { type: 'release', id }), 4);
 };
 
-test('38 counter: preset fits the board, nothing overlaps, wires stay off other terminals', () => {
-  const c = T(38).preset();
+test('39 counter: preset fits the board, nothing overlaps, wires stay off other terminals', () => {
+  const c = T(39).preset();
   assert.ok(c.parts.every(p => p.preset) && c.wires.every(w => w.preset));
   assert.equal(c.parts.filter(p => p.type === 'relay').length, 29);
   const seen = new Map();
@@ -359,8 +359,8 @@ test('38 counter: preset fits the board, nothing overlaps, wires stay off other 
   }
 });
 
-test('38 counter: wires of different nets never overlap or touch', () => {
-  const c = T(38).preset();
+test('39 counter: wires of different nets never overlap or touch', () => {
+  const c = T(39).preset();
   const root = {};
   const find = k => (root[k] && root[k] !== k ? (root[k] = find(root[k])) : k);
   for (const w of c.wires) root[find(`${w.a.part}.${w.a.term}`)] = find(`${w.b.part}.${w.b.term}`);
@@ -374,7 +374,7 @@ test('38 counter: wires of different nets never overlap or touch', () => {
   }
 });
 
-test('38 counter: starts at 0, each tap adds 1, 9 wraps to 0, passes after a full round', () => {
+test('39 counter: starts at 0, each tap adds 1, 9 wraps to 0, passes after a full round', () => {
   let s = ticks(counterSpace(), 10);
   assert.equal(shown(s), 0);
   const got = [];
@@ -387,7 +387,7 @@ test('38 counter: starts at 0, each tap adds 1, 9 wraps to 0, passes after a ful
   assert.equal(s.task.passed, true);
 });
 
-test('38 counter: holding the button adds only 1, and the number changes on press', () => {
+test('39 counter: holding the button adds only 1, and the number changes on press', () => {
   let s = ticks(counterSpace(), 10);
   const id = s.task.circuit.parts.find(p => p.type === 'button').id;
   s = ticks(play(s, { type: 'press', id }), 40);
