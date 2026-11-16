@@ -20,9 +20,10 @@ const PARAM_UI = {
   color: { name: '颜色', label: v => ({ red: '红', green: '绿', blue: '蓝', yellow: '黄' })[v] },
   ohms: { name: '阻值', label: v => (v >= 1000 ? `${v / 1000}kΩ` : `${v}Ω`) },
   rating: { name: '额定电流', label: v => `${v}A` },
+  farads: { name: '容量', label: v => `${v}F` },
 };
 
-const blankVisual = () => ({ glow: 0, burnt: false, alarm: false, spin: 0, volume: 0, text: '--', stale: false });
+const blankVisual = () => ({ glow: 0, burnt: false, alarm: false, spin: 0, volume: 0, charge: 0, text: '--', stale: false });
 
 // 比一般元件高的元件：选中框和元件栏小图的上下边。
 const SEL_Y = { relay: [-66, 72], dpdt: [-100, 104], display: [-100, 92] };

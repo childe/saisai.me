@@ -67,3 +67,11 @@ test('relay vis.on follows relays state', () => {
   // 求解失败时铁片照旧停在当前位置。
   assert.equal(partVisual(relay, undefined, d, false, { on: { K: true } }).on, true);
 });
+
+test('capacitor charge follows voltage', () => {
+  const cap = { id: 'C', type: 'capacitor', params: { farads: 0.5 } };
+  assert.equal(partVisual(cap, { v: 1.5, i: 0, p: 0 }, d, true).charge, 0.5);
+  assert.equal(partVisual(cap, { v: -6, i: 0, p: 0 }, d, true).charge, 1);
+  assert.equal(partVisual(cap, { v: 1.5, i: 0, p: 0 }, d, false).charge, 0);
+  assert.equal(partVisual(lamp, { v: 1, i: 0.1, p: 0.45 }, d, true).charge, 0);
+});

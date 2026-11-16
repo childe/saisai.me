@@ -15,7 +15,7 @@ export function formatReading(x, unit) {
 export function partVisual(part, reading, damage, ok, relays) {
   const burnt = !!damage?.broken?.[part.id];
   const alarm = !!damage?.alarm?.[part.id];
-  const vis = { glow: 0, burnt, alarm, spin: 0, volume: 0, text: null, stale: !ok, on: !!relays?.on?.[part.id] };
+  const vis = { glow: 0, burnt, alarm, spin: 0, volume: 0, charge: 0, text: null, stale: !ok, on: !!relays?.on?.[part.id] };
   const isMeter = part.type === 'ammeter' || part.type === 'voltmeter';
   if (!ok || !reading) {
     if (isMeter) vis.text = '--';
@@ -41,6 +41,9 @@ export function partVisual(part, reading, damage, ok, relays) {
       break;
     case 'voltmeter':
       vis.text = formatReading(reading.v, 'V');
+      break;
+    case 'capacitor': // 竖条：电压到 CAP_FULL_V 算满
+      vis.charge = clamp(Math.abs(v) / PHYS.CAP_FULL_V, 0, 1);
       break;
     case 'display': // 0–15 显示数字
       vis.text = !Number.isFinite(reading.value) ? '-' : String(reading.value);
