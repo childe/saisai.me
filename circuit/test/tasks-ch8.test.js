@@ -8,7 +8,7 @@ import { PARTS } from '../lib/parts.js';
 import { terminalPoint, wirePoints, rotatePoint } from '../lib/geometry.js';
 import { build } from './helpers.js';
 
-const T40 = TASKS.find(t => t.id === 40);
+const T43 = TASKS.find(t => t.id === 43);
 const HINT = '现在是电池在点灯。断开开关看看，灯还亮吗？';
 
 // 合上开关充 2 秒电，再按 open 决定是否断开。
@@ -17,42 +17,42 @@ const charged = (c, open = true) => {
   for (let k = 0; k < 40; k++) ws = tick(ws, 0.05);
   return open ? settle(setParam(ws.circuit, 'S', 'closed', false), ws.damage, ws.relays, ws.caps) : ws;
 };
-const run = ws => evaluateTask(T40, T40.initProgress(), ws);
+const run = ws => evaluateTask(T43, T43.initProgress(), ws);
 
 const parts = { B: ['battery'], S: ['switch', { closed: true }], L: ['lamp'], C: ['capacitor', { farads: 1 }] };
 const parallel = () => build({ parts, wires: [['B.p', 'S.a'], ['S.b', 'L.a'], ['L.b', 'B.n'], ['L.a', 'C.a'], ['L.b', 'C.b']] });
 
-test('40 passes when the capacitor lights the lamp after the switch opens', () => {
+test('43 passes when the capacitor lights the lamp after the switch opens', () => {
   assert.equal(run(charged(parallel())).passed, true);
 });
 
-test('40 fails when the battery lights the lamp', () => {
+test('43 fails when the battery lights the lamp', () => {
   const r = run(charged(parallel(), false));
   assert.equal(r.passed, false);
   assert.equal(r.hint, HINT);
 });
 
-test('40 fails without a capacitor', () => {
+test('43 fails without a capacitor', () => {
   const { C, ...rest } = parts;
   const c = build({ parts: rest, wires: [['B.p', 'S.a'], ['S.b', 'L.a'], ['L.b', 'B.n']] });
   assert.equal(run(charged(c)).passed, false);
 });
 
-test('40 fails with the capacitor in series', () => {
+test('43 fails with the capacitor in series', () => {
   const c = build({ parts, wires: [['B.p', 'S.a'], ['S.b', 'L.a'], ['L.b', 'C.a'], ['C.b', 'B.n']] });
   assert.equal(run(charged(c)).passed, false);
 });
 
 test('chapter 8 is listed', () => {
   assert.ok(CHAPTERS.some(ch => ch.n === 8 && ch.name === '电容与定时'));
-  assert.equal(T40.chapter, 8);
-  assert.deepEqual(T40.palette, { battery: 1, switch: 1, lamp: 1, capacitor: 1 });
-  assert.equal(T40.goal, '断开开关以后，让灯再亮一会儿');
+  assert.equal(T43.chapter, 8);
+  assert.deepEqual(T43.palette, { battery: 1, switch: 1, lamp: 1, capacitor: 1 });
+  assert.equal(T43.goal, '断开开关以后，让灯再亮一会儿');
 });
 
-// —— 第 41 关「延时关灯」——
-const T41 = TASKS.find(t => t.id === 41);
-const run41 = ws => evaluateTask(T41, T41.initProgress(), ws);
+// —— 第 44 关「延时关灯」——
+const T44 = TASKS.find(t => t.id === 44);
+const run41 = ws => evaluateTask(T44, T44.initProgress(), ws);
 // 开关管线圈，电容并在线圈上；继电器常开触点点灯。lampDirect：灯直接接电池（作弊）。
 const delayCircuit = ({ withCap = true, lampDirect = false } = {}) => build({
   parts: { B: ['battery'], S: ['switch', { closed: true }], K: ['relay'], L: ['lamp'], ...(withCap ? { C: ['capacitor', { farads: 0.1 }] } : {}) },
@@ -67,11 +67,11 @@ const openAfter = (c, seconds, after = 0) => {
   return ws;
 };
 
-test('41 passes when relay holds the lamp after the switch opens', () => {
+test('44 passes when relay holds the lamp after the switch opens', () => {
   assert.equal(run41(openAfter(delayCircuit(), 1)).passed, true);
 });
 
-test('41 hints while the switch is closed', () => {
+test('44 hints while the switch is closed', () => {
   let ws = settle(delayCircuit(), createDamage());
   for (let k = 0; k < 50; k++) ws = tick(ws, 0.02);
   const r = run41(ws);
@@ -79,16 +79,16 @@ test('41 hints while the switch is closed', () => {
   assert.equal(r.hint, '灯亮了。断开开关，看灯能不能晚一点再灭');
 });
 
-test('41 fails with the lamp wired to the battery', () => {
+test('44 fails with the lamp wired to the battery', () => {
   assert.equal(run41(openAfter(delayCircuit({ lampDirect: true }), 1)).passed, false);
 });
 
-test('41 fails without the capacitor', () => {
+test('44 fails without the capacitor', () => {
   assert.equal(run41(openAfter(delayCircuit({ withCap: false }), 1, 0.2)).passed, false);
 });
 
-// —— 第 42 关「自己闪的灯」——
-const T42 = TASKS.find(t => t.id === 42);
+// —— 第 45 关「自己闪的灯」——
+const T45 = TASKS.find(t => t.id === 45);
 // 每帧 tick 并推进 progress，seconds 秒内过关返回 true。
 const playFor = (task, c, seconds) => {
   let ws = settle(c, createDamage());
@@ -108,29 +108,29 @@ const blinker = ({ withCap = true, lampOn = 'nc' } = {}) => build({
     [`K.${lampOn}`, 'L.a'], ['L.b', 'B.n']],
 });
 
-test('42 passes after the lamp blinks on its own', () => {
-  assert.equal(playFor(T42, blinker(), 20), true);
+test('45 passes after the lamp blinks on its own', () => {
+  assert.equal(playFor(T45, blinker(), 20), true);
 });
 
-test('42 passes with lamp on no', () => {
-  assert.equal(playFor(T42, blinker({ lampOn: 'no' }), 40), true);
+test('45 passes with lamp on no', () => {
+  assert.equal(playFor(T45, blinker({ lampOn: 'no' }), 40), true);
 });
 
-test('42 fails when the relay buzzes without a capacitor', () => {
-  assert.equal(playFor(T42, blinker({ withCap: false }), 40), false);
+test('45 fails when the relay buzzes without a capacitor', () => {
+  assert.equal(playFor(T45, blinker({ withCap: false }), 40), false);
 });
 
-test('42 progress starts empty', () => {
-  const a = T42.initProgress(), b = T42.initProgress();
+test('45 progress starts empty', () => {
+  const a = T45.initProgress(), b = T45.initProgress();
   assert.deepEqual(a, { state: null, v: {}, count: 0, flips: 0, dir: 0 });
   assert.notEqual(a, b);
 });
 
-// —— 第 43 关「自动红绿灯」——
-const T43 = TASKS.find(t => t.id === 43);
+// —— 第 46 关「自动红绿灯」——
+const T46 = TASKS.find(t => t.id === 46);
 // 在预置闪光电路上，常闭接 ncColor 的 LED、常开接 noColor 的 LED，各串 100Ω。
 const withLeds = (ncColor, noColor) => {
-  let c = T43.preset();
+  let c = T46.preset();
   const id = type => c.parts.find(p => p.type === type).id;
   const K = id('relay'), B = id('battery');
   const add = (type, x, y, params) => { const r = addPart(c, type, x, y, params); c = r.circuit; return r.id; };
@@ -144,11 +144,11 @@ const withLeds = (ncColor, noColor) => {
   return c;
 };
 
-test('43 preset is locked flasher', () => {
-  const c = T43.preset();
+test('46 preset is locked flasher', () => {
+  const c = T46.preset();
   const of = type => c.parts.filter(p => p.type === type);
-  assert.equal(T43.lockPreset, true);
-  assert.deepEqual(T43.palette, { led: 2, resistor: 2 });
+  assert.equal(T46.lockPreset, true);
+  assert.deepEqual(T46.palette, { led: 2, resistor: 2 });
   assert.equal(of('battery')[0].params.cells, 2);
   assert.equal(of('resistor')[0].params.ohms, 47);
   assert.equal(of('capacitor')[0].params.farads, 0.5);
@@ -156,45 +156,45 @@ test('43 preset is locked flasher', () => {
   assert.ok(c.parts.every(p => p.preset) && c.wires.every(w => w.preset));
 });
 
-test('43 passes with red on nc and green on no', () => {
-  assert.equal(playFor(T43, withLeds('red', 'green'), 60), true);
+test('46 passes with red on nc and green on no', () => {
+  assert.equal(playFor(T46, withLeds('red', 'green'), 60), true);
 });
 
-test('43 passes with colors swapped', () => {
-  assert.equal(playFor(T43, withLeds('green', 'red'), 60), true);
+test('46 passes with colors swapped', () => {
+  assert.equal(playFor(T46, withLeds('green', 'red'), 60), true);
 });
 
-test('43 fails with two red LEDs', () => {
-  assert.equal(playFor(T43, withLeds('red', 'red'), 60), false);
+test('46 fails with two red LEDs', () => {
+  assert.equal(playFor(T46, withLeds('red', 'red'), 60), false);
 });
 
 // —— 评审后补的用例 ——
 
-test('41 fails the instant the switch opens without a capacitor', () => {
+test('44 fails the instant the switch opens without a capacitor', () => {
   assert.equal(run41(openAfter(delayCircuit({ withCap: false }), 1, 0)).passed, false);
 });
 
-test('41 fails with a self-latching relay', () => {
+test('44 fails with a self-latching relay', () => {
   const c = delayCircuit({ withCap: false });
   c.wires.push({ id: 'latch', a: { part: 'K', term: 'no' }, b: { part: 'K', term: 'x' } });
   assert.equal(run41(openAfter(c, 1, 0.5)).passed, false);
 });
 
-test('42 fails with a buzzing relay next to a separately charging capacitor', () => {
+test('45 fails with a buzzing relay next to a separately charging capacitor', () => {
   const c = build({
     parts: { B: ['battery'], K: ['relay'], L: ['lamp'], R: ['resistor', { ohms: 47 }], C: ['capacitor', { farads: 0.5 }] },
     wires: [['B.p', 'K.com'], ['K.nc', 'K.x'], ['K.y', 'B.n'], ['K.nc', 'L.a'], ['L.b', 'B.n'], ['B.p', 'R.a'], ['R.b', 'C.a'], ['C.b', 'B.n']],
   });
-  assert.equal(playFor(T42, c, 40), false);
+  assert.equal(playFor(T45, c, 40), false);
 });
 
-test('42 fails when the lamp wire is pulled and replaced by hand', () => {
+test('45 fails when the lamp wire is pulled and replaced by hand', () => {
   const c = build({
     parts: { B: ['battery'], R: ['resistor', { ohms: 220 }], C: ['capacitor', { farads: 0.5 }], L: ['lamp'] },
     wires: [['B.p', 'R.a'], ['R.b', 'C.a'], ['C.b', 'B.n'], ['B.p', 'L.a'], ['L.b', 'B.n']],
   });
   let ws = settle(c, createDamage());
-  let progress = T42.initProgress();
+  let progress = T45.initProgress();
   let passed = false;
   for (let k = 0; k < 60 / 0.02 && !passed; k++) {
     if (k % 200 === 100) {
@@ -204,21 +204,21 @@ test('42 fails when the lamp wire is pulled and replaced by hand', () => {
       ws = settle(addWire(ws.circuit, { part: 'L', term: 'b' }, { part: 'B', term: 'n' }).circuit, ws.damage, ws.relays, ws.caps);
     }
     ws = tick(ws, 0.02);
-    const r = evaluateTask(T42, progress, ws);
+    const r = evaluateTask(T45, progress, ws);
     passed = r.passed;
     progress = r.progress;
   }
   assert.equal(passed, false);
 });
 
-test('42 defaults the resistor to 10 ohms', () => {
-  assert.deepEqual(T42.defaults, { resistor: { ohms: 10 } });
+test('45 defaults the resistor to 10 ohms', () => {
+  assert.deepEqual(T45.defaults, { resistor: { ohms: 10 } });
 });
 
-test('43 hints when no LED is green', () => {
+test('46 hints when no LED is green', () => {
   let ws = settle(withLeds('red', 'red'), createDamage());
   for (let k = 0; k < 10; k++) ws = tick(ws, 0.02);
-  assert.equal(evaluateTask(T43, T43.initProgress(), ws).hint, '把一个 LED 的颜色改成绿色');
+  assert.equal(evaluateTask(T46, T46.initProgress(), ws).hint, '把一个 LED 的颜色改成绿色');
 });
 
 // 预置导线不压在任何元件本体和引线上，也不经过别的端点。
@@ -232,8 +232,8 @@ const hitsZone = ([x1, y1], [x2, y2], z) =>
 const onSeg = ([x, y], [x1, y1], [x2, y2]) =>
   (x1 === x2 && x === x1 && y >= Math.min(y1, y2) && y <= Math.max(y1, y2)) || (y1 === y2 && y === y1 && x >= Math.min(x1, x2) && x <= Math.max(x1, x2));
 
-test('43 preset wires stay clear of parts and other terminals', () => {
-  const c = T43.preset();
+test('46 preset wires stay clear of parts and other terminals', () => {
+  const c = T46.preset();
   for (const w of c.wires) {
     const pts = wirePoints(c, w);
     const ends = [terminalPoint(c.parts.find(p => p.id === w.a.part), w.a.term), terminalPoint(c.parts.find(p => p.id === w.b.part), w.b.term)];

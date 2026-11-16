@@ -67,7 +67,7 @@ function ledColorState(ws) {
 
 export const CH8 = [
   {
-    id: 40, chapter: 8, name: '会存电的电容', goal: '断开开关以后，让灯再亮一会儿',
+    id: 43, chapter: 8, name: '会存电的电容', goal: '断开开关以后，让灯再亮一会儿',
     palette: { battery: 1, switch: 1, lamp: 1, capacitor: 1 },
     preset: () => createCircuit(), initProgress: noProgress,
     // 灯亮着、电池却没在供电，说明是电容在点灯。
@@ -79,7 +79,7 @@ export const CH8 = [
     },
   },
   {
-    id: 41, chapter: 8, name: '延时关灯', goal: '断开开关以后，让继电器多吸一会儿，灯晚一点再灭',
+    id: 44, chapter: 8, name: '延时关灯', goal: '断开开关以后，让继电器多吸一会儿，灯晚一点再灭',
     palette: { battery: 1, switch: 1, relay: 1, capacitor: 1, lamp: 1 },
     preset: () => createCircuit(), initProgress: noProgress,
     // 开关都断开了，灯还靠继电器亮着，说明电容在帮线圈撑着。
@@ -92,7 +92,7 @@ export const CH8 = [
     },
   },
   {
-    id: 42, chapter: 8, name: '自己闪的灯', goal: '不用开关，让灯自己一亮一灭',
+    id: 45, chapter: 8, name: '自己闪的灯', goal: '不用开关，让灯自己一亮一灭',
     // 电阻默认 10Ω：47Ω 起，1 节电池时线圈电流不到吸合值，继电器不动。
     palette: { battery: 1, relay: 1, resistor: 1, capacitor: 1, lamp: 1 }, defaults: { resistor: { ohms: 10 } },
     preset: () => createCircuit(), initProgress: emptyToggle,
@@ -103,7 +103,7 @@ export const CH8 = [
     },
   },
   {
-    id: 43, chapter: 8, name: '自动红绿灯',
+    id: 46, chapter: 8, name: '自动红绿灯',
     goal: '给闪光电路接上红灯和绿灯，让它们自己轮流亮。绿灯比红灯亮得久，因为电容充电比放电快',
     palette: { led: 2, resistor: 2 }, lockPreset: true, preset: flasherPreset, initProgress: emptyToggle,
     check(progress, ws) {
