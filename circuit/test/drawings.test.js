@@ -69,8 +69,8 @@ test('relay contacts are labelled 常开 / 常闭, display inputs 1 2 4 8', () =
   }
 });
 
-test('tagged switch and relay draw their tag upright, untagged ones and other types do not', () => {
-  for (const type of ['switch', 'relay']) for (const style of ['cartoon', 'symbol']) for (const rot of [0, 1, 2, 3]) {
+test('tagged switch, relay and lamp draw their tag upright, untagged ones and other types do not', () => {
+  for (const type of ['switch', 'relay', 'lamp']) for (const style of ['cartoon', 'symbol']) for (const rot of [0, 1, 2, 3]) {
     const tagged = drawPart({ ...mk(type), rot, tag: 'A7' }, style, vis());
     const t = tagged.match(/<text\b[^>]*class="label tag"[^>]*>A7</);
     assert.ok(t, `${type}/${style}/${rot}`);
@@ -78,7 +78,7 @@ test('tagged switch and relay draw their tag upright, untagged ones and other ty
     assert.doesNotMatch(tagged, /NaN|undefined|Infinity/);
     assert.doesNotMatch(drawPart({ ...mk(type), rot }, style, vis()), /class="label tag"/);
   }
-  assert.doesNotMatch(drawPart({ ...mk('lamp'), tag: 'L' }, 'cartoon', vis()), />L</);
+  assert.doesNotMatch(drawPart({ ...mk('motor'), tag: 'M' }, 'cartoon', vis()), />M</);
 });
 
 test('node renders as a dot in both styles and stays out of the palette', () => {

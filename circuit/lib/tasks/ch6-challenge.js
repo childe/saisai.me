@@ -3,6 +3,7 @@ import { PHYS } from '../parts.js';
 import { solve } from '../solve.js';
 import { brokenSet } from '../damage.js';
 import { createCircuit } from '../circuit.js';
+import { terminalPoint } from '../geometry.js';
 import { lampLit, ledLit, motorOn, buzzerOn, withParams, ofType, result, noProgress, anySwitchPair, truth, presetCircuit } from '../task-kit.js';
 
 export const CH6 = [
@@ -126,4 +127,39 @@ export const CH6 = [
         motors.some(m => truth(k => motorOn(t[k], br, m.id), ['tt', 'ft']))), progress);
     },
   },
+  {
+    id: 38, chapter: 6, name: '一亮一暗', goal: '滑片向左滑，A 变亮、B 变暗；向右滑反过来；C 一直不变',
+    palette: { battery: 1, rheostat: 1 }, defaults: { battery: { cells: 2 } }, lockPreset: true,
+    preset: () => presetCircuit([['A', 'lamp', 6, 12, {}, { tag: 'A' }], ['B', 'lamp', 14, 12, {}, { tag: 'B' }], ['C', 'lamp', 22, 12, {}, { tag: 'C' }]], []),
+    initProgress: noProgress,
+    check(progress, ws) {
+      const br = brokenSet(ws.damage);
+      const tagged = t => ws.circuit.parts.find(p => p.preset && p.tag === t);
+      const [a, b, c] = ['A', 'B', 'C'].map(tagged);
+      const batt = ofType(ws.circuit, 'battery')[0];
+      if (!a || !b || !c || !batt) return result(false, progress);
+      for (const rh of ofType(ws.circuit, 'rheostat')) {
+        const xa = terminalPoint(rh, 'a')[0], xb = terminalPoint(rh, 'b')[0];
+        if (xa === xb) return result(false, progress, '把滑动变阻器横着放，才分得清左右');
+        // 从最左滑到最右：a 端在左边时 pos 从 0 到 1，反过来放就从 1 到 0。
+        const steps = xa < xb ? POS_STEPS : [...POS_STEPS].reverse();
+        const rs = steps.map(pos => solve(withParams(ws.circuit, { [rh.id]: { pos } }), br));
+        const safe = rs.every(r => r.ok && Math.abs(r.parts[batt.id]?.i ?? Infinity) < PHYS.SHORT_A &&
+          [a, b, c].every(l => (r.parts[l.id]?.p ?? 0) < PHYS.LAMP_BURN_P));
+        if (!safe) continue;
+        const pw = l => rs.map(r => r.parts[l.id].p);
+        if (slideOk(pw(a), rs.map(r => lampLit(r, br, a.id))) && slideOk(pw(b).reverse(), rs.map(r => lampLit(r, br, b.id)).reverse()) &&
+          rs.every(r => lampLit(r, br, c.id)) && Math.max(...pw(c)) <= 1.05 * Math.min(...pw(c))) return result(true, progress);
+      }
+      return result(false, progress);
+    },
+  },
 ];
+
+// 第 38 关：滑片从左到右的几个位置。
+const POS_STEPS = [0, 0.25, 0.5, 0.75, 1];
+
+// 从左到右一路变暗：每一步都比上一步暗一截（至少 2%），最左边亮着，最左是最右的 2 倍以上。
+function slideOk(power, lit) {
+  return lit[0] && power.every((p, k) => k === 0 || p <= 0.98 * power[k - 1]) && power[0] >= 2 * power[power.length - 1];
+}
