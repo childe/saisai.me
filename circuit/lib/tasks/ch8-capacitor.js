@@ -4,7 +4,7 @@ import { createCircuit } from '../circuit.js';
 import { solve } from '../solve.js';
 import { PHYS } from '../parts.js';
 import { relayOnSet } from '../relay.js';
-import { lampLit, ledLit, ofType, result, noProgress, presetCircuit } from '../task-kit.js';
+import { lampLit, ledLit, ofType, result, noProgress, presetCircuit, withParams } from '../task-kit.js';
 
 const BATTERY_IDLE_A = 0.001;
 
@@ -65,6 +65,44 @@ function ledColorState(ws) {
   return color === 'red' || color === 'green' ? color : null;
 }
 
+const BLINK_COUNT = 8;
+const DIM_RATIO = 2;
+const SLIDE_HINT = '灯在闪了。拖动滑动变阻器的滑片，让灯变亮、变暗';
+const emptyBlink = () => ({ state: null, flips: 0, count: 0, cells: null, lo: null, hi: null });
+const litPower = (ws, br) => Math.max(0, ...ofType(ws.circuit, 'lamp').filter(l => lampLit(ws.result, br, l.id)).map(l => ws.result.parts[l.id].p));
+
+// 变阻器管着灯的亮度：继电器全部释放或全部吸合时，滑片拨到两头，灯至少一头亮、两头功率差 DIM_RATIO 倍以上。
+function rheostatDims(ws, br) {
+  const relays = ofType(ws.circuit, 'relay').map(p => p.id);
+  return ofType(ws.circuit, 'rheostat').some(rh => [[], relays].some(on => {
+    const [lo, hi] = [0, 1].map(pos => solve(withParams(ws.circuit, { [rh.id]: { pos } }), br, { on: new Set(on) }));
+    if (!lo.ok || !hi.ok) return false;
+    return ofType(ws.circuit, 'lamp').some(l => {
+      const a = lo.parts[l.id]?.p ?? 0, b = hi.parts[l.id]?.p ?? 0;
+      return (lampLit(lo, br, l.id) || lampLit(hi, br, l.id)) && Math.max(a, b) >= DIM_RATIO * Math.min(a, b);
+    });
+  }));
+}
+
+// 闪光计数：灯亮灭变了、且这期间继电器翻转过才计一次（拦住手动删线、接线）。
+// 每次靠继电器亮起来时记下灯的功率，lo/hi 是见过的最暗、最亮；换了电池节数就重新记，免得靠加电池变亮。
+function blinkStep(progress, ws) {
+  const br = brokenSet(ws.damage);
+  const cells = ofType(ws.circuit, 'battery').map(b => b.params.cells).join(',');
+  const p = litPower(ws, br);
+  const state = p > 0 ? 'on' : 'off';
+  const flips = ws.relays?.flips ?? 0;
+  let next = cells === progress.cells ? progress : { ...progress, cells, lo: null, hi: null };
+  if (state !== next.state) {
+    const blink = next.state !== null && flips > next.flips;
+    next = { ...next, state, flips, count: next.count + (blink ? 1 : 0) };
+    if (blink && state === 'on') next = { ...next, lo: Math.min(next.lo ?? p, p), hi: Math.max(next.hi ?? p, p) };
+  }
+  if (next.count < BLINK_COUNT) return result(false, next);
+  const dimmed = next.lo !== null && next.hi >= DIM_RATIO * next.lo && rheostatDims(ws, br);
+  return dimmed ? result(true, next) : result(false, next, SLIDE_HINT);
+}
+
 export const CH8 = [
   {
     id: 43, chapter: 8, name: '会存电的电容', goal: '断开开关以后，让灯再亮一会儿',
@@ -112,5 +150,11 @@ export const CH8 = [
       const hint = leds.length && !leds.some(d => d.params.color === 'green') ? '把一个 LED 的颜色改成绿色' : null;
       return result(next.count >= SLOW_COUNT, next, hint);
     },
+  },
+  {
+    id: 47, chapter: 8, name: '能调亮度的闪光灯',
+    goal: '像自制电铃那样让继电器自己哒哒跳，用它让灯一闪一闪；再拖动滑动变阻器，让闪着的灯变亮、变暗',
+    palette: { battery: 1, relay: 1, rheostat: 1, lamp: 1 },
+    preset: () => createCircuit(), initProgress: emptyBlink, check: blinkStep,
   },
 ];
