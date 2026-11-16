@@ -203,6 +203,21 @@ body {
 }
 #banner[hidden] { display: none; }
 
+#toast {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 18px;
+  border-radius: 12px;
+  background: #fff3c4;
+  border: 2px solid #e8c35a;
+  font-weight: bold;
+  white-space: nowrap;
+}
+#toast[hidden] { display: none; }
+#shareBtn[hidden] { display: none; }
+
 #confirm {
   position: absolute;
   inset: 0;
@@ -212,6 +227,25 @@ body {
   justify-content: center;
 }
 #confirm[hidden] { display: none; }
+#shareBox {
+  position: absolute;
+  inset: 0;
+  background: rgba(58, 46, 37, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#shareBox[hidden] { display: none; }
+#shareBox input {
+  width: min(70vw, 420px);
+  min-height: 44px;
+  margin: 0 0 14px;
+  padding: 0 10px;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  font-size: 1rem;
+  user-select: text;
+}
 .confirm-box {
   background: var(--card);
   border-radius: 18px;
