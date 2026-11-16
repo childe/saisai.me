@@ -7,7 +7,7 @@ const BATTERY_IDLE_A = 0.001;
 
 export const CH8 = [
   {
-    id: 38, chapter: 8, name: '会存电的电容', goal: '断开开关以后，让灯再亮一会儿',
+    id: 40, chapter: 8, name: '会存电的电容', goal: '断开开关以后，让灯再亮一会儿',
     palette: { battery: 1, switch: 1, lamp: 1, capacitor: 1 },
     preset: () => createCircuit(), initProgress: noProgress,
     // 灯亮着、电池却没在供电，说明是电容在点灯。
