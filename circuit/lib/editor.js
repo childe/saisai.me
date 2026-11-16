@@ -70,7 +70,7 @@ function commit(state, circuit, { coalesce = false, extra = {}, damage } = {}) {
     history = [...history, space.circuit];
     if (history.length > HISTORY_MAX) history = history.slice(history.length - HISTORY_MAX);
   }
-  const ws = settle(circuit, damage ?? space.damage, space.relays);
+  const ws = settle(circuit, damage ?? space.damage, space.relays, space.caps);
   return withSpace(state, { ...space, ...ws, history }, extra);
 }
 
@@ -119,7 +119,7 @@ export function reduce(state, action) {
         if (parts === sp.circuit.parts) return out;
         const circuit = { ...sp.circuit, parts, rev: sp.circuit.rev + 1, topoRev: sp.circuit.topoRev + 1 };
         // 重新 settle 但保留损坏和继电器状态
-        return { ...out, [left]: { ...sp, ...settle(circuit, sp.damage, sp.relays) } };
+        return { ...out, [left]: { ...sp, ...settle(circuit, sp.damage, sp.relays, sp.caps) } };
       }
     case 'setStyle':
       if (action.style !== 'cartoon' && action.style !== 'symbol') return state;
@@ -196,7 +196,7 @@ export function reduce(state, action) {
     case 'repair': {
       const d = repair(space.damage, action.id);
       if (d === space.damage) return state;
-      return withSpace(state, { ...space, ...settle(c, d, space.relays) });
+      return withSpace(state, { ...space, ...settle(c, d, space.relays, space.caps) });
     }
     case 'select': {
       const target = action.target ? { kind: action.target.kind, id: action.target.id } : null;
@@ -209,7 +209,7 @@ export function reduce(state, action) {
       // 按钮不跟着撤销走：恢复出来的快照里一律是松开的
       const released = releaseButtons(snap.parts);
       const restored = { ...snap, parts: released, rev: c.rev + 1, topoRev: c.topoRev + 1, nextId: Math.max(snap.nextId, c.nextId) };
-      const ws = settle(restored, space.damage, space.relays);
+      const ws = settle(restored, space.damage, space.relays, space.caps);
       return withSpace(state, { ...space, ...ws, history: space.history.slice(0, -1) }, { selection: null });
     }
     case 'askClear':
