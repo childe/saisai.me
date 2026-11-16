@@ -103,3 +103,11 @@ test('dpdt lever knob is drawn in its own lever rect, clear of the upper blade',
     assert.ok(y > -40 && y + h < 40, style);
   }
 });
+
+test('capacitor shows farads label and charge bar', () => {
+  for (const style of ['cartoon', 'symbol']) {
+    const half = drawPart(mk('capacitor'), style, vis({ charge: 0.5 }));
+    assert.ok(half.includes('0.5F'), style);
+    assert.notEqual(drawPart(mk('capacitor'), style, vis({ charge: 0 })), drawPart(mk('capacitor'), style, vis({ charge: 1 })), style);
+  }
+});

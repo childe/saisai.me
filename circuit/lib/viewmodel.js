@@ -15,7 +15,7 @@ export function formatReading(x, unit) {
 export function partVisual(part, reading, damage, ok, relays) {
   const burnt = !!damage?.broken?.[part.id];
   const alarm = !!damage?.alarm?.[part.id];
-  const vis = { glow: 0, burnt, alarm, spin: 0, volume: 0, text: null, stale: !ok, on: !!relays?.on?.[part.id] };
+  const vis = { glow: 0, burnt, alarm, spin: 0, volume: 0, charge: 0, text: null, stale: !ok, on: !!relays?.on?.[part.id] };
   const isMeter = part.type === 'ammeter' || part.type === 'voltmeter';
   if (!ok || !reading) {
     if (isMeter) vis.text = '--';
@@ -42,6 +42,9 @@ export function partVisual(part, reading, damage, ok, relays) {
     case 'voltmeter':
       vis.text = formatReading(reading.v, 'V');
       break;
+    case 'capacitor': // 竖条：电压到 CAP_FULL_V 算满
+      vis.charge = clamp(Math.abs(v) / PHYS.CAP_FULL_V, 0, 1);
+      break;
     case 'display': // 0–15 显示数字
       vis.text = !Number.isFinite(reading.value) ? '-' : String(reading.value);
       break;
@@ -50,9 +53,14 @@ export function partVisual(part, reading, damage, ok, relays) {
   return vis;
 }
 
+// 电流小点的速度只取这几档：电容充放电时电流每帧都在变，连续的速度会让导线每帧重建、小点停住。
+const FLOW_SPEEDS = [20, 30, 45, 70, 100, 150, 250, 400];
+
 export function wireFlow(reading, ok) {
   if (!ok || !reading || !Number.isFinite(reading.i) || Math.abs(reading.i) < 0.001) return null;
-  return { speed: clamp(Math.abs(reading.i) * 200, 20, 400), dir: reading.i > 0 ? 1 : -1 };
+  const raw = clamp(Math.abs(reading.i) * 200, 20, 400);
+  const speed = FLOW_SPEEDS.reduce((a, b) => (Math.abs(Math.log(b / raw)) < Math.abs(Math.log(a / raw)) ? b : a));
+  return { speed, dir: reading.i > 0 ? 1 : -1 };
 }
 
 const BAND_COLORS = ['black', 'brown', 'red', 'orange', 'yellow', 'green', 'blue', 'violet', 'grey', 'white'];

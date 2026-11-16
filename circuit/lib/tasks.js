@@ -6,15 +6,16 @@ import { CH4 } from './tasks/ch4-mixed.js';
 import { CH5 } from './tasks/ch5-faults.js';
 import { CH6 } from './tasks/ch6-challenge.js';
 import { CH7 } from './tasks/ch7-logic.js';
+import { CH8 } from './tasks/ch8-capacitor.js';
 
 export { lampLit, ledLit, withParams } from './task-kit.js';
 
 export const CHAPTERS = [
   { n: 1, name: '认识元件' }, { n: 2, name: '串联与并联' }, { n: 3, name: '电表' },
-  { n: 4, name: '混联' }, { n: 5, name: '找故障' }, { n: 6, name: '挑战' }, { n: 7, name: '逻辑与加法器' },
+  { n: 4, name: '混联' }, { n: 5, name: '找故障' }, { n: 6, name: '挑战' }, { n: 7, name: '逻辑与加法器' }, { n: 8, name: '电容与定时' },
 ];
 
-export const TASKS = [...CH1, ...CH2, ...CH3, ...CH4, ...CH5, ...CH6, ...CH7].sort((a, b) => a.id - b.id);
+export const TASKS = [...CH1, ...CH2, ...CH3, ...CH4, ...CH5, ...CH6, ...CH7, ...CH8].sort((a, b) => a.id - b.id);
 
 // goal 可以是字符串，也可以是随变体变化的函数。
 export const goalText = (task, variant) => (typeof task.goal === 'function' ? task.goal(variant) : task.goal);

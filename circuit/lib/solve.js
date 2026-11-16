@@ -119,9 +119,13 @@ function pnjlim(vnew, vold, vt, vcrit) {
   return { v: vnew, limited: false };
 }
 
-// 求解一个含电池的分量。ledVd：LED id → 线性化工作点。返回 {nodeKey: V} 或 null。
+// 电容的后向欧拉等效：a、b 间电导 C/h，并联一个按上一步电压 v0 推着电流流进 a 的电流源。
+const capG = (p, cap) => p.params.farads / cap.h;
+const capV0 = (p, cap) => cap.caps[p.id] ?? 0;
+
+// 求解一个含电池（或带电电容）的分量。ledVd：LED id → 线性化工作点；cap：{ caps: 电容电压, h: 步长 }。返回 {nodeKey: V} 或 null。
 // 跨两个分量的元件（继电器）只盖两端都在本分量里的电导：不在 idx 里的端点会被当成参考地。
-function solveComponent(nodeKeys, parts, wires, broken, on, ref, ledVd) {
+function solveComponent(nodeKeys, parts, wires, broken, on, ref, ledVd, cap) {
   const inside = new Set(nodeKeys);
   const idx = new Map();
   for (const k of nodeKeys) if (k !== ref) idx.set(k, idx.size);
@@ -157,6 +161,11 @@ function solveComponent(nodeKeys, parts, wires, broken, on, ref, ledVd) {
       stampG(key(p.id, 'a'), key(p.id, 'k'), gd);
       stampI(key(p.id, 'a'), key(p.id, 'k'), ieq);
     }
+    if (p.type === 'capacitor' && !broken.has(p.id)) {
+      const g = capG(p, cap);
+      stampG(key(p.id, 'a'), key(p.id, 'b'), g);
+      stampI(key(p.id, 'b'), key(p.id, 'a'), g * capV0(p, cap));
+    }
   }
   for (const w of wires) stampG(key(w.a.part, w.a.term), key(w.b.part, w.b.term), 1 / wireR(w));
   const x = m ? solveLinear(G, I) : [];
@@ -167,12 +176,12 @@ function solveComponent(nodeKeys, parts, wires, broken, on, ref, ledVd) {
 }
 
 // LED 牛顿迭代；没有 LED 时只解一次。未收敛返回 null。
-function solveWithLeds(nodeKeys, parts, wires, broken, on, ref, maxIter) {
+function solveWithLeds(nodeKeys, parts, wires, broken, on, ref, maxIter, cap) {
   const leds = parts.filter(p => p.type === 'led' && !broken.has(p.id));
   const ledVd = new Map(leds.map(p => [p.id, 0]));
-  if (!leds.length) return solveComponent(nodeKeys, parts, wires, broken, on, ref, ledVd);
+  if (!leds.length) return solveComponent(nodeKeys, parts, wires, broken, on, ref, ledVd, cap);
   for (let it = 0; it < maxIter; it++) {
-    const V = solveComponent(nodeKeys, parts, wires, broken, on, ref, ledVd);
+    const V = solveComponent(nodeKeys, parts, wires, broken, on, ref, ledVd, cap);
     if (!V) return null;
     let converged = true;
     for (const p of leds) {
@@ -188,7 +197,7 @@ function solveWithLeds(nodeKeys, parts, wires, broken, on, ref, maxIter) {
   return null;
 }
 
-function readPart(p, V, broken, on) {
+function readPart(p, V, broken, on, cap) {
   const v = t => V[key(p.id, t)] ?? 0;
   const gs = conductancesOf(p, broken, on);
   const gOf = (a, b) => gs.find(([x, y]) => x === a && y === b)?.[2] ?? 0;
@@ -210,6 +219,11 @@ function readPart(p, V, broken, on) {
       return { v: vv, i, p: vv * i };
     }
     case 'node': return { v: 0, i: 0, p: 0 };
+    case 'capacitor': { // i：从 a 流进电容
+      const vv = v('a') - v('b');
+      const i = broken.has(p.id) ? 0 : capG(p, cap) * (vv - capV0(p, cap));
+      return { v: vv, i, p: vv * i };
+    }
     case 'spdt': {
       const vv = v('c') - v(p.params.to);
       const i = gOf('c', p.params.to) * vv;
@@ -247,10 +261,12 @@ export function connectivity(circuit) {
   return find;
 }
 
-// opts.on：吸合的继电器 id 集合；opts.maxIter：LED 迭代上限。
+// opts.on：吸合的继电器 id 集合；opts.maxIter：LED 迭代上限；
+// opts.caps：电容 id → 上一步电压；opts.h：电容步长（秒），默认 CAP_H 表示「这一瞬间」。
 export function solve(circuit, broken = new Set(), opts = {}) {
   const bk = brokenKeyOf(broken);
   const on = opts.on ?? new Set();
+  const cap = { caps: opts.caps ?? {}, h: opts.h ?? PHYS.CAP_H };
   const rk = relayKeyOf(on);
   const { allWires, groups, find } = split(circuit);
   // 元件挂到它每一组端点所在的分量下；继电器可能同时挂在两个分量。
@@ -274,9 +290,12 @@ export function solve(circuit, broken = new Set(), opts = {}) {
   for (const g of groups) {
     const root = find(g[0]);
     const ps = partsByRoot.get(root) ?? [];
+    // 有电池，或有带电的电容，才需要解；参考点优先用电池负极。
     const bat = ps.find(p => p.type === 'battery' && !broken.has(p.id));
-    if (!bat) { for (const k of g) nodes[k] = 0; continue; }
-    const V = solveWithLeds(g, ps, wiresByRoot.get(root) ?? [], broken, on, key(bat.id, 'n'), opts.maxIter ?? 100);
+    const charged = ps.find(p => p.type === 'capacitor' && !broken.has(p.id) && Math.abs(capV0(p, cap)) > 1e-9);
+    if (!bat && !charged) { for (const k of g) nodes[k] = 0; continue; }
+    const ref = bat ? key(bat.id, 'n') : key(charged.id, 'b');
+    const V = solveWithLeds(g, ps, wiresByRoot.get(root) ?? [], broken, on, ref, opts.maxIter ?? 100, cap);
     if (!V) return failed(circuit, bk, rk);
     for (const k of g) {
       if (!Number.isFinite(V[k])) return failed(circuit, bk, rk);
@@ -284,7 +303,7 @@ export function solve(circuit, broken = new Set(), opts = {}) {
     }
   }
   const parts = {};
-  for (const p of circuit.parts) parts[p.id] = readPart(p, nodes, broken, on);
+  for (const p of circuit.parts) parts[p.id] = readPart(p, nodes, broken, on, cap);
   const wires = {};
   for (const w of circuit.wires) {
     if (w.fault === 'open') { wires[w.id] = { i: 0 }; continue; } // 断线：视为不存在

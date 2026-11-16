@@ -19,8 +19,8 @@ test('remainingPalette counts non-preset parts on canvas', () => {
 });
 
 test('chapters and ids line up', () => {
-  assert.equal(CHAPTERS.length, 7);
-  assert.ok(TASKS.every(t => t.chapter >= 1 && t.chapter <= 7));
+  assert.equal(CHAPTERS.length, 8);
+  assert.ok(TASKS.every(t => t.chapter >= 1 && t.chapter <= 8));
   assert.equal(new Set(TASKS.map(t => t.id)).size, TASKS.length);
   assert.deepEqual(TASKS.map(t => t.id), [...TASKS.map(t => t.id)].sort((a, b) => a - b));
 });
@@ -32,10 +32,11 @@ test('tasks in curriculum order', () => {
     '主灯和小灯', '混联电流', '越灭越亮', '一盏调光一盏不变',
     '哪盏灯坏了', '断掉的导线', '失灵的开关',
     '楼梯灯', '保险丝救场', '红绿灯', '两档风扇', '防盗报警', '风扇和灯',
-    '认识数字显示器', '半加器', '认识继电器', '继电器非门', '继电器与门', '继电器或门', '自制电铃', '全加器', '一亮一暗', '按钮计数器']);
-  assert.deepEqual(TASKS.map(t => t.id), Array.from({ length: 39 }, (_, i) => i + 1));
-  const per = [1, 2, 3, 4, 5, 6, 7].map(n => TASKS.filter(t => t.chapter === n).length);
-  assert.deepEqual(per, [5, 5, 6, 4, 3, 7, 9]);
+    '认识数字显示器', '半加器', '认识继电器', '继电器非门', '继电器与门', '继电器或门', '自制电铃', '全加器', '一亮一暗', '按钮计数器',
+    '会存电的电容']);
+  assert.deepEqual(TASKS.map(t => t.id), Array.from({ length: 40 }, (_, i) => i + 1));
+  const per = [1, 2, 3, 4, 5, 6, 7, 8].map(n => TASKS.filter(t => t.chapter === n).length);
+  assert.deepEqual(per, [5, 5, 6, 4, 3, 7, 9, 1]);
 });
 
 test('existing tasks keep curriculum ids and names', () => {
@@ -45,7 +46,7 @@ test('existing tasks keep curriculum ids and names', () => {
     17: '主灯和小灯', 18: '混联电流', 19: '越灭越亮', 20: '一盏调光一盏不变',
     21: '哪盏灯坏了', 22: '断掉的导线', 23: '失灵的开关', 24: '楼梯灯', 25: '保险丝救场', 26: '红绿灯', 27: '两档风扇', 28: '防盗报警', 29: '风扇和灯',
     30: '认识数字显示器', 31: '半加器', 32: '认识继电器', 33: '继电器非门', 34: '继电器与门', 35: '继电器或门',
-    36: '自制电铃', 37: '全加器', 38: '一亮一暗', 39: '按钮计数器' });
+    36: '自制电铃', 37: '全加器', 38: '一亮一暗', 39: '按钮计数器', 40: '会存电的电容' });
 });
 
 test('task 25 preset: battery (9,12), lamp (9,5)', () => {

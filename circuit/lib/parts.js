@@ -27,12 +27,15 @@ export const PHYS = Object.freeze({
   RELAY_DELAY: 0.05,
   DISPLAY_R: 1000,
   DISPLAY_ON_V: 0.75,
+  CAP_H: 1e-3,
+  CAP_REST_A: 1e-6,
+  CAP_FULL_V: 3,
 });
 
 export const PART_TYPES = Object.freeze([
   'battery', 'lamp', 'switch', 'led', 'resistor', 'motor',
   'buzzer', 'rheostat', 'spdt', 'ammeter', 'voltmeter', 'fuse',
-  'relay', 'button', 'dpdt', 'display',
+  'relay', 'button', 'dpdt', 'display', 'capacitor',
 ]);
 
 const two = (t0, t1) => ({ terms: [t0, t1], termPos: { [t0]: [-2, 0], [t1]: [2, 0] } });
@@ -77,6 +80,7 @@ export const PARTS = Object.freeze({
     termPos: { i1: [-2, -2], i2: [-2, -1], i4: [-2, 0], i8: [-2, 1], g: [0, 2] }, params: {}, lever: false,
     body: { x0: -1.1, x1: 1.1, y0: -2.3, y1: 1.45 },
   },
+  capacitor: { label: '电容', ...two('a', 'b'), params: { farads: { default: 0.5, options: [0.1, 0.5, 1] } }, lever: false },
   // 连接点：只有一个端点、没有本体，不出现在元件栏里。
   node: { label: '连接点', terms: ['o'], termPos: { o: [0, 0] }, params: {}, lever: false },
 });
