@@ -40,7 +40,7 @@ const VOICES = {
   // 锯齿波过低通是发动机的“轰”；一路低半个频率的方波调幅，做出“突突突”的点火节奏。
   // 电流越大转速越高，像拧油门。
   moto: {
-    level: 0.6,
+    level: 0.5,
     build(ctx, out) {
       const engine = osc(ctx, 'sawtooth', 30);
       const filter = ctx.createBiquadFilter();
