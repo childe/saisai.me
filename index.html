@@ -71,6 +71,7 @@
         .card[data-tool="maze3d"]   { --accent: #0ea5a4; --tint: #d9f6f4; }
         .card[data-tool="circuit"]  { --accent: #0ea5b7; --tint: #dcf5f8; }
         .card[data-tool="sudoku"]   { --accent: #d9480f; --tint: #ffeadb; }
+        .card[data-tool="ddz"]      { --accent: #e11d48; --tint: #ffe4e9; }
         .card-art {
             display: block;
             aspect-ratio: 4 / 3;
@@ -353,6 +354,27 @@
                 </svg></span>
                 <span class="card-title">数独</span>
                 <span class="card-desc">学技巧 练推理</span>
+            </a>
+            <a class="card" href="https://ddz.ohmycat.me" data-tool="ddz">
+                <span class="card-art"><svg class="art" viewBox="0 0 200 150" aria-hidden="true" focusable="false">
+                    <rect width="200" height="150" fill="var(--tint)"/>
+                    <g transform="rotate(-18 100 140)">
+                        <rect x="72" y="30" width="56" height="80" rx="7" fill="#ffffff" stroke="#3a2e25" stroke-width="3"/>
+                        <text x="84" y="52" text-anchor="middle" font-size="18" font-weight="800" fill="#3a2e25">3</text>
+                        <text x="86" y="92" text-anchor="middle" font-size="22" fill="#3a2e25">♠</text>
+                    </g>
+                    <g transform="rotate(18 100 140)">
+                        <rect x="72" y="30" width="56" height="80" rx="7" fill="#ffffff" stroke="#3a2e25" stroke-width="3"/>
+                        <text x="116" y="52" text-anchor="middle" font-size="18" font-weight="800" fill="var(--accent)">A</text>
+                        <text x="114" y="92" text-anchor="middle" font-size="22" fill="var(--accent)">♥</text>
+                    </g>
+                    <rect x="72" y="24" width="56" height="80" rx="7" fill="#ffffff" stroke="#3a2e25" stroke-width="3"/>
+                    <text x="100" y="46" text-anchor="middle" font-size="14" font-weight="800" fill="var(--accent)">王</text>
+                    <path d="M84 80 L88 60 L96 72 L100 56 L104 72 L112 60 L116 80 Z" fill="#f2b134" stroke="#3a2e25" stroke-width="3" stroke-linejoin="round"/>
+                    <rect x="84" y="80" width="32" height="8" rx="2" fill="var(--accent)"/>
+                </svg></span>
+                <span class="card-title">斗地主</span>
+                <span class="card-desc">三人出牌 抢地主</span>
             </a>
         </main>
     </div>

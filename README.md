@@ -30,3 +30,6 @@
 
 ### 🔢 [数独](sudoku/index.html) (sudoku)
 4 章技巧练习（排除法、唯一余数、区块、数对）加自由练习，6×6 到 9×9。分层提示，只指方向，不直接给答案。
+
+### 🃏 [斗地主](https://ddz.ohmycat.me) (ddz.ohmycat.me)
+三人斗地主，外站链接。
