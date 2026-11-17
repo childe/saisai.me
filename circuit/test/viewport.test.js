@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GRID, BOARD } from '../lib/geometry.js';
-import { HOME, MAX_ZOOM, MIN_ZOOM, fitView, clampView, viewBox, zoomAt, panBy, zoomLimits, contentRect } from '../lib/viewport.js';
+import { HOME, MAX_ZOOM, MIN_GRID_PX, fitView, clampView, viewBox, zoomAt, panBy, zoomLimits, contentRect } from '../lib/viewport.js';
 
 const size = { w: 1132, h: 732 };
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -28,22 +28,33 @@ test('zoomAt keeps the point under the pointer fixed', () => {
   near(before[1] + p[1] / v.k, after[1] + p[1] / z.k);
 });
 
-test('zoom is clamped between MIN_ZOOM and MAX_ZOOM of the home view', () => {
+test('zoom is clamped between the whole board and MAX_ZOOM of the home view', () => {
   const v = fitView(HOME, size);
   const { min, max } = zoomLimits(size);
   near(zoomAt(v, 100, [0, 0], size).k, max);
   near(max, MAX_ZOOM);
-  near(min, MIN_ZOOM);
+  near(min, fitView({ x: 0, y: 0, w: BOARD.w * GRID, h: BOARD.h * GRID }, size).k);
   near(zoomAt(v, 0.01, [0, 0], size).k, min);
 });
 
-test('fully zoomed out the board is larger than the view, and panning reaches the far corner', () => {
-  const out = zoomAt(fitView(HOME, size), 0.01, [0, 0], size);
-  const [, , w, h] = viewBox(out, size);
-  assert.ok(w < BOARD.w * GRID && h < BOARD.h * GRID);
-  const [x, y] = viewBox(panBy(out, -1e6, -1e6, size), size);
-  near(x + w, BOARD.w * GRID);
-  near(y + h, BOARD.h * GRID);
+test('fully zoomed out the whole board fits, on wide and tall screens alike', () => {
+  for (const s of [size, { w: 1900, h: 900 }, { w: 800, h: 1000 }]) {
+    const out = zoomAt(fitView(HOME, s), 0.01, [0, 0], s);
+    const [x, y, w, h] = viewBox(out, s);
+    assert.ok(x <= 0 && y <= 0 && x + w >= BOARD.w * GRID && y + h >= BOARD.h * GRID);
+  }
+});
+
+test('on a small screen grid cells stay at least MIN_GRID_PX wide', () => {
+  const small = { w: 400, h: 300 };
+  near(zoomLimits(small).min * GRID, MIN_GRID_PX);
+});
+
+test('a tall circuit fits on a wide screen', () => {
+  const wide = { w: 1900, h: 900 };
+  const r = contentRect([[3, 3], [40, 41]]);
+  const [x, y, w, h] = viewBox(clampView(fitView(r, wide), wide), wide);
+  assert.ok(x <= r.x && y <= r.y && x + w >= r.x + r.w && y + h >= r.y + r.h);
 });
 
 test('panBy moves the view opposite to the finger and stays on the board', () => {

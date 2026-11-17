@@ -6,7 +6,7 @@ export const HOME = Object.freeze({ x: 0, y: 0, w: 28 * GRID, h: 18 * GRID });
 const WORLD = { w: BOARD.w * GRID, h: BOARD.h * GRID };
 const PAD = 6;
 export const MAX_ZOOM = 3; // 相对 HOME 视野最多放大 3 倍
-export const MIN_ZOOM = 0.5; // 最多缩小一半；画板更大的部分靠拖动查看
+export const MIN_GRID_PX = 8; // 屏幕再小，一格也不小于 8 像素；装不下的部分靠拖动查看
 
 // 把矩形 r 整个装进 size，留 PAD 像素边。
 export function fitView(r, size) {
@@ -14,9 +14,11 @@ export function fitView(r, size) {
   return { cx: r.x + r.w / 2, cy: r.y + r.h / 2, k: Math.max(k, 1e-3) };
 }
 
+// 最多缩到整块画板刚好装下，和屏幕宽高比无关；小屏上不缩到格子比 MIN_GRID_PX 还小，也不比 HOME 更大。
 export function zoomLimits(size) {
   const home = fitView(HOME, size).k;
-  return { min: Math.max(home * MIN_ZOOM, fitView({ x: 0, y: 0, ...WORLD }, size).k), max: home * MAX_ZOOM };
+  const world = fitView({ x: 0, y: 0, ...WORLD }, size).k;
+  return { min: Math.min(home, Math.max(world, MIN_GRID_PX / GRID)), max: home * MAX_ZOOM };
 }
 
 // 限制缩放范围；视野比整块画板小时中心不出画板，比画板大时居中。
