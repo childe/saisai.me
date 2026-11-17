@@ -1,0 +1,19 @@
+{
+	"name": "saisai-shortlink",
+	"main": "index.js",
+	"compatibility_date": "2026-11-17",
+	// 只接管 /s 和 /s/*。不要写成 saisai.me/s*，那样会把 /sudoku/ 也拦下来。
+	"routes": [
+		{ "pattern": "saisai.me/s", "zone_name": "saisai.me" },
+		{ "pattern": "saisai.me/s/*", "zone_name": "saisai.me" }
+	],
+	"workers_dev": false,
+	"kv_namespaces": [
+		// 首次部署前执行 wrangler kv namespace create LINKS，把返回的 id 填到这里。
+		{ "binding": "LINKS", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }
+	],
+	// 每个 IP 每分钟最多生成 10 条短链（按 Cloudflare 节点分别计数）。
+	"ratelimits": [
+		{ "name": "LIMITER", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } }
+	]
+}
