@@ -26,6 +26,42 @@ function wobble(ctx, lfo, depth, param) {
   return g;
 }
 
+// 怠速每秒点火 ENGINE_FIRE_HZ 次，录 ENGINE_FIRES 次后首尾相接循环。
+const ENGINE_FIRE_HZ = 12;
+const ENGINE_FIRES = 16;
+
+// 点火录音：闷响 = 60Hz 和 140Hz 两个衰减正弦，嘶声 = 一小段衰减噪声。
+// 尾巴超过结尾的部分绕回开头，循环时接缝听不出来。随机数用固定种子，每次一样。
+export function engineSamples(sr) {
+  const len = Math.round(sr * ENGINE_FIRES / ENGINE_FIRE_HZ);
+  const data = new Float32Array(len);
+  let seed = 7;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const tail = Math.round(sr * 0.15);
+  for (let k = 0; k < ENGINE_FIRES; k++) {
+    const start = Math.round(((k + (rand() - 0.5) * 0.08) / ENGINE_FIRE_HZ) * sr);
+    const amp = 0.75 + rand() * 0.5;
+    for (let i = 0; i < tail; i++) {
+      const t = i / sr;
+      const thump = Math.sin(2 * Math.PI * 60 * t) * Math.exp(-t / 0.03)
+        + 0.6 * Math.sin(2 * Math.PI * 140 * t) * Math.exp(-t / 0.015);
+      const hiss = 0.4 * (rand() * 2 - 1) * Math.exp(-t / 0.008);
+      data[(start + i + len) % len] += amp * (thump + hiss);
+    }
+  }
+  let peak = 0;
+  for (const x of data) peak = Math.max(peak, Math.abs(x));
+  for (let i = 0; i < len; i++) data[i] /= peak;
+  return data;
+}
+
+function engineBuffer(ctx) {
+  const data = engineSamples(ctx.sampleRate);
+  const buf = ctx.createBuffer(1, data.length, ctx.sampleRate);
+  buf.getChannelData(0).set(data);
+  return buf;
+}
+
 // 每种声音：build(ctx, out) 把声音接到 out，返回 rev(v)，v 是 0–1 的音量，可用来改音色；
 // level 是音量为 1 时的输出增益，几种声音听感上差不多响。
 const VOICES = {
@@ -37,29 +73,24 @@ const VOICES = {
       return () => {};
     },
   },
-  // 锯齿波过低通是发动机的“轰”；一路低半个频率的方波调幅，做出“突突突”的点火节奏。
-  // 电流越大转速越高，像拧油门。
+  // 发动机：先合成一段“点火录音”——每次点火是一声低沉的闷响加一点排气的嘶声，
+  // 每声的轻重、早晚都略有不同——再循环播放。电流越大播得越快，转速越高，像拧油门。
   moto: {
-    level: 0.5,
+    level: 0.8,
     build(ctx, out) {
-      const engine = osc(ctx, 'sawtooth', 30);
+      const src = ctx.createBufferSource();
+      src.buffer = engineBuffer(ctx);
+      src.loop = true;
       const filter = ctx.createBiquadFilter();
       filter.type = 'lowpass';
-      filter.frequency.value = 500;
-      filter.Q.value = 4;
-      const am = ctx.createGain();
-      am.gain.value = 0.5;
-      const firing = osc(ctx, 'square', 15);
-      wobble(ctx, firing, 0.5, am.gain);
-      engine.connect(filter);
-      filter.connect(am);
-      am.connect(out);
+      filter.frequency.value = 900;
+      src.connect(filter);
+      filter.connect(out);
+      src.start();
       return v => {
-        const f = 30 + 70 * v;
         const t = ctx.currentTime;
-        engine.frequency.setTargetAtTime(f, t, 0.15);
-        firing.frequency.setTargetAtTime(f / 2, t, 0.15);
-        filter.frequency.setTargetAtTime(400 + 1200 * v, t, 0.15);
+        src.playbackRate.setTargetAtTime(1 + 3 * v, t, 0.25);
+        filter.frequency.setTargetAtTime(900 + 2100 * v, t, 0.25);
       };
     },
   },
