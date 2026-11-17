@@ -31,7 +31,7 @@ test('unlock works when connect() returns undefined (old WebKit)', () => {
   globalThis.navigator ??= {};
   const b = createBuzzer();
   b.unlock();
-  b.update({ beep: 1 }, false);
+  b.update({ beep: { volume: 1 } }, false);
   assert.ok(log.includes('osc->gain') && log.includes('gain->dest'));
   assert.ok(log.includes('resume'));
   assert.ok(log.includes('start src'), 'should play a silent buffer to unlock iOS output');
@@ -73,12 +73,12 @@ test('each sound gets its own gain; silent sounds are not built', () => {
   const b = createBuzzer();
   b.unlock();
   log.length = 0;
-  b.update({ beep: 0, moto: 0.5 }, false);
+  b.update({ beep: { volume: 0 }, moto: { volume: 1, drive: 0.5 } }, false);
   assert.ok(log.includes('src->filter'), 'engine voice should be built');
   assert.equal(log.filter(l => l === 'gain->dest').length, 1, 'only one voice output');
-  assert.ok(log.includes('rate 2.5'), 'engine revs with volume: 1 + 3 * 0.5');
+  assert.ok(log.includes('rate 2.5'), 'engine revs with drive: 1 + 3 * 0.5');
   log.length = 0;
-  b.update({ moto: 0.5 }, true);
+  b.update({ moto: { volume: 1, drive: 0.5 } }, true);
   assert.ok(log.includes('gain 0'), 'muted silences the voice');
   delete globalThis.AudioContext;
 });
@@ -88,4 +88,16 @@ test('engine recording is normalized and loops without a click at the seam', () 
   const peak = d.reduce((m, x) => Math.max(m, Math.abs(x)), 0);
   assert.ok(Math.abs(peak - 1) < 1e-6);
   assert.ok(Math.abs(d[d.length - 1] - d[0]) < 0.3, 'seam jump should be small');
+});
+
+test('engine revs up when current grows past the volume cap (1 -> 4 cells)', () => {
+  const { AC, log } = fakeAudio();
+  globalThis.AudioContext = AC;
+  const b = createBuzzer();
+  b.unlock();
+  b.update({ moto: { volume: 1, drive: 0.25 } }, false);
+  log.length = 0;
+  b.update({ moto: { volume: 1, drive: 1 } }, false);
+  assert.ok(log.includes('rate 4'), 'same volume, more drive -> faster engine');
+  delete globalThis.AudioContext;
 });

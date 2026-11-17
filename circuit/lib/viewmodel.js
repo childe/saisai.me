@@ -35,6 +35,8 @@ export function partVisual(part, reading, damage, ok, relays) {
       break;
     case 'buzzer':
       vis.volume = v > 0 && i >= 0.001 ? clamp(i / 0.03, 0, 1) : 0;
+      // 油门：音量 30mA 就封顶了（1 节电池），发动机声要再按电流往上提转速，4 节电池（120mA）踩到底。
+      vis.drive = vis.volume > 0 ? clamp(i / 0.12, 0, 1) : 0;
       break;
     case 'ammeter':
       vis.text = formatReading(reading.i, 'A');

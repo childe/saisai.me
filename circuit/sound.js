@@ -62,7 +62,7 @@ function engineBuffer(ctx) {
   return buf;
 }
 
-// 每种声音：build(ctx, out) 把声音接到 out，返回 rev(v)，v 是 0–1 的音量，可用来改音色；
+// 每种声音：build(ctx, out) 把声音接到 out，返回 rev(drive)，drive 是 0–1 的油门（按电流算），可用来改音色；
 // level 是音量为 1 时的输出增益，几种声音听感上差不多响。
 const VOICES = {
   // 原来的 2400Hz 方波。
@@ -74,7 +74,7 @@ const VOICES = {
     },
   },
   // 发动机：先合成一段“点火录音”——每次点火是一声低沉的闷响加一点排气的嘶声，
-  // 每声的轻重、早晚都略有不同——再循环播放。电流越大播得越快，转速越高，像拧油门。
+  // 每声的轻重、早晚都略有不同——再循环播放。油门越大播得越快，转速越高。
   moto: {
     level: 0.8,
     build(ctx, out) {
@@ -87,10 +87,10 @@ const VOICES = {
       src.connect(filter);
       filter.connect(out);
       src.start();
-      return v => {
+      return drive => {
         const t = ctx.currentTime;
-        src.playbackRate.setTargetAtTime(1 + 3 * v, t, 0.25);
-        filter.frequency.setTargetAtTime(900 + 2100 * v, t, 0.25);
+        src.playbackRate.setTargetAtTime(1 + 3 * drive, t, 0.25);
+        filter.frequency.setTargetAtTime(900 + 2100 * drive, t, 0.25);
       };
     },
   },
@@ -150,25 +150,31 @@ export function createBuzzer() {
     const gain = ctx.createGain();
     gain.gain.value = 0;
     gain.connect(ctx.destination);
-    v = { gain, rev: VOICES[sound].build(ctx, gain), last: 0 };
+    v = { gain, rev: VOICES[sound].build(ctx, gain), last: 0, lastDrive: -1 };
     voices.set(sound, v);
     return v;
   }
 
-  // volumes：{ beep: 0.8, moto: 0.3 }，没列出的声音按 0 处理。
+  // volumes：{ beep: { volume: 0.8, drive: 0.2 } }，没列出的声音不响。
   function update(volumes, muted) {
     if (!ctx) return;
     try {
       for (const sound of SOUNDS) {
-        const raw = Number(volumes?.[sound]);
+        const raw = Number(volumes?.[sound]?.volume);
         const v = muted || !Number.isFinite(raw) ? 0 : Math.max(0, Math.min(1, raw));
+        const drive = Math.max(0, Math.min(1, Number(volumes?.[sound]?.drive) || 0));
         if (v === 0 && !voices.has(sound)) continue;
         const vc = voice(sound);
         const target = v * VOICES[sound].level;
-        if (Math.abs(target - vc.last) < 1e-4) continue;
-        vc.last = target;
-        vc.gain.gain.setTargetAtTime(target, ctx.currentTime, 0.03);
-        if (v > 0) vc.rev(v);
+        if (Math.abs(target - vc.last) >= 1e-4) {
+          vc.last = target;
+          vc.gain.gain.setTargetAtTime(target, ctx.currentTime, 0.03);
+        }
+        // 音量封顶后电流还会变（换电池），油门要单独比。
+        if (v > 0 && Math.abs(drive - vc.lastDrive) >= 1e-3) {
+          vc.lastDrive = drive;
+          vc.rev(drive);
+        }
       }
     } catch (err) { console.warn('[circuit sound]', err); }
   }

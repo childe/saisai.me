@@ -229,15 +229,16 @@ function flowMarkup(space) {
   };
 }
 
-// 当前空间的蜂鸣器按声音分组，每组取音量最大值，如 { beep: 0.8, moto: 0 }。
+// 当前空间的蜂鸣器按声音分组，每组取音量、油门的最大值，如 { beep: { volume: 0.8, drive: 0.2 } }。
 export function buzzerVolumes(state) {
   const { circuit, result, damage } = activeSpace(state);
   const out = {};
   for (const p of circuit.parts) {
     if (p.type !== 'buzzer') continue;
     const sound = p.params.sound ?? 'beep';
-    const v = partVisual(p, result.ok ? result.parts[p.id] : undefined, damage, result.ok).volume;
-    out[sound] = Math.max(out[sound] ?? 0, v);
+    const { volume, drive } = partVisual(p, result.ok ? result.parts[p.id] : undefined, damage, result.ok);
+    const prev = out[sound] ?? { volume: 0, drive: 0 };
+    out[sound] = { volume: Math.max(prev.volume, volume), drive: Math.max(prev.drive, drive ?? 0) };
   }
   return out;
 }
