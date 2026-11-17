@@ -457,7 +457,10 @@ dom.tasklist.addEventListener('click', onTaskClick);
 
 // ---------- 声音与定时循环 ----------
 const buzzer = createBuzzer();
-window.addEventListener('pointerdown', () => buzzer.unlock(), { capture: true });
+// iOS 不把 pointerdown（touchstart）算作能解锁音频的手势，要 touchend / click。
+for (const ev of ['pointerdown', 'touchend', 'click']) {
+  window.addEventListener(ev, () => buzzer.unlock(), { capture: true });
+}
 
 let lastT = null;
 // 继电器翻转次数：活动工作区的 relays.flips 变大就咔哒一声；换模式时只重记基数。
