@@ -9,8 +9,7 @@
 	],
 	"workers_dev": false,
 	"kv_namespaces": [
-		// 首次部署前执行 wrangler kv namespace create LINKS，把返回的 id 填到这里。
-		{ "binding": "LINKS", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }
+		{ "binding": "LINKS", "id": "71b6764ca0c04bcb84bf72603e4b2e5a" }
 	],
 	// 每个 IP 每分钟最多生成 10 条短链（按 Cloudflare 节点分别计数）。
 	"ratelimits": [

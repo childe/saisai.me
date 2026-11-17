@@ -4,12 +4,15 @@
 
 本机 brew 装的 wrangler 4.120 执行 deploy 会不报错直接退出，下面一律用 `npx wrangler@latest`。
 
-## 首次部署
+## 部署
+
+KV namespace `LINKS` 已创建，id 写在 `wrangler.jsonc` 里。
 
 1. 登录 Cloudflare：`npx wrangler@latest login`。
-2. 创建 KV：`npx wrangler@latest kv namespace create LINKS`。把输出里的 `id` 填进 `wrangler.jsonc` 的 `kv_namespaces[0].id`。
-3. 部署：在本目录执行 `npx wrangler@latest deploy`。
-4. 检查：`curl -si -X POST --data 'abc' https://saisai.me/s` 返回 `{"id":...}`；`curl -sI https://saisai.me/s/<id>` 返回 `302`，`Location` 以 `/circuit/#c=abc` 结尾；`curl -sI https://saisai.me/sudoku/` 仍由 GitHub Pages 返回 `200`。
+2. 部署：在本目录执行 `npx wrangler@latest deploy`。路由生效要等几秒到一分钟。
+3. 检查：`curl -si -X POST --data 'abc' https://saisai.me/s` 返回 `{"id":...}`；`curl -sI https://saisai.me/s/<id>` 返回 `302`，`Location` 以 `/circuit/#c=abc` 结尾；`curl -sI https://saisai.me/sudoku/` 仍由 GitHub Pages 返回 `200`。
+
+GET 读 KV 时在边缘节点缓存 1 天。id 由内容哈希得到、不会变，所以缓存安全；但删掉的 key 在缓存过期前仍能打开。
 
 ## 测试
 
