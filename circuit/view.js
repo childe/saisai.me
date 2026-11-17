@@ -22,6 +22,7 @@ const PARAM_UI = {
   ohms: { name: '阻值', label: v => (v >= 1000 ? `${v / 1000}kΩ` : `${v}Ω`) },
   rating: { name: '额定电流', label: v => `${v}A` },
   farads: { name: '容量', label: v => `${v}F` },
+  sound: { name: '声音', label: v => ({ beep: '嘀嘀', moto: '摩托车', siren: '警笛', bird: '小鸟' })[v] },
 };
 
 const blankVisual = () => ({ glow: 0, burnt: false, alarm: false, spin: 0, volume: 0, charge: 0, text: '--', stale: false });
@@ -228,15 +229,18 @@ function flowMarkup(space) {
   };
 }
 
-// 当前空间所有蜂鸣器音量的最大值。
-export function buzzerVolume(state) {
+// 当前空间的蜂鸣器按声音分组，每组取音量、油门的最大值，如 { beep: { volume: 0.8, drive: 0.2 } }。
+export function buzzerVolumes(state) {
   const { circuit, result, damage } = activeSpace(state);
-  let v = 0;
+  const out = {};
   for (const p of circuit.parts) {
     if (p.type !== 'buzzer') continue;
-    v = Math.max(v, partVisual(p, result.ok ? result.parts[p.id] : undefined, damage, result.ok).volume);
+    const sound = p.params.sound ?? 'beep';
+    const { volume, drive } = partVisual(p, result.ok ? result.parts[p.id] : undefined, damage, result.ok);
+    const prev = out[sound] ?? { volume: 0, drive: 0 };
+    out[sound] = { volume: Math.max(prev.volume, volume), drive: Math.max(prev.drive, drive ?? 0) };
   }
-  return v;
+  return out;
 }
 
 let taskbarKey = '';

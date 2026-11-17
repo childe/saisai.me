@@ -33,6 +33,9 @@ test('motor spin signed, buzzer only forward', () => {
   assert.equal(partVisual({ id: 'M', type: 'motor', params: {} }, { v: -1.4, i: -0.28, p: 0.39 }, d, true).spin, -1.4);
   assert.equal(partVisual({ id: 'Z', type: 'buzzer', params: {} }, { v: -1.5, i: -0.03, p: 0.045 }, d, true).volume, 0);
   assert.equal(partVisual({ id: 'Z', type: 'buzzer', params: {} }, { v: 1.5, i: 0.03, p: 0.045 }, d, true).volume, 1);
+  // 音量 30mA 封顶，油门到 120mA（4 节电池）才封顶。
+  assert.equal(partVisual({ id: 'Z', type: 'buzzer', params: {} }, { v: 1.5, i: 0.03, p: 0.045 }, d, true).drive, 0.25);
+  assert.equal(partVisual({ id: 'Z', type: 'buzzer', params: {} }, { v: 6, i: 0.12, p: 0.72 }, d, true).drive, 1);
 });
 
 test('wire flow speed and direction', () => {
@@ -84,4 +87,16 @@ test('wire flow speed stays put when current drifts slightly', () => {
   for (let i = 0.001; i < 3; i *= 1.01) speeds.add(wireFlow({ i }, true).speed);
   assert.ok(speeds.size <= 8, `${speeds.size} 档`);
   assert.ok(wireFlow({ i: 1 }, true).speed > wireFlow({ i: 0.2 }, true).speed);
+});
+
+test('buzzer drive keeps rising from 1 to 4 cells while volume is capped', async () => {
+  const { solve } = await import('../lib/solve.js');
+  const { loop } = await import('./helpers.js');
+  const drives = [1, 2, 3, 4].map(cells => {
+    const r = solve(loop({ B: ['battery', { cells }], Z: ['buzzer', { sound: 'moto' }] }, ['B.p', 'Z.p', 'Z.n', 'B.n']));
+    const vis = partVisual({ id: 'Z', type: 'buzzer', params: { sound: 'moto' } }, r.parts.Z, { broken: {} }, r.ok);
+    assert.ok(vis.volume > 0.95);
+    return vis.drive;
+  });
+  for (let k = 1; k < drives.length; k++) assert.ok(drives[k] > drives[k - 1] + 0.15, `drives ${drives}`);
 });

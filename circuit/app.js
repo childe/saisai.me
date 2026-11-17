@@ -3,7 +3,7 @@ import { createEditor, reduce, activeSpace } from './lib/editor.js';
 import {
   hitTest, terminalPoint, snap, GRID, wirePoints, nearestOnRoute, startTrace, stepTrace, tracePath, dragSegment,
 } from './lib/geometry.js';
-import { render, miniArt, buzzerVolume } from './view.js';
+import { render, miniArt, buzzerVolumes } from './view.js';
 import { createBuzzer } from './sound.js';
 import { taskListHtml, parseAnswer } from './lib/taskbar.js';
 import { encodeCircuit, decodeCircuit, shareUrl, codeFromHash, copyLink, canShare } from './lib/share.js';
@@ -469,7 +469,7 @@ function frame(t) {
   const dt = lastT === null ? 0 : Math.min(0.1, Math.max(0, (t - lastT) / 1000));
   lastT = t;
   if (dt > 0) dispatch({ type: 'tick', dt });
-  buzzer.update(buzzerVolume(state), state.muted);
+  buzzer.update(buzzerVolumes(state), state.muted);
   const flips = activeSpace(state).relays?.flips ?? 0;
   if (state.mode === lastMode && flips > lastFlips) buzzer.click(state.muted);
   lastFlips = flips;

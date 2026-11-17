@@ -47,7 +47,7 @@ export const PARTS = Object.freeze({
   led: { label: 'LED', ...two('a', 'k'), params: { color: { default: 'red', options: ['red', 'green', 'blue', 'yellow'] } }, lever: false },
   resistor: { label: '电阻', ...two('a', 'b'), params: { ohms: { default: 220, options: [10, 47, 100, 220, 470, 1000] } }, lever: false },
   motor: { label: '小风扇', ...two('a', 'b'), params: {}, lever: false },
-  buzzer: { label: '蜂鸣器', ...two('p', 'n'), params: {}, lever: false },
+  buzzer: { label: '蜂鸣器', ...two('p', 'n'), params: { sound: { default: 'beep', options: ['beep', 'moto', 'siren', 'bird'] } }, lever: false },
   rheostat: {
     label: '滑动变阻器', terms: ['a', 'b', 'w'], termPos: { a: [-2, 0], b: [2, 0], w: [0, -2] },
     params: { pos: { default: 0.5, min: 0, max: 1 } }, lever: false,
