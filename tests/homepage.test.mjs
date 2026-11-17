@@ -52,6 +52,7 @@ const EXPECTED = [
   ['maze3d',   'maze-3d/index.html',               '3D 迷宫'],
   ['circuit',  'circuit/index.html',              '电路实验室'],
   ['sudoku',   'sudoku/index.html',               '数独'],
+  ['ddz',      'https://ddz.ohmycat.me',          '斗地主'],
 ];
 
 test('viewport meta kept', () => {
@@ -64,9 +65,9 @@ test('lang and title', () => {
   assert.match(html, /<h1[^>]*>[\s\S]*赛赛的工具箱[\s\S]*<\/h1>/);
 });
 
-test('nine cards in order with fixed links and titles', () => {
+test('ten cards in order with fixed links and titles', () => {
   const c = cards();
-  assert.equal(c.length, 9);
+  assert.equal(c.length, 10);
   assert.deepEqual(c.map(x => [x.tool, x.href, x.title]), EXPECTED);
 });
 
@@ -75,6 +76,7 @@ test('cards have the agreed descriptions', () => {
     '声母 韵母 四声调', '一年级上册', '一元一次方程求解',
     '描点 连成线', '从起点走到终点', '按住蓄力 跳过去',
     '立体迷宫 走出去', '连电线 点亮小灯', '学技巧 练推理',
+    '三人出牌 抢地主',
   ]);
 });
 
@@ -90,7 +92,9 @@ test('no folder/file icons or english dir names in visible text', () => {
 });
 
 test('no external requests and no script', () => {
-  const h = html.replace(/xmlns(:\w+)?="http:\/\/www\.w3\.org\/[^"]*"/g, '');
+  const h = html
+    .replace(/xmlns(:\w+)?="http:\/\/www\.w3\.org\/[^"]*"/g, '')
+    .replace('<a class="card" href="https://ddz.ohmycat.me"', ''); // 斗地主是外站链接，不是资源请求
   assert.doesNotMatch(h, /https?:\/\//);
   assert.doesNotMatch(h, /(src|href)="\/\//);
   assert.doesNotMatch(h, /<script|<link|<img|<iframe|@import|@font-face/i);
