@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from './helpers.js';
-import { packCircuit, encodeCircuit, decodeCircuit, shareUrl, codeFromHash } from '../lib/share.js';
+import { packCircuit, encodeCircuit, decodeCircuit, shareUrl, codeFromHash, shortLink } from '../lib/share.js';
 
 // 直接把任意对象压成链接数据，用来造坏数据。
 async function raw(obj) {
@@ -105,4 +105,32 @@ test('canShare depends on CompressionStream support', async () => {
   } finally {
     globalThis.CompressionStream = saved;
   }
+});
+
+test('shortLink posts the code and builds a short url', async () => {
+  const calls = [];
+  const fetchFn = async (url, opts) => {
+    calls.push([url, opts.method, opts.body]);
+    return new Response(JSON.stringify({ id: 'Ab3_x-9Z' }), { status: 200 });
+  };
+  assert.equal(await shortLink('https://saisai.me', 'CODE', fetchFn), 'https://saisai.me/s/Ab3_x-9Z');
+  assert.deepEqual(calls, [['https://saisai.me/s', 'POST', 'CODE']]);
+});
+
+test('shortLink returns null on any failure', async () => {
+  const cases = [
+    async () => { throw new TypeError('offline'); },
+    async () => new Response('nope', { status: 404 }),
+    async () => new Response('not json', { status: 200 }),
+    async () => new Response(JSON.stringify({ id: '../evil' }), { status: 200 }),
+    async () => new Response(JSON.stringify({}), { status: 200 }),
+  ];
+  for (const f of cases) assert.equal(await shortLink('https://saisai.me', 'CODE', f), null);
+});
+
+test('shortLink gives up after the timeout', async () => {
+  const hang = (url, { signal }) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason)));
+  const t = Date.now();
+  assert.equal(await shortLink('https://saisai.me', 'CODE', hang, 50), null);
+  assert.ok(Date.now() - t < 1000);
 });

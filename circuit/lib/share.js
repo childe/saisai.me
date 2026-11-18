@@ -97,6 +97,18 @@ export function shareUrl(href, code) {
   return `${href.split('#')[0]}#c=${code}`;
 }
 
+// 请站点上的短链服务（workers/shortlink）把压缩码换成 /s/<id>。离线、本地开发、超时或返回异常都给 null，由调用方退回长链接。
+export async function shortLink(origin, code, fetchFn = globalThis.fetch, timeoutMs = 4000) {
+  try {
+    const res = await fetchFn(`${origin}/s`, { method: 'POST', body: code, signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) return null;
+    const { id } = await res.json();
+    return typeof id === 'string' && /^[A-Za-z0-9_-]{8,43}$/.test(id) ? `${origin}/s/${id}` : null;
+  } catch {
+    return null;
+  }
+}
+
 export function codeFromHash(hash) {
   const m = /^#c=(.+)$/.exec(hash ?? '');
   return m ? m[1] : null;

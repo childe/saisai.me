@@ -6,7 +6,7 @@ import {
 import { render, miniArt, buzzerVolumes } from './view.js';
 import { createBuzzer } from './sound.js';
 import { taskListHtml, parseAnswer } from './lib/taskbar.js';
-import { encodeCircuit, decodeCircuit, shareUrl, codeFromHash, copyLink, canShare } from './lib/share.js';
+import { encodeCircuit, decodeCircuit, shareUrl, codeFromHash, copyLink, canShare, shortLink } from './lib/share.js';
 import { isTextEntry } from './lib/keys.js';
 import { HOME, fitView, clampView, viewBox, zoomAt, panBy, contentRect } from './lib/viewport.js';
 
@@ -399,12 +399,12 @@ function showToast(text) {
   toastTimer = setTimeout(() => { dom.toast.hidden = true; }, 2500);
 }
 
-// 链接只记录点分享那一刻的电路，地址栏不动。copyLink 要在点击回调里同步发起（Safari 的剪贴板限制）。
+// 链接只记录点分享那一刻的电路，地址栏不动。优先用短链，短链服务不可用时退回把电路写在 # 后面的长链接。copyLink 要在点击回调里同步发起（Safari 的剪贴板限制）。
 dom.shareBtn.addEventListener('click', () => {
   const c = state.free.circuit;
   if (!c.parts.length) { showToast('先搭一个电路再分享'); return; }
   if (!canShare()) { showToast('这个浏览器太旧，不能分享'); return; }
-  const urlPromise = encodeCircuit(c).then(code => shareUrl(location.href, code));
+  const urlPromise = encodeCircuit(c).then(async code => (await shortLink(location.origin, code)) ?? shareUrl(location.href, code));
   copyLink({ clipboard: navigator.clipboard, ClipboardItem: window.ClipboardItem }, urlPromise).then(async ok => {
     if (ok) { showToast('链接已复制，发给朋友吧'); return; }
     // 剪贴板不可用：弹框让人手动复制。
