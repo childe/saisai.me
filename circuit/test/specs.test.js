@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { specRows, readingText, formatOhms, formatCurrent, formatVoltage } from '../lib/specs.js';
+import { specRows, readingText, formatOhms, formatCurrent, formatVoltage, formatPower } from '../lib/specs.js';
 import { PART_TYPES, defaultParams } from '../lib/parts.js';
 
 const part = (type, params = {}) => ({ id: 'X', type, params: { ...defaultParams(type), ...params } });
@@ -19,6 +19,11 @@ test('formatters', () => {
   assert.equal(formatVoltage(-0.001), '0.00V');
   assert.equal(formatVoltage(1.4706), '1.47V');
   assert.equal(formatCurrent(NaN), '--');
+  assert.equal(formatPower(0.846), '0.85W');
+  assert.equal(formatPower(0.045), '0.045W');
+  assert.equal(formatPower(-1.2), '1.20W');
+  assert.equal(formatPower(1e-5), '0W');
+  assert.equal(formatPower(NaN), '--');
 });
 
 test('every part type has a resistance row', () => {
@@ -40,8 +45,8 @@ test('specs follow params and constants', () => {
 });
 
 test('readingText', () => {
-  assert.equal(readingText(part('lamp'), { v: 2.91, i: 0.291 }, true), '2.91V 291mA');
-  assert.equal(readingText(part('relay'), { v: 1.5, i: 0.05 }, true), '1.50V 50mA');
+  assert.equal(readingText(part('lamp'), { v: 2.91, i: 0.291, p: 0.84681 }, true), '2.91V 291mA 0.85W');
+  assert.equal(readingText(part('relay'), { v: 1.5, i: 0.05, p: 0.075 }, true), '1.50V 50mA 0.075W');
   assert.equal(readingText(part('lamp'), undefined, false), '--');
   assert.equal(readingText(part('display'), { v: 0, i: 0 }, true), null);
 });

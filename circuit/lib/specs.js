@@ -26,6 +26,14 @@ export function formatVoltage(v) {
   return `${s === '-0.00' ? '0.00' : s}V`;
 }
 
+// 功率一律用 W，和灯的规格写法一致；不到 0.1W 多留一位小数。电池是放电，显示大小不带符号。
+export function formatPower(p) {
+  if (!Number.isFinite(p)) return '--';
+  const a = Math.abs(p);
+  if (a < 5e-4) return '0W';
+  return `${a.toFixed(a < 0.1 ? 3 : 2)}W`;
+}
+
 // LED 两端电压：电流 i 时的正向压降。
 const ledV = i => PHYS.LED_VN * Math.log(i / PHYS.LED_IS + 1);
 const hold = `持续 ${PHYS.HOLD_S} 秒`;
@@ -96,9 +104,9 @@ export function specRows(part) {
   return SPECS[part.type]?.(part) ?? [];
 }
 
-// 标题后面的实时读数「电压 电流」；数字显示器、连接点没有。继电器读的是线圈。
+// 标题后面的实时读数「电压 电流 功率」；数字显示器、连接点没有。继电器读的是线圈。
 export function readingText(part, reading, ok) {
   if (part.type === 'display' || part.type === 'node') return null;
   if (!ok || !reading) return '--';
-  return `${formatVoltage(reading.v)} ${formatCurrent(reading.i)}`;
+  return `${formatVoltage(reading.v)} ${formatCurrent(reading.i)} ${formatPower(reading.p)}`;
 }
