@@ -80,13 +80,16 @@ const DRAW = {
       }
       body += `<text x="20" y="6" text-anchor="middle" class="label" style="fill:#fff;font-weight:bold">${cells}节</text>`;
     } else if (style === 'cartoon') {
+      // 文字会被 upright 转回正向：竖放时两行改沿长边排，转过来仍是「电压在上、节数在下」。
+      const rot = part.rot % 4;
+      const [[vx, vy], [cx, cy]] = rot % 2 === 0 ? [[14, -2], [14, 16]] : rot === 1 ? [[2, 5], [30, 5]] : [[30, 5], [2, 5]];
       body = line(-80, 0, -60, 0) + line(80, 0, 60, 0) +
         (vis.energized ? glowCircle(0, 0, 44, 1, '#ffd23c') : '') +
         `<rect x="-60" y="-30" width="120" height="60" rx="10" fill="${vis.alarm ? '#8a1f14' : '#2b2f3a'}" stroke="${INK}" stroke-width="3"/>` +
         `<rect x="-54" y="-24" width="108" height="48" rx="7" fill="none" stroke="#ffd23c" stroke-width="2"/>` +
         `<path d="M-30 -18 L-46 4 L-36 4 L-42 20 L-22 -4 L-32 -4 Z" fill="#ffd23c" stroke="${INK}" stroke-width="1.5"/>` +
-        `<text x="14" y="-2" text-anchor="middle" class="label" style="fill:#ffd23c;font-weight:bold">${volts}V</text>` +
-        `<text x="14" y="16" text-anchor="middle" class="label" style="fill:#fff">${cells}节</text>`;
+        `<text x="${vx}" y="${vy}" text-anchor="middle" class="label" style="fill:#ffd23c;font-weight:bold">${volts}V</text>` +
+        `<text x="${cx}" y="${cy}" text-anchor="middle" class="label" style="fill:#fff">${cells}节</text>`;
       if (vis.energized) body = `<g class="shake">${body}</g>`;
     } else {
       const gap = 16, shown = Math.min(cells, 4), total = (shown - 1) * gap;

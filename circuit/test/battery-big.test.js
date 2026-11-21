@@ -9,7 +9,7 @@ import { paramHtml } from '../view.js';
 import { loop } from './helpers.js';
 
 const vis = (o = {}) => ({ glow: 0, burnt: false, alarm: false, spin: 0, volume: 0, text: null, stale: false, ...o });
-const bat = cells => ({ id: 'B', type: 'battery', x: 0, y: 0, rot: 0, params: { cells } });
+const bat = (cells, rot = 0) => ({ id: 'B', type: 'battery', x: 0, y: 0, rot, params: { cells } });
 const mk = type => ({ id: 'X', type, x: 0, y: 0, rot: 0, params: defaultParams(type) });
 
 test('battery cells: any whole number 1–100', () => {
@@ -80,4 +80,16 @@ test('cells panel: stepper and presets', () => {
   assert.match(paramHtml('cells', def, 1), /data-value='1' disabled>−/);
   assert.match(paramHtml('cells', def, 100), /data-value='100' disabled>\+/);
   assert.match(paramHtml('cells', def, 4), /class="btn on"[^>]*data-value='4'>4</);
+});
+
+test('upright power box stacks its two labels along the long side', () => {
+  for (const rot of [0, 1, 2, 3]) {
+    const s = drawPart(bat(100, rot), 'cartoon', vis());
+    const at = t => s.match(new RegExp(`<text x="(-?[\\d.]+)" y="(-?[\\d.]+)"[^>]*>${t}<`)).slice(1).map(Number);
+    const [vx, vy] = at('150V'), [cx, cy] = at('100节');
+    if (rot % 2) {
+      assert.equal(vy, cy, `rot ${rot} same row`);
+      assert.ok(Math.abs(vx - cx) >= 22, `rot ${rot} apart`);
+    } else assert.equal(vx, cx, `rot ${rot} same column`);
+  }
 });
