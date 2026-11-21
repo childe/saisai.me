@@ -30,8 +30,11 @@ export function partVisual(part, reading, damage, ok, relays) {
     case 'led':
       vis.glow = burnt || i < PHYS.LED_LIT_A ? 0 : clamp(i / 0.02, 0, 1.5);
       break;
-    case 'motor':
-      vis.spin = v;
+    case 'battery': // 能量箱通电时抖动
+      vis.energized = Math.abs(i) >= 0.001;
+      break;
+    case 'motor': // 封顶：电压太高时转一圈不到一帧，风扇看着像停了
+      vis.spin = clamp(v, -12, 12);
       break;
     case 'buzzer':
       vis.volume = v > 0 && i >= 0.001 ? clamp(i / 0.03, 0, 1) : 0;

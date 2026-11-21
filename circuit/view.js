@@ -40,6 +40,23 @@ export function miniArt(type, style) {
   return `<svg viewBox="-92 ${top} 184 ${bottom - top}" aria-hidden="true">${art}</svg>`;
 }
 
+const paramBtn = (key, v, text, cls = '', extra = '') =>
+  `<button class="btn${cls}" data-action="param" data-key="${key}" data-value='${JSON.stringify(v)}'${extra}>${text}</button>`;
+
+// 一个参数的面板控件：options 是一排按钮；presets 是「− 值 +」加一排快捷档。
+export function paramHtml(key, d, value) {
+  const ui = PARAM_UI[key];
+  let out = `<div class="param-name">${ui.name}</div>`;
+  if (d.options) {
+    return out + `<div class="row">${d.options.map(v => paramBtn(key, v, ui.label(v), value === v ? ' on' : '')).join('')}</div>`;
+  }
+  if (!d.presets) return '';
+  const lo = Math.max(d.min, value - 1), hi = Math.min(d.max, value + 1);
+  out += `<div class="row stepper">${paramBtn(key, lo, '−', '', lo === value ? ' disabled' : '')}` +
+    `<span class="step-value">${ui.label(value)}</span>${paramBtn(key, hi, '+', '', hi === value ? ' disabled' : '')}</div>`;
+  return out + `<div class="row presets">${d.presets.map(v => paramBtn(key, v, String(v), value === v ? ' on' : '')).join('')}</div>`;
+}
+
 // 按 id 同步一组子元素：只替换内容变化了的元素。
 export function sync(group, cache, items) {
   const keep = new Set(items.map(it => it.id));
@@ -173,10 +190,8 @@ function renderPanel(dom, state, space) {
           if (rows.length) body += `<dl class="specs">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>`;
         }
         for (const [k, d] of Object.entries(def.params)) {
-          if (locked.includes(k) || !PARAM_UI[k] || !d.options) continue;
-          body += `<div class="param-name">${PARAM_UI[k].name}</div><div class="row">` +
-            d.options.map(v => `<button class="btn${p.params[k] === v ? ' on' : ''}" data-action="param" data-key="${k}" data-value='${JSON.stringify(v)}'>${PARAM_UI[k].label(v)}</button>`).join('') +
-            '</div>';
+          if (locked.includes(k) || !PARAM_UI[k]) continue;
+          body += paramHtml(k, d, p.params[k]);
         }
         if (p.type === 'rheostat') {
           body += `<div class="param-name">滑片位置</div><input type="range" min="0" max="1" step="0.01" value="${p.params.pos}" data-key="pos">`;

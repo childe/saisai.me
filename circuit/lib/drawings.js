@@ -1,5 +1,5 @@
 // 每种元件两种画法（实物卡通 / 标准符号）的 SVG 片段。本地坐标：SVG 单位，端点在 termPos × GRID。
-import { PARTS } from './parts.js';
+import { PARTS, PHYS } from './parts.js';
 import { GRID, LEVER_RECT, rotatePoint } from './geometry.js';
 import { resistorBands } from './viewmodel.js';
 
@@ -43,6 +43,10 @@ function lever(on, symbol, R = LEVER_RECT) {
 const glowCircle = (cx, cy, base, glow, color = '#ffd84d') =>
   `<circle class="glow" cx="${n(cx)}" cy="${n(cy)}" r="${n(base + glow * 28)}" fill="${color}" opacity="${n(Math.min(0.9, 0.25 + glow * 0.3) * 100) / 100}"/>`;
 
+// 烧坏的那一下：爆炸星和「砰！」，CSS 播一次后淡出。放在 .burnt 外面，不跟着变灰。
+const BOOM = '<g class="bubble boom"><path d="M0 -38 L9 -14 L34 -20 L18 0 L34 20 L9 14 L0 38 L-9 14 L-34 20 L-18 0 L-34 -20 L-9 -14 Z" fill="#ffb703" stroke="#d62d20" stroke-width="3"/>' +
+  '<text x="0" y="7" text-anchor="middle" font-weight="bold">砰！</text></g>';
+
 const LED_COLORS = { red: '#ff4b3e', green: '#3ccf5a', blue: '#3c8bff', yellow: '#ffd23c' };
 
 const DRAW = {
@@ -52,10 +56,14 @@ const DRAW = {
       ? `<circle class="node-dot" data-term="o" cx="0" cy="0" r="7" fill="#b87333" stroke="${INK}" stroke-width="2"/>`
       : `<circle class="node-dot" data-term="o" cx="0" cy="0" r="5" fill="${INK}"/>`;
   },
+  // 卡通：1–4 节一节一节画，5–20 节画成电池盒，21 节以上画成能量箱（通电时抖动）。
+  // 符号：超过 4 节按电池组惯例画前两节、虚线、最后一节。超过 36V 头上挂「高压危险」。
   battery(part, style, vis) {
     const cells = part.params.cells;
+    const volts = cells * PHYS.V_CELL;
+    const look = cells <= 4 ? 'cells' : cells <= 20 ? 'box' : 'power';
     let body = '';
-    if (style === 'cartoon') {
+    if (style === 'cartoon' && look === 'cells') {
       const w = 112 / cells;
       for (let k = 0; k < cells; k++) {
         const x = -56 + k * w;
@@ -64,20 +72,45 @@ const DRAW = {
         body += `<rect x="${n(x + w * 0.55)}" y="-18" width="${n(w * 0.4)}" height="36" fill="${INK}" opacity="0.18"/>`;
       }
       body = line(-80, 0, -58, 0) + line(80, 0, 56, 0) + body;
-      body += `<text x="-66" y="-24" class="pol">+</text><text x="62" y="-24" class="pol">−</text>`;
+    } else if (style === 'cartoon' && look === 'box') {
+      body = line(-80, 0, -58, 0) + line(80, 0, 58, 0) +
+        `<rect x="-58" y="-24" width="116" height="48" rx="9" fill="${vis.alarm ? '#ff6b5b' : '#4f6d8f'}" stroke="${INK}" stroke-width="3"/>`;
+      for (let k = 0; k < 3; k++) {
+        body += `<rect x="${-50 + k * 15}" y="-16" width="11" height="32" rx="3" fill="#f2b134" stroke="${INK}" stroke-width="2"/>`;
+      }
+      body += `<text x="20" y="6" text-anchor="middle" class="label" style="fill:#fff;font-weight:bold">${cells}节</text>`;
+    } else if (style === 'cartoon') {
+      body = line(-80, 0, -60, 0) + line(80, 0, 60, 0) +
+        (vis.energized ? glowCircle(0, 0, 44, 1, '#ffd23c') : '') +
+        `<rect x="-60" y="-30" width="120" height="60" rx="10" fill="${vis.alarm ? '#8a1f14' : '#2b2f3a'}" stroke="${INK}" stroke-width="3"/>` +
+        `<rect x="-54" y="-24" width="108" height="48" rx="7" fill="none" stroke="#ffd23c" stroke-width="2"/>` +
+        `<path d="M-30 -18 L-46 4 L-36 4 L-42 20 L-22 -4 L-32 -4 Z" fill="#ffd23c" stroke="${INK}" stroke-width="1.5"/>` +
+        `<text x="14" y="-2" text-anchor="middle" class="label" style="fill:#ffd23c;font-weight:bold">${volts}V</text>` +
+        `<text x="14" y="16" text-anchor="middle" class="label" style="fill:#fff">${cells}节</text>`;
+      if (vis.energized) body = `<g class="shake">${body}</g>`;
     } else {
-      const gap = 16, total = (cells - 1) * gap;
+      const gap = 16, shown = Math.min(cells, 4), total = (shown - 1) * gap;
+      const xs = Array.from({ length: shown }, (_, k) => -total / 2 + k * gap);
+      if (cells > 4) {
+        xs.splice(2, 1);
+        body += `<line x1="${n(xs[1] + 12)}" y1="0" x2="${n(xs[2] - 8)}" y2="0" stroke="${INK}" stroke-width="3" stroke-dasharray="4 5"/>`;
+      }
       body += line(-80, 0, -total / 2 - 4, 0) + line(80, 0, total / 2 + 10, 0);
-      for (let k = 0; k < cells; k++) {
-        const x = -total / 2 + k * gap;
+      for (const x of xs) {
         body += `<line x1="${n(x - 4)}" y1="-20" x2="${n(x - 4)}" y2="20" stroke="${vis.alarm ? '#d62d20' : INK}" stroke-width="3"/>`;
         body += `<line x1="${n(x + 6)}" y1="-10" x2="${n(x + 6)}" y2="10" stroke="${vis.alarm ? '#d62d20' : INK}" stroke-width="7"/>`;
       }
-      body += `<text x="0" y="-28" text-anchor="middle" class="label">${cells}×1.5V</text>`;
+      const label = cells <= 4 ? `${cells}×1.5V` : `${cells}节 ${volts}V`;
+      body += `<text x="0" y="-28" text-anchor="middle" class="label">${label}</text>`;
       body += `<text x="-66" y="-12" class="pol">+</text>`;
     }
+    if (style === 'cartoon') body += `<text x="-66" y="-24" class="pol">+</text><text x="62" y="-24" class="pol">−</text>`;
+    body = `<g data-look="${look}">${body}</g>`;
     if (vis.alarm) {
-      body = `<g class="alarm">${body}<g class="bubble"><rect x="-50" y="-78" width="100" height="30" rx="14" fill="#fff" stroke="#d62d20" stroke-width="3"/><text x="0" y="-57" text-anchor="middle" fill="#d62d20" font-weight="bold">短路啦！</text></g></g>`;
+      return `<g class="alarm">${body}<g class="bubble"><rect x="-50" y="-78" width="100" height="30" rx="14" fill="#fff" stroke="#d62d20" stroke-width="3"/><text x="0" y="-57" text-anchor="middle" fill="#d62d20" font-weight="bold">短路啦！</text></g></g>`;
+    }
+    if (volts > 36) {
+      body += `<g class="bubble hv"><rect x="-56" y="-80" width="112" height="28" rx="14" fill="#ffd23c" stroke="${INK}" stroke-width="2"/><text x="0" y="-60" text-anchor="middle" font-weight="bold">⚡高压危险</text></g>`;
     }
     return body;
   },
@@ -98,7 +131,7 @@ const DRAW = {
         `<circle cx="0" cy="0" r="20" fill="${burnt ? '#c9c4bc' : '#fff'}" stroke="${INK}" stroke-width="3"/>` +
         (burnt ? line(-14, -14, -3, -3) + line(14, 14, 3, 3) : line(-14, -14, 14, 14) + line(-14, 14, 14, -14));
     }
-    return burnt ? `<g class="burnt">${body}</g>` : body;
+    return burnt ? `<g class="burnt">${body}</g>${BOOM}` : body;
   },
 
   switch(part, style) {
@@ -152,7 +185,7 @@ const DRAW = {
         `<path d="M-14 -16 L-14 16 L14 0 Z" fill="${fill}" stroke="${INK}" stroke-width="3"/>` + line(14, -16, 14, 16) +
         `<path d="M4 -20 L14 -32 M10 -32 L14 -32 L14 -28 M14 -16 L24 -28 M20 -28 L24 -28 L24 -24" fill="none" stroke="${INK}" stroke-width="2"/>` + smoke;
     }
-    return burnt ? `<g class="burnt">${body}</g>` : body;
+    return burnt ? `<g class="burnt">${body}</g>${BOOM}` : body;
   },
 
   resistor(part, style) {
@@ -247,7 +280,7 @@ const DRAW = {
         (burnt ? line(-32, 0, -8, 0) + line(8, 0, 32, 0) : line(-32, 0, 32, 0)) +
         `<text x="0" y="34" text-anchor="middle" class="label">${part.params.rating}A</text>`;
     }
-    return burnt ? `<g class="burnt">${body}</g>` : body;
+    return burnt ? `<g class="burnt">${body}</g>${BOOM}` : body;
   },
 
   // 继电器：左边线圈，右边一组单刀双掷触点（动片绕右侧支点转），虚线表示铁片带动动片。
@@ -390,7 +423,7 @@ function tagLabel(part) {
 
 // 文字基线到字形中心的大致偏移（约 0.35em），按 styles.css 里的字号。
 const TEXT_MID = { label: 5, pol: 6, sym: 8, reading: 6, digit: 21, ghost: 21 };
-const BUBBLE_RE = /<g class="bubble">[\s\S]*?<\/g>/;
+const BUBBLE_RE = /<g class="bubble[^"]*">[\s\S]*?<\/g>/;
 
 // 元件整体随 rot 旋转；文字绕自己的字形中心转回来保持正向；
 // 报警气泡整体绕元件中心转回来，始终在元件上方。

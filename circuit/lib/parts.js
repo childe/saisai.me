@@ -41,7 +41,11 @@ export const PART_TYPES = Object.freeze([
 const two = (t0, t1) => ({ terms: [t0, t1], termPos: { [t0]: [-2, 0], [t1]: [2, 0] } });
 
 export const PARTS = Object.freeze({
-  battery: { label: '电池', ...two('p', 'n'), params: { cells: { default: 1, options: [1, 2, 3, 4] } }, lever: false },
+  // presets：面板上的快捷档；节数本身是 min–max 的整数，用加减按钮调。
+  battery: {
+    label: '电池', ...two('p', 'n'),
+    params: { cells: { default: 1, min: 1, max: 100, int: true, presets: [1, 2, 4, 10, 50, 100] } }, lever: false,
+  },
   lamp: { label: '小灯泡', ...two('a', 'b'), params: {}, lever: false },
   switch: { label: '开关', ...two('a', 'b'), params: { closed: { default: false, options: [false, true] } }, lever: true },
   led: { label: 'LED', ...two('a', 'k'), params: { color: { default: 'red', options: ['red', 'green', 'blue', 'yellow'] } }, lever: false },
@@ -102,5 +106,6 @@ export function isValidParam(type, key, value) {
   const def = PARTS[type]?.params?.[key];
   if (!def) return false;
   if (def.options) return def.options.includes(value);
-  return typeof value === 'number' && Number.isFinite(value) && value >= def.min && value <= def.max;
+  return typeof value === 'number' && Number.isFinite(value) && value >= def.min && value <= def.max &&
+    (!def.int || Number.isInteger(value));
 }
