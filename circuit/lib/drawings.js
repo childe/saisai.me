@@ -66,10 +66,15 @@ const DRAW = {
       body = line(-80, 0, -58, 0) + line(80, 0, 56, 0) + body;
       body += `<text x="-66" y="-24" class="pol">+</text><text x="62" y="-24" class="pol">−</text>`;
     } else {
-      const gap = 16, total = (cells - 1) * gap;
+      // 超过 4 节按电池组惯例画：前两节、虚线、最后一节，节数看标签。
+      const gap = 16, shown = Math.min(cells, 4), total = (shown - 1) * gap;
+      const xs = Array.from({ length: shown }, (_, k) => -total / 2 + k * gap);
+      if (cells > 4) {
+        xs.splice(2, 1);
+        body += line(xs[1] + 13, 0, xs[2] - 8, 0, ' stroke-dasharray="1 6"');
+      }
       body += line(-80, 0, -total / 2 - 4, 0) + line(80, 0, total / 2 + 10, 0);
-      for (let k = 0; k < cells; k++) {
-        const x = -total / 2 + k * gap;
+      for (const x of xs) {
         body += `<line x1="${n(x - 4)}" y1="-20" x2="${n(x - 4)}" y2="20" stroke="${vis.alarm ? '#d62d20' : INK}" stroke-width="3"/>`;
         body += `<line x1="${n(x + 6)}" y1="-10" x2="${n(x + 6)}" y2="10" stroke="${vis.alarm ? '#d62d20' : INK}" stroke-width="7"/>`;
       }

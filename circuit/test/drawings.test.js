@@ -111,3 +111,15 @@ test('capacitor shows farads label and charge bar', () => {
     assert.notEqual(drawPart(mk('capacitor'), style, vis({ charge: 0 })), drawPart(mk('capacitor'), style, vis({ charge: 1 })), style);
   }
 });
+
+test('battery offers 1–10 cells and every count fits between the leads', () => {
+  assert.deepEqual(PARTS.battery.params.cells.options, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  for (const cells of PARTS.battery.params.cells.options) {
+    const s = drawPart(mk('battery', { cells }), 'symbol', vis());
+    const plates = [...s.matchAll(/<line x1="(-?[\d.]+)" y1="-(?:20|10)"/g)].map(m => +m[1]);
+    assert.ok(plates.length >= 2, `${cells} plates`);
+    for (const x of plates) assert.ok(x > -60 && x < 60, `${cells} cells plate at ${x}`);
+    assert.match(s, new RegExp(`${cells}×1.5V`));
+    assert.doesNotMatch(drawPart(mk('battery', { cells }), 'cartoon', vis()), /NaN|width="-/);
+  }
+});
