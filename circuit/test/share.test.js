@@ -53,7 +53,7 @@ test('decode rejects garbage without throwing', async () => {
   bad.push(mut(o => { o.p[1][4] = 4; }));
   bad.push(mut(o => { o.p[1][2] = 1.5; }));
   bad.push(mut(o => { o.p[1][2] = 999; }));
-  bad.push(mut(o => { o.p[0][5] = { cells: 9 }; }));
+  bad.push(mut(o => { o.p[0][5] = { cells: 11 }; }));
   bad.push(mut(o => { o.p[1][5] = { color: 'red' }; }));
   bad.push(mut(o => { o.p[1][0] = 'p1'; }));
   bad.push(mut(o => { o.p[1][0] = 'p20'; }));
