@@ -41,7 +41,7 @@ export const PART_TYPES = Object.freeze([
 const two = (t0, t1) => ({ terms: [t0, t1], termPos: { [t0]: [-2, 0], [t1]: [2, 0] } });
 
 export const PARTS = Object.freeze({
-  battery: { label: '电池', ...two('p', 'n'), params: { cells: { default: 1, options: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] } }, lever: false },
+  battery: { label: '电池', ...two('p', 'n'), params: { cells: { default: 1, options: [1, 2, 3, 4] } }, lever: false },
   lamp: { label: '小灯泡', ...two('a', 'b'), params: {}, lever: false },
   switch: { label: '开关', ...two('a', 'b'), params: { closed: { default: false, options: [false, true] } }, lever: true },
   led: { label: 'LED', ...two('a', 'k'), params: { color: { default: 'red', options: ['red', 'green', 'blue', 'yellow'] } }, lever: false },
