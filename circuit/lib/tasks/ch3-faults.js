@@ -48,6 +48,8 @@ export const CH3_FAULTS = [
       const high = ofType(ws.circuit, 'voltmeter').some(v => Math.abs(ws.result.parts[v.id]?.v ?? 0) >= 2.5);
       const sawOpen = progress.sawOpen || (!!S && now.includes(`part:${S.id}`) && high);
       const next = fresh.length || sawOpen !== progress.sawOpen ? { ...progress, probed: [...old, ...fresh], sawOpen } : progress;
+      // 开关被合上后读数会反过来（开关 0 V、灯 3 V），和说明对不上，先让孩子断开。
+      if (S?.params.closed) return result(false, next, '把开关断开，再量一量');
       const passed = next.sawOpen && !!S && !!L && next.probed.includes(`part:${S.id}`) && next.probed.includes(`part:${L.id}`);
       return result(passed, next, next.probed.length ? null : MEASURE_FIRST);
     },

@@ -107,9 +107,21 @@ test('task 48: measuring the lamp only, or the switch only while closed, does no
   const closed = withParams(c, { [S.id]: { closed: true } });
   const onS = withVoltmeter(closed, S.id, 'a', S.id, 'b');
   let r = evaluateTask(t, t.initProgress(), wsOf(onS.circuit));
-  assert.equal(r.hint, null);
+  assert.equal(r.hint, '把开关断开，再量一量');
   r = evaluateTask(t, r.progress, wsOf(withVoltmeter(closed, L.id, 'a', L.id, 'b').circuit));
   assert.equal(r.passed, false);
+});
+
+test('task 48: closing the switch gets a hint to open it again, even before measuring', () => {
+  const t = T(48);
+  const c = t.preset();
+  const S = ofType(c, 'switch')[0];
+  const closed = withParams(c, { [S.id]: { closed: true } });
+  const r = evaluateTask(t, t.initProgress(), wsOf(closed));
+  assert.equal(r.passed, false);
+  assert.equal(r.hint, '把开关断开，再量一量');
+  // 断开后回到「先量一量」
+  assert.equal(evaluateTask(t, r.progress, wsOf(c)).hint, '先用电压表量一量');
 });
 
 test('task 22: four long preset wires, one open per variant, no node parts, all lamps dark', () => {
