@@ -133,7 +133,7 @@ export function metersRead(ws) {
   }));
 }
 
-const MEASURE_FIRST = '先用电压表量一量';
+export const MEASURE_FIRST = '先用电压表量一量';
 const endKey = e => `${e.part}.${e.term}`;
 
 // 只走导线和重合端点（不穿过元件）的连通关系，返回 find(端点键) → 所在网络；skip 是不走的那根导线。

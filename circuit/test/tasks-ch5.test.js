@@ -85,3 +85,8 @@ test('task 23: each variant puts the fault on one throw of one spdt', () => {
   }
   assert.equal(seen.size, 4);
 });
+
+test('task 23: goal and how texts', () => {
+  assert.equal(T(23).goal, '找出坏掉的那个开关');
+  assert.ok(T(23).how.includes('公共端'));
+});

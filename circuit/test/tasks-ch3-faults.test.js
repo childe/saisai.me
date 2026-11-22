@@ -20,14 +20,14 @@ function withVoltmeter(c, a, ta, b, tb) {
   return { circuit: r.circuit, vid: p.id };
 }
 
-test('chapter 3 ends with 21, 22, both locked preset with fault progress', () => {
-  assert.deepEqual(TASKS.filter(t => t.chapter === 3).map(t => t.id).slice(-2), [21, 22]);
+test('chapter 3 ends with 48, 21, 22; 21 and 22 are locked preset with fault progress', () => {
+  assert.deepEqual(TASKS.filter(t => t.chapter === 3).map(t => t.id), [11, 12, 13, 14, 15, 16, 48, 21, 22]);
   for (const id of [21, 22]) {
     assert.equal(T(id).lockPreset, true);
     assert.deepEqual(T(id).initProgress(), { found: false, probed: [] });
   }
   assert.deepEqual(T(21).palette, { voltmeter: 1 });
-  assert.deepEqual(T(22).palette, { voltmeter: 1, ammeter: 1 });
+  assert.deepEqual(T(22).palette, { voltmeter: 1 });
   assert.deepEqual(T(21).suspect, { types: ['lamp'], name: '灯' });
   assert.deepEqual(T(22).suspect, { types: ['wire'], name: '导线' });
   assert.deepEqual(T(23).suspect, { types: ['spdt'], name: '开关' });
@@ -74,26 +74,83 @@ test('task 21: faulty lamp is a lamp; voltmeter across it reads the battery, acr
   }
 });
 
-test('task 22: fault is on a branch wire not touching L2, common part is fine', () => {
+test('task 48: preset switch open and lamp dark; measuring switch (3 V) then lamp (0 V) passes', () => {
+  const t = T(48);
+  assert.equal(t.accuse, undefined);
+  assert.equal(t.lockPreset, true);
+  assert.deepEqual(t.palette, { voltmeter: 1 });
+  const c = t.preset();
+  const S = ofType(c, 'switch')[0], L = ofType(c, 'lamp')[0];
+  assert.equal(S.params.closed, false);
+  assert.ok([...c.parts, ...c.wires].every(x => x.preset));
+  assert.equal(lampLit(wsOf(c).result, new Set(), L.id), false);
+  let r = evaluateTask(t, t.initProgress(), wsOf(c));
+  assert.equal(r.hint, '先用电压表量一量');
+  assert.equal(r.passed, false);
+  const onS = withVoltmeter(c, S.id, 'a', S.id, 'b');
+  assert.ok(Math.abs(solve(onS.circuit, new Set()).parts[onS.vid].v) >= 2.9);
+  r = evaluateTask(t, r.progress, wsOf(onS.circuit));
+  assert.equal(r.passed, false);
+  assert.equal(r.hint, null);
+  const onL = withVoltmeter(c, L.id, 'a', L.id, 'b');
+  assert.ok(Math.abs(solve(onL.circuit, new Set()).parts[onL.vid].v) < 0.1);
+  r = evaluateTask(t, r.progress, wsOf(onL.circuit));
+  assert.equal(r.passed, true);
+});
+
+test('task 48: measuring the lamp only, or the switch only while closed, does not pass', () => {
+  const t = T(48);
+  const c = t.preset();
+  const S = ofType(c, 'switch')[0], L = ofType(c, 'lamp')[0];
+  const onL = withVoltmeter(c, L.id, 'a', L.id, 'b');
+  assert.equal(evaluateTask(t, t.initProgress(), wsOf(onL.circuit)).passed, false);
+  const closed = withParams(c, { [S.id]: { closed: true } });
+  const onS = withVoltmeter(closed, S.id, 'a', S.id, 'b');
+  let r = evaluateTask(t, t.initProgress(), wsOf(onS.circuit));
+  assert.equal(r.hint, null);
+  r = evaluateTask(t, r.progress, wsOf(withVoltmeter(closed, L.id, 'a', L.id, 'b').circuit));
+  assert.equal(r.passed, false);
+});
+
+test('task 22: four long preset wires, one open per variant, no node parts, all lamps dark', () => {
   const t = T(22);
-  assert.ok(t.variants.length >= 2);
+  assert.deepEqual(t.variants, [0, 1, 2, 3]);
+  const seen = new Set();
   for (const v of t.variants) {
     const c = t.preset(v);
-    const bad = faulty(c)[0];
-    assert.ok(c.wires.includes(bad), 'fault is a wire');
-    assert.equal(bad.fault, 'open');
-    const l2 = c.parts.filter(p => p.type === 'lamp')[1].id;
-    assert.notEqual(bad.a.part, l2);
-    assert.notEqual(bad.b.part, l2);
+    assert.equal(c.wires.length, 4);
+    assert.equal(ofType(c, 'node').length, 0);
+    assert.equal(faulty(c).length, 1);
+    assert.ok(c.wires.includes(faulty(c)[0]));
+    assert.equal(faulty(c)[0].fault, 'open');
+    seen.add(faulty(c)[0].id);
+    assert.ok(ofType(c, 'switch')[0].params.closed);
     const ws = wsOf(c, v);
-    const lamps = ofType(c, 'lamp');
-    assert.equal(lampLit(ws.result, new Set(), lamps[0].id), true, 'L1 lit');
-    assert.equal(lampLit(ws.result, new Set(), lamps[1].id), false, 'L2 dark');
-    assert.ok(ofType(c, 'switch')[0].params.closed, 'switch is closed');
-    assert.ok(ofType(c, 'node').length >= 2);
-    assert.ok(c.wires.filter(w => w.a.part !== lamps[1].id && w.b.part !== lamps[1].id &&
-      (ofType(c, 'node').some(n => n.id === w.a.part) || ofType(c, 'node').some(n => n.id === w.b.part))).length >= 2);
+    assert.equal(ws.result.ok, true);
+    assert.ok(ofType(c, 'lamp').every(l => !lampLit(ws.result, new Set(), l.id)));
+    for (const w of c.wires) {
+      const m = withVoltmeter(c, w.a.part, w.a.term, w.b.part, w.b.term);
+      const reading = Math.abs(solve(m.circuit, new Set()).parts[m.vid].v);
+      if (w.fault) assert.ok(reading >= 2.9, `variant ${v} bad wire reads ${reading}`);
+      else assert.ok(reading < 0.1, `variant ${v} good wire reads ${reading}`);
+    }
+    for (const l of ofType(c, 'lamp')) {
+      const m = withVoltmeter(c, l.id, 'a', l.id, 'b');
+      assert.ok(Math.abs(solve(m.circuit, new Set()).parts[m.vid].v) < 0.1, `variant ${v} lamp not 0 V`);
+    }
   }
+  assert.equal(seen.size, 4);
+});
+
+test('goal and how texts of the fault levels', () => {
+  assert.equal(T(48).name, '断开的地方');
+  assert.equal(T(48).goal, '量一量断开的开关');
+  assert.ok(T(48).how.includes('断开的地方能量到电池的 3 V'));
+  assert.equal(T(21).goal, '找出坏掉的那一盏灯');
+  assert.ok(T(21).how.includes('读到 3 V 的就是它'));
+  assert.equal(T(22).name, '哪根线断了');
+  assert.equal(T(22).goal, '找出断掉的那根导线');
+  assert.ok(T(22).how.includes('点那根线'));
 });
 
 // 目标的两个不同端点：导线是两头，元件取前两个端点。
@@ -166,24 +223,6 @@ test('probe: voltmeter leads must reach two different ends of the target through
   const w = c.wires.find(x => x.a.part === l1.id && x.a.term === 'b');
   const m3 = withVoltmeter(c, l1.id, 'b', l1.id, 'b');
   assert.ok(!evaluateTask(t, t.initProgress(), wsOf(m3.circuit, 'L1')).progress.probed.includes(`wire:${w.id}`));
-});
-
-test('task 22: at least 3 candidate wires, one fault each, L1 lit, trunk intact', () => {
-  const t = T(22);
-  assert.ok(t.variants.length >= 3);
-  const seen = new Set();
-  for (const v of t.variants) {
-    const c = t.preset(v);
-    const bad = faulty(c);
-    assert.equal(bad.length, 1);
-    assert.ok(c.wires.includes(bad[0]));
-    const l2 = ofType(c, 'lamp')[1].id;
-    assert.ok(bad[0].a.part !== l2 && bad[0].b.part !== l2);
-    seen.add(bad[0].id);
-    const ws = wsOf(c, v);
-    assert.equal(lampLit(ws.result, new Set(), ofType(c, 'lamp')[0].id), true);
-  }
-  assert.equal(seen.size, t.variants.length);
 });
 
 test('check: hint until something is probed, probed sticks, passed follows found', () => {

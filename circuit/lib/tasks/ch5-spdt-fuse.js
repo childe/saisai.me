@@ -52,7 +52,8 @@ export const CH5 = [
     },
   },
   faultTask({
-    id: 23, chapter: 5, name: '失灵的开关', goal: '楼梯灯有时不亮，找出哪个开关坏了',
+    id: 23, chapter: 5, name: '失灵的开关', goal: '找出坏掉的那个开关',
+    how: '这是你上一关搭的楼梯灯，可是有一个开关坏了。先拨一拨：两个开关拨到同一边时灯该亮，哪种拨法不亮？把电压表接在那个开关的公共端（没标字母的那一头）和它拨到的那一边，读到 3 V 的就是坏的。',
     palette: { voltmeter: 1 }, variants: ['S1.a', 'S1.b', 'S2.a', 'S2.b'], preset: stairsPreset, suspect: { types: ['spdt'], name: '开关' },
   }),
   {

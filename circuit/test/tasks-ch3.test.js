@@ -190,7 +190,7 @@ test('task 16: burned without an ammeter in series does not count', () => {
 });
 
 test('chapter 3 lists tasks 11..16 then the fault levels', () => {
-  assert.deepEqual(TASKS.filter(t => t.chapter === 3).map(t => t.id), [11, 12, 13, 14, 15, 16, 21, 22]);
+  assert.deepEqual(TASKS.filter(t => t.chapter === 3).map(t => t.id), [11, 12, 13, 14, 15, 16, 48, 21, 22]);
 });
 
 test('task 13 question uses the physical cell voltage', () => {

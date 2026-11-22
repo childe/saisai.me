@@ -144,12 +144,12 @@ test('lockPreset blocks edits of preset items (level 22)', () => {
   assert.notEqual(play(s, { type: 'toggle', id: sw.id }), s);
 });
 
-test('connect to a non-preset wire is still allowed under lockPreset', () => {
-  let s = enter(22);
-  s = play(s, { type: 'place', partType: 'voltmeter', x: 20, y: 18 }, { type: 'place', partType: 'ammeter', x: 24, y: 18 });
-  const a = T(s).circuit.parts.find(p => p.type === 'voltmeter');
-  const b = T(s).circuit.parts.find(p => p.type === 'ammeter');
-  s = play(s, { type: 'connect', from: { part: a.id, term: 'p' }, to: { part: b.id, term: 'p' } });
+test('connect between own parts is still allowed under lockPreset (level 38)', () => {
+  let s = enter(38);
+  s = play(s, { type: 'place', partType: 'battery', x: 20, y: 18 }, { type: 'place', partType: 'rheostat', x: 26, y: 18 });
+  const a = T(s).circuit.parts.find(p => p.type === 'battery');
+  const b = T(s).circuit.parts.find(p => p.type === 'rheostat');
+  s = play(s, { type: 'connect', from: { part: a.id, term: 'p' }, to: { part: b.id, term: 'a' } });
   assert.equal(T(s).circuit.wires.filter(w => !w.preset).length, 1);
 });
 
