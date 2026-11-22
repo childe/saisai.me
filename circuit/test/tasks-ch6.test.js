@@ -582,3 +582,11 @@ test('40 toggle: wirings that only flicker while the button is held do not pass'
     assert.equal(s.task.passed, false, `接法 ${i}`);
   }
 });
+
+test('40 and 41 keep the goal short and explain the relay names in the how line before the wiring', () => {
+  const t40 = TASKS.find(t => t.id === 40), t41 = TASKS.find(t => t.id === 41);
+  assert.equal(t40.goal, '按一下，显示器在 0 和 1 之间换一下，连着换 4 次过关');
+  assert.equal(t40.how, '板子上四个继电器各有名字：「现」记着现在的数，「下」算下一个数，两个「按」跟着按钮换接法。要接两根线：「现」的常开触点接到左边「按」的常闭触点，让「现」记住现在的数；「现」的常闭触点接到右边「按」的常闭触点，下一个数就是现在反过来。');
+  assert.equal(t41.goal, '按一下加 1：0、1、2，再回到 0，转两圈过关');
+  assert.equal(t41.how, '继电器都有名字。上排是第 1 位：「现1」记着它现在的数，「下1」算它下一个数；下排是第 2 位：两个「现2」一起吸合，记着第 2 位的数，「下2」算它下一个数；每个「按」都跟着按钮换接法。要接两根线：「现1」的常开触点接到「下2」旁边「按」的常闭触点（现在是 1，下一个就是 2）；「现1」的常闭触点接到最左边「现2」的公共端（现1、现2 都没吸合，下一个就是 1）。');
+});
