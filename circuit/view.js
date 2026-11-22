@@ -167,19 +167,21 @@ function renderPanel(dom, state, space) {
   const sel = state.selection;
   let readingNow = null;
   const { circuit, damage } = space;
+  const task = state.mode === 'task' ? TASKS[state.task.index] : null;
+  // 锁定关里的预置元件、导线不能删不能转，面板上就不给这两个按钮。
+  const lockedItem = item => !!task?.lockPreset && !!item.preset;
   let html = null, key = 'none';
   if (sel?.kind === 'part') {
     const p = circuit.parts.find(x => x.id === sel.id);
     if (p?.type === 'node') {
-      key = JSON.stringify(['node', p.id]);
-      if (key !== panelKey) html = '<h2>连接点</h2><div class="row"><button class="btn danger" data-action="deletePart">删除</button></div>';
+      key = JSON.stringify(['node', p.id, state.mode, lockedItem(p)]);
+      if (key !== panelKey) html = '<h2>连接点</h2>' + (lockedItem(p) ? '' : '<div class="row"><button class="btn danger" data-action="deletePart">删除</button></div>');
     } else if (p) {
       const def = PARTS[p.type];
-      const task = state.mode === 'task' ? TASKS[state.task.index] : null;
       const locked = task?.locked?.[p.type] ?? [];
       const { pos, ...rest } = p.params;
       const burnt = !!damage.broken[p.id];
-      key = JSON.stringify(['part', p.id, rest, burnt, locked, state.mode]);
+      key = JSON.stringify(['part', p.id, rest, burnt, locked, state.mode, lockedItem(p)]);
       if (key !== panelKey) {
         // 规格和读数只在自由搭建里给：小任务里有猜读数、测极限、找故障的关，会被它们泄题。
         const free = state.mode === 'free';
@@ -201,7 +203,7 @@ function renderPanel(dom, state, space) {
         if (def.lever && p.type !== 'button') extra.push('<button class="btn" data-action="toggle">切换</button>');
         if (burnt) extra.push('<button class="btn on" data-action="repair">换新</button>');
         if (extra.length) body += `<div class="row">${extra.join('')}</div>`;
-        body += '<div class="row"><button class="btn" data-action="rotate">旋转 90°</button><button class="btn danger" data-action="deletePart">删除</button></div>';
+        if (!lockedItem(p)) body += '<div class="row"><button class="btn" data-action="rotate">旋转 90°</button><button class="btn danger" data-action="deletePart">删除</button></div>';
         html = body;
       }
       readingNow = readingText(p, space.result.ok ? space.result.parts[p.id] : undefined, space.result.ok);
@@ -210,11 +212,11 @@ function renderPanel(dom, state, space) {
     }
   } else if (sel?.kind === 'wire' && circuit.wires.some(w => w.id === sel.id)) {
     const w = circuit.wires.find(x => x.id === sel.id);
-    key = JSON.stringify(['wire', sel.id, state.mode]);
+    key = JSON.stringify(['wire', sel.id, state.mode, lockedItem(w)]);
     if (key !== panelKey) {
       html = '<h2>导线</h2>' +
         (state.mode === 'free' ? `<dl class="specs"><dt>电阻</dt><dd>${formatOhms(wireR(w))}</dd></dl>` : '') +
-        '<div class="row"><button class="btn danger" data-action="deleteWire">删除</button></div>';
+        (lockedItem(w) ? '' : '<div class="row"><button class="btn danger" data-action="deleteWire">删除</button></div>');
     }
   }
   if (key === 'none') {

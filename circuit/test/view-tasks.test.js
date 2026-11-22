@@ -18,6 +18,10 @@ test('taskListHtml groups 47 levels under 7 chapter headings', () => {
   assert.ok(html.includes('第 3 章 · 电表'));
   assert.ok(html.includes('第 6 关 · LED 能受多大电流'));
   assert.ok(html.includes('data-task="15"'));
+  // 第 3 章末尾是教学关「断开的地方」，第 5 章第 2 关是挪过来的「失灵的开关」
+  const at = s => html.indexOf(s);
+  assert.ok(at('第 3 章 · 电表') < at('第 7 关 · 断开的地方') && at('第 7 关 · 断开的地方') < at('第 4 章 · 混联'));
+  assert.ok(at('第 5 章 · 单刀双掷开关与保险丝') < at('第 2 关 · 失灵的开关') && at('第 2 关 · 失灵的开关') < at('第 6 章 · 逻辑与加法器'));
 });
 
 test('taskbarHtml: predict level shows answer row, disabled after submit', () => {
@@ -34,11 +38,20 @@ test('taskbarHtml: predict level shows answer row, disabled after submit', () =>
   assert.ok(h2.includes('value="0.15"'));
 });
 
-test('taskbarHtml: accuse button disabled until measured and a preset item is selected', () => {
+test('taskbarHtml: accuse button disabled with a prompt while nothing is selected', () => {
   const s = inLevel(21);
   const html = taskbarHtml(s);
   assert.match(html, /<button[^>]*data-task-action="accuse"[^>]*disabled/);
   assert.ok(html.includes('就是它坏了！'));
+  assert.ok(html.includes('点一下你觉得坏的那个，再按这里'));
+});
+
+test('taskbarHtml: how line shows for fault levels only', () => {
+  const html = taskbarHtml(inLevel(21));
+  assert.ok(html.includes('<div class="task-how">'));
+  assert.ok(html.includes('读到 3 V 的就是它'));
+  assert.ok(html.includes('第 3 章 · 第 8 关 · 哪盏灯坏了：找出坏掉的那一盏灯'));
+  assert.ok(!taskbarHtml(inTask(0)).includes('task-how'));
 });
 
 const play = (s, ...as) => as.reduce(reduce, s);
@@ -50,23 +63,45 @@ const across = (s, e1, e2) => {
 };
 const accuseBtn = html => html.match(/<button[^>]*data-task-action="accuse"[^>]*>/)[0];
 
-test('taskbarHtml: accuse needs the selected item probed; disabled after passing', () => {
+const TIPS = ['点一下你觉得坏的那个，再按这里', '这关坏的是灯，不是它', '先把电压表接在它两端量一量'];
+
+test('taskbarHtml: accuse states — non-suspect, unprobed suspect, probed suspect, passed', () => {
   let s = inLevel(21);
   const bat = s.task.circuit.parts.find(p => p.type === 'battery');
   const lamp = s.task.circuit.parts.find(p => p.type === 'lamp' && p.fault);
   s = across(s, { part: bat.id, term: 'p' }, { part: bat.id, term: 'n' });
   assert.ok(s.task.progress.probed.includes(`part:${bat.id}`));
-  s = play(s, { type: 'select', target: { kind: 'part', id: lamp.id } });
+  // 选中电池：量过了，但这关坏的是灯
+  s = play(s, { type: 'select', target: { kind: 'part', id: bat.id } });
   let html = taskbarHtml(s);
   assert.match(accuseBtn(html), /disabled/);
+  assert.ok(html.includes('这关坏的是灯，不是它'));
+  // 选中没量过的坏灯
+  s = play(s, { type: 'select', target: { kind: 'part', id: lamp.id } });
+  html = taskbarHtml(s);
+  assert.match(accuseBtn(html), /disabled/);
   assert.ok(html.includes('先把电压表接在它两端量一量'));
+  // 量过坏灯再选中：可点，没有说明
   s = across(s, { part: lamp.id, term: 'a' }, { part: lamp.id, term: 'b' });
   s = play(s, { type: 'select', target: { kind: 'part', id: lamp.id } });
   html = taskbarHtml(s);
   assert.doesNotMatch(accuseBtn(html), /disabled/);
-  assert.ok(!html.includes('先把电压表接在它两端量一量'));
+  assert.ok(TIPS.every(tip => !html.includes(tip)));
   const passed = { ...s, task: { ...s.task, passed: true } };
-  assert.match(accuseBtn(taskbarHtml(passed)), /disabled/);
+  const h = taskbarHtml(passed);
+  assert.match(accuseBtn(h), /disabled/);
+  assert.ok(TIPS.every(tip => !h.includes(tip)));
+});
+
+test('taskbarHtml: selecting your own voltmeter counts as nothing selected', () => {
+  let s = inLevel(21);
+  const bat = s.task.circuit.parts.find(p => p.type === 'battery');
+  s = across(s, { part: bat.id, term: 'p' }, { part: bat.id, term: 'n' });
+  const m = s.task.circuit.parts.find(p => p.type === 'voltmeter');
+  s = play(s, { type: 'select', target: { kind: 'part', id: m.id } });
+  const html = taskbarHtml(s);
+  assert.match(accuseBtn(html), /disabled/);
+  assert.ok(html.includes('点一下你觉得坏的那个，再按这里'));
 });
 
 test('taskbarHtml: answer row disabled once passed (level 16)', () => {
