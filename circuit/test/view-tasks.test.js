@@ -8,10 +8,10 @@ const T = id => TASKS.find(t => t.id === id);
 const inTask = index => reduce(reduce(createEditor(), { type: 'setMode', mode: 'task' }), { type: 'chooseTask', index });
 const inLevel = id => inTask(TASKS.indexOf(T(id)));
 
-test('taskListHtml groups 47 levels under 7 chapter headings', () => {
+test('taskListHtml groups 48 levels under 7 chapter headings', () => {
   const html = taskListHtml();
   assert.equal((html.match(/<h3>/g) || []).length, 7);
-  assert.equal((html.match(/data-task=/g) || []).length, 47);
+  assert.equal((html.match(/data-task=/g) || []).length, 48);
   assert.ok(html.includes('第 7 章 · 电容与定时'));
   assert.ok(html.includes('第 6 章 · 逻辑与加法器'));
   assert.ok(html.includes('第 5 章 · 单刀双掷开关与保险丝'));

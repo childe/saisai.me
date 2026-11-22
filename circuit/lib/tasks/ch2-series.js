@@ -4,30 +4,53 @@ import { brokenSet } from '../damage.js';
 import { createCircuit } from '../circuit.js';
 import { lampLit, buzzerOn, withParams, ofType, result, noProgress, anySwitchPair, truth } from '../task-kit.js';
 
-const HINT6 = '试试另一种接法，亮度有什么不同？';
+// 第 6 关：两个 2 节电池各带两盏灯。串联那边每盏约 0.22 W，并联那边约 0.83 W，以 2 倍区分。
+const HINT6_SAME = '两边一样亮？看看两边的接法是不是不一样';
+const HINT6_ONE = '每个电池各搭一个电路';
 // 三盏灯接 1 节电池：并联时每盏约 0.21 W，串联时每盏约 0.02 W（根本不亮），以 0.15 W 区分。
 const BRIGHT_P = 0.15;
 const HINT10 = '灯不亮或者太暗，换个接法让它们都亮亮的';
+// 第 49 关：两个 1 节电池。串联时灯约 2.94 V；并联、或只接一个电池时约 1.49 V，靠出电流的电池个数区分。
+const SERIES_V = 2.5;
+const PARALLEL_V = 2;
+const HINT49_PAR = '再把两个电池并起来试试';
+const HINT49_SER = '再把两个电池串起来试试';
+
+// 正在出电流的电池个数（没接上的电池电流为 0）。
+const feeding = ws => ofType(ws.circuit, 'battery').filter(b => (ws.result.parts[b.id]?.i ?? 0) > 1e-3).length;
 
 export const CH2 = [
   {
-    id: 6, chapter: 2, name: '串联和并联', goal: '两种接法都试，比一比亮度', palette: { battery: 1, lamp: 3 },
-    defaults: { battery: { cells: 2 } }, locked: { battery: ['cells'] },
-    preset: () => createCircuit(), initProgress: () => ({ first: null }),
+    id: 6, chapter: 2, name: '串联和并联', goal: '搭两个电路，比一比亮度',
+    how: '左边：一个电池接两盏灯串联。右边：一个电池接两盏灯并联。两边一起亮，看看哪边亮。',
+    palette: { battery: 2, lamp: 4 }, defaults: { battery: { cells: 2 } }, locked: { battery: ['cells'] },
+    preset: () => createCircuit(), initProgress: noProgress,
+    // 四盏灯同时亮、两个电池都在供电，亮的两盏每盏功率是暗的两盏的 2 倍以上。
     check(progress, ws) {
       const br = brokenSet(ws.damage);
-      const lamps = ofType(ws.circuit, 'lamp');
-      const allLit = lamps.length >= 3 && lamps.every(l => lampLit(ws.result, br, l.id));
-      const hint = progress.first ? HINT6 : null;
-      if (!allLit) return result(false, progress, hint);
-      const powers = Object.fromEntries(lamps.map(l => [l.id, ws.result.parts[l.id].p]));
-      if (!progress.first) return result(false, { first: { topoRev: ws.result.topoRev, powers } }, HINT6);
-      if (ws.result.topoRev === progress.first.topoRev) return result(false, progress, HINT6);
-      const now = Object.values(powers).sort((a, b) => a - b);
-      const before = Object.values(progress.first.powers).sort((a, b) => a - b);
-      if (now.length !== before.length) return result(false, progress, HINT6);
-      const differ = now.every((p, i) => Math.max(p, before[i]) / Math.min(p, before[i]) >= 2);
-      return result(differ, progress, differ ? null : HINT6);
+      const lit = ofType(ws.circuit, 'lamp').filter(l => lampLit(ws.result, br, l.id));
+      if (lit.length < 4) return result(false, progress);
+      if (feeding(ws) < 2) return result(false, progress, HINT6_ONE);
+      const ps = lit.map(l => ws.result.parts[l.id].p).sort((a, b) => a - b);
+      const ok = ps[2] >= 2 * ps[1];
+      return result(ok, progress, ok ? null : HINT6_SAME);
+    },
+  },
+  {
+    id: 49, chapter: 2, name: '电池的串联和并联', goal: '两个电池先串起来、再并起来点亮灯，比一比亮度',
+    how: '串联：一个电池的正极接另一个的负极，剩下的两头接灯。并联：正极接正极，负极接负极，再接灯。两种都试，哪种更亮？',
+    palette: { battery: 2, lamp: 1 }, defaults: { battery: { cells: 1 } }, locked: { battery: ['cells'] },
+    preset: () => createCircuit(), initProgress: () => ({ series: false, parallel: false }),
+    // 灯亮且两个电池都在出电流时，灯两端 ≥ 2.5 V 记串联，≤ 2 V 记并联；两种都记到就过关。
+    check(progress, ws) {
+      const br = brokenSet(ws.damage);
+      const lamp = ofType(ws.circuit, 'lamp').find(l => lampLit(ws.result, br, l.id));
+      const v = lamp && feeding(ws) >= 2 ? Math.abs(ws.result.parts[lamp.id].v) : 0;
+      const series = progress.series || v >= SERIES_V;
+      const parallel = progress.parallel || (v > 0 && v <= PARALLEL_V);
+      const next = series === progress.series && parallel === progress.parallel ? progress : { series, parallel };
+      const hint = series && !parallel ? HINT49_PAR : parallel && !series ? HINT49_SER : null;
+      return result(series && parallel, next, hint);
     },
   },
   {
