@@ -12,8 +12,8 @@ const withinPct = (x, y, pct) => Math.abs(x - y) <= pct * Math.abs(y);
 
 // 12：电池 → 开关 → A1 → 灯 → 灯 → A2 → 电池
 const seriesParts = cells => [
-  ['B', 'battery', 5, 12, { cells }], ['S', 'switch', 5, 5], ['A1', 'ammeter', 11, 5], ['L1', 'lamp', 17, 5],
-  ['L2', 'lamp', 17, 12], ['A2', 'ammeter', 11, 12],
+  ['B', 'battery', 5, 12, { cells }], ['S', 'switch', 5, 5], ['A1', 'ammeter', 11, 5, {}, { tag: 'A1' }], ['L1', 'lamp', 17, 5],
+  ['L2', 'lamp', 17, 12], ['A2', 'ammeter', 11, 12, {}, { tag: 'A2' }],
 ];
 const seriesWires = [['B.p', 'S.a'], ['S.b', 'A1.p'], ['A1.n', 'L1.a'], ['L1.b', 'L2.b'], ['L2.a', 'A2.n'], ['A2.p', 'B.n']];
 const seriesPreset = cells => presetCircuit(seriesParts(cells), seriesWires);
@@ -31,7 +31,7 @@ const dividerPreset = cells => presetCircuit(dividerParts(cells), dividerWires);
 // 14：电池 → 开关 → A2 → n 盏并联的灯 → 电池，A1 串在第一盏灯的支路上
 function branchSpec({ cells, n }) {
   const parts = [
-    ['B', 'battery', 5, 12, { cells }], ['S', 'switch', 5, 5], ['A2', 'ammeter', 11, 5], ['A1', 'ammeter', 17, 5], ['L1', 'lamp', 23, 5],
+    ['B', 'battery', 5, 12, { cells }], ['S', 'switch', 5, 5], ['A2', 'ammeter', 11, 5, {}, { tag: 'A2' }], ['A1', 'ammeter', 17, 5, {}, { tag: 'A1' }], ['L1', 'lamp', 23, 5],
   ];
   const wires = [
     ['B.p', 'S.a'], ['S.b', 'A2.p'], ['A2.n', 'A1.p'], ['A1.n', 'L1.a'], ['L1.b', 'B.n', { via: [[26, 5], [26, 16], [7, 16]] }],

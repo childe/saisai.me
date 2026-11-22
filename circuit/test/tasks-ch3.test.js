@@ -205,3 +205,10 @@ test('task 11: correct meters pass, ammeter across lamp fails', () => {
     wires: [['B.p', 'L.a'], ['L.b', 'B.n'], ['A.p', 'L.a'], ['A.n', 'L.b'], ['V.p', 'L.a'], ['V.n', 'L.b']] });
   assert.equal(run(11, bad).passed, false);
 });
+
+test('levels 12 and 14 tag their ammeters A1 and A2 so the canvas matches the question', () => {
+  for (const [id, v] of [[12, 2], [14, { cells: 1, n: 3 }]]) {
+    const tags = ofType(T(id).preset(v), 'ammeter').map(a => a.tag).sort();
+    assert.deepEqual(tags, ['A1', 'A2'], `level ${id}`);
+  }
+});

@@ -262,8 +262,9 @@ const DRAW = {
       `<rect x="-50" y="-12" width="100" height="24" fill="#fff" stroke="${INK}" stroke-width="3"/>` + wiper;
   },
 
-  ammeter(part, style, vis) { return meter('A', style, vis); },
-  voltmeter(part, style, vis) { return meter('V', style, vis); },
+  // 带 tag 的电表（预置电路里的 A1、A2）用 tag 代替单位字母，和题目里的叫法对上。
+  ammeter(part, style, vis) { return meter(part.tag ?? 'A', style, vis); },
+  voltmeter(part, style, vis) { return meter(part.tag ?? 'V', style, vis); },
 
   fuse(part, style, vis) {
     const burnt = vis.burnt;
@@ -391,13 +392,13 @@ function meter(letter, style, vis) {
     return line(-80, 0, -56, 0) + line(80, 0, 56, 0) +
       `<rect x="-56" y="-24" width="112" height="48" rx="10" fill="#fff8ec" stroke="${INK}" stroke-width="3"/>` +
       `<rect x="-46" y="-16" width="92" height="32" rx="5" fill="#d8f0d0" stroke="${INK}" stroke-width="1.5"/>` +
-      `<text x="-62" y="-30" class="label">${letter}</text>` +
+      `<text x="-62" y="-30" class="label">${esc(letter)}</text>` +
       `<text class="reading" x="0" y="7" text-anchor="middle">${text}</text>` +
       `<text x="-70" y="-8" class="pol">+</text>`;
   }
   return line(-80, 0, -22, 0) + line(80, 0, 22, 0) +
     `<circle cx="0" cy="0" r="22" fill="#fff" stroke="${INK}" stroke-width="3"/>` +
-    `<text x="0" y="8" text-anchor="middle" class="sym">${letter}</text>` +
+    `<text x="0" y="8" text-anchor="middle" class="sym">${esc(letter)}</text>` +
     `<text class="reading" x="0" y="42" text-anchor="middle">${text}</text>` +
     `<text x="-36" y="-8" class="pol">+</text>`;
 }
