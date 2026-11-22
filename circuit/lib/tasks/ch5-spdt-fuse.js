@@ -53,7 +53,7 @@ export const CH5 = [
   },
   faultTask({
     id: 23, chapter: 5, name: '失灵的开关', goal: '楼梯灯有时不亮，找出哪个开关坏了',
-    palette: { voltmeter: 1 }, variants: ['S1.a', 'S1.b', 'S2.a', 'S2.b'], preset: stairsPreset,
+    palette: { voltmeter: 1 }, variants: ['S1.a', 'S1.b', 'S2.a', 'S2.b'], preset: stairsPreset, suspect: { types: ['spdt'], name: '开关' },
   }),
   {
     id: 26, chapter: 5, name: '红绿灯', goal: '拨一下开关，两盏 LED 换着亮', palette: { battery: 2, resistor: 1, spdt: 1, led: 2 },

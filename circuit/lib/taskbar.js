@@ -31,7 +31,7 @@ const PROBE_FIRST = '先把电压表接在它两端量一量';
 
 export function taskbarCacheKey(state) {
   const t = state.task;
-  return JSON.stringify([t.index, t.variantIndex, t.hint, t.passed, t.progress.answer, !!t.progress.measured,
+  return JSON.stringify([t.index, t.variantIndex, t.hint, t.passed, t.progress.answer,
     selectedIsPreset(state, t.circuit), selectedProbed(state, t)]);
 }
 
@@ -53,7 +53,7 @@ export function taskbarHtml(state) {
   }
   if (task.accuse) {
     const preset = selectedIsPreset(state, t.circuit), probed = preset && selectedProbed(state, t);
-    const ok = !t.passed && t.progress.measured && probed;
+    const ok = !t.passed && probed;
     const tip = preset && !probed && !t.passed ? PROBE_FIRST : '';
     html += `<div class="task-row"><button class="btn" data-task-action="accuse"${ok ? '' : ' disabled'}${tip ? ` title="${tip}"` : ''}>就是它坏了！</button>` +
       `${tip ? `<span>${tip}</span>` : ''}</div>`;

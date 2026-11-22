@@ -55,7 +55,7 @@ test('taskbarHtml: accuse needs the selected item probed; disabled after passing
   const bat = s.task.circuit.parts.find(p => p.type === 'battery');
   const lamp = s.task.circuit.parts.find(p => p.type === 'lamp' && p.fault);
   s = across(s, { part: bat.id, term: 'p' }, { part: bat.id, term: 'n' });
-  assert.equal(s.task.progress.measured, true);
+  assert.ok(s.task.progress.probed.includes(`part:${bat.id}`));
   s = play(s, { type: 'select', target: { kind: 'part', id: lamp.id } });
   let html = taskbarHtml(s);
   assert.match(accuseBtn(html), /disabled/);

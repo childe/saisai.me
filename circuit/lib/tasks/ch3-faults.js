@@ -28,10 +28,10 @@ const branchPreset = bad => presetCircuit([
 export const CH3_FAULTS = [
   faultTask({
     id: 21, chapter: 3, name: '哪盏灯坏了', goal: '三盏灯都不亮，用电压表找出坏掉的那一盏',
-    palette: { voltmeter: 1 }, variants: ['L1', 'L2', 'L3'], preset: lampsPreset,
+    palette: { voltmeter: 1 }, variants: ['L1', 'L2', 'L3'], preset: lampsPreset, suspect: { types: ['lamp'], name: '灯' },
   }),
   faultTask({
     id: 22, chapter: 3, name: '断掉的导线', goal: '有一盏灯不亮，找出断掉的那根导线',
-    palette: { voltmeter: 1, ammeter: 1 }, variants: [0, 1, 2], preset: branchPreset,
+    palette: { voltmeter: 1, ammeter: 1 }, variants: [0, 1, 2], preset: branchPreset, suspect: { types: ['wire'], name: '导线' },
   }),
 ];

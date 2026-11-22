@@ -10,6 +10,8 @@ import { createRelays } from './relay.js';
 import { TASKS, evaluateTask, remainingPalette } from './tasks.js';
 
 const HISTORY_MAX = 100;
+// 找故障指认错了：讲规则，不描述读数（孩子可能量的不是该量的两端）。
+const WRONG_HINT = '不是它。好的地方是 0 V，坏的地方才是 3 V。换一道再来';
 
 function makeSpace(circuit, damage = createDamage()) {
   return { ...settle(circuit, damage, createRelays()), history: [] };
@@ -244,7 +246,7 @@ export function reduce(state, action) {
       if (verdict === 'right') return withSpace(state, { ...space, progress: { ...space.progress, found: true } });
       if (verdict !== 'wrong') return state;
       const next = restartTask(state, space, task);
-      return { ...next, task: { ...next.task, hint: '不对哦，这关重来' } };
+      return { ...next, task: { ...next.task, hint: WRONG_HINT } };
     }
     case 'chooseTask': {
       if (!Number.isInteger(action.index) || action.index < 0 || action.index >= TASKS.length) return state;

@@ -4,7 +4,7 @@ import { TASKS, evaluateTask } from '../lib/tasks.js';
 import { settle } from '../lib/engine.js';
 import { createDamage, brokenSet } from '../lib/damage.js';
 import { addPart, addWire } from '../lib/circuit.js';
-import { lampLit, ofType, withParams, metersRead } from '../lib/task-kit.js';
+import { lampLit, ofType, withParams } from '../lib/task-kit.js';
 import { solve } from '../lib/solve.js';
 import { PARTS } from '../lib/parts.js';
 
@@ -24,10 +24,13 @@ test('chapter 3 ends with 21, 22, both locked preset with fault progress', () =>
   assert.deepEqual(TASKS.filter(t => t.chapter === 3).map(t => t.id).slice(-2), [21, 22]);
   for (const id of [21, 22]) {
     assert.equal(T(id).lockPreset, true);
-    assert.deepEqual(T(id).initProgress(), { measured: false, found: false, probed: [] });
+    assert.deepEqual(T(id).initProgress(), { found: false, probed: [] });
   }
   assert.deepEqual(T(21).palette, { voltmeter: 1 });
   assert.deepEqual(T(22).palette, { voltmeter: 1, ammeter: 1 });
+  assert.deepEqual(T(21).suspect, { types: ['lamp'], name: '灯' });
+  assert.deepEqual(T(22).suspect, { types: ['wire'], name: '导线' });
+  assert.deepEqual(T(23).suspect, { types: ['spdt'], name: '开关' });
 });
 
 test('every variant presets exactly one fault, all items preset', () => {
@@ -93,15 +96,6 @@ test('task 22: fault is on a branch wire not touching L2, common part is fine', 
   }
 });
 
-test('metersRead: ammeter >= 0.01 A or voltmeter >= 0.1 V', () => {
-  const t = T(21);
-  const c = t.preset(t.variants[0]);
-  assert.equal(metersRead(wsOf(c)), false);
-  const bat = ofType(c, 'battery')[0].id;
-  const m = withVoltmeter(c, bat, 'p', bat, 'n');
-  assert.equal(metersRead(wsOf(m.circuit)), true);
-});
-
 // 目标的两个不同端点：导线是两头，元件取前两个端点。
 const endsOf = (c, target) => {
   if (target.kind === 'wire') { const w = c.wires.find(x => x.id === target.id); return [w.a, w.b]; }
@@ -130,12 +124,13 @@ test('accuse: null unless the target was probed; right on fault, wrong on other 
     const mb = withVoltmeter(c, bat, 'p', bat, 'n');
     const wsb = wsOf(mb.circuit, v);
     const checked = evaluateTask(t, t.initProgress(), wsb);
-    assert.equal(checked.progress.measured, true);
     assert.equal(checked.passed, false);
     assert.equal(checked.hint, null);
     assert.ok(checked.progress.probed.includes(`part:${bat}`));
     assert.equal(t.accuse(checked.progress, badTarget, wsb), null, `task ${id} unprobed bad`);
     assert.equal(t.accuse(checked.progress, other, wsb), null, `task ${id} unprobed other`);
+    // 电池量过了，但电池不是这关的候选
+    assert.equal(t.accuse(checked.progress, { kind: 'part', id: bat }, wsb), null, `task ${id} battery is not a suspect`);
 
     // 量过目标两端，拆掉电压表后仍然可以指认
     let p = checked.progress;
@@ -191,24 +186,35 @@ test('task 22: at least 3 candidate wires, one fault each, L1 lit, trunk intact'
   assert.equal(seen.size, t.variants.length);
 });
 
-test('check: hint before measuring, measured sticks, passed follows found', () => {
+test('check: hint until something is probed, probed sticks, passed follows found', () => {
   const t = T(21);
   const v = t.variants[0];
   const c = t.preset(v);
   const ws0 = wsOf(c, v);
   const a = evaluateTask(t, t.initProgress(), ws0);
-  assert.equal(a.hint, '先用电表量一量');
+  assert.equal(a.hint, '先用电压表量一量');
   assert.equal(a.passed, false);
-  assert.equal(a.progress.measured, false);
+  assert.deepEqual(a.progress.probed, []);
   const bat = ofType(c, 'battery')[0].id;
   const m = withVoltmeter(c, bat, 'p', bat, 'n');
   const b = evaluateTask(t, a.progress, wsOf(m.circuit, v));
-  assert.equal(b.progress.measured, true);
+  assert.ok(b.progress.probed.includes(`part:${bat}`));
   assert.equal(b.hint, null);
-  // 拆掉电压表，measured 仍保持
+  // 拆掉电压表，量过的记录仍保持
   const c2 = evaluateTask(t, b.progress, ws0);
-  assert.equal(c2.progress.measured, true);
+  assert.ok(c2.progress.probed.includes(`part:${bat}`));
   assert.equal(c2.hint, null);
   const d = evaluateTask(t, { ...b.progress, found: true }, wsOf(m.circuit, v));
   assert.equal(d.passed, true);
+});
+
+test('0 V reading still counts as probed', () => {
+  const t = T(21);
+  const c = t.preset('L1');
+  const l2 = ofType(c, 'lamp')[1];
+  const m = withVoltmeter(c, l2.id, 'a', l2.id, 'b');
+  assert.ok(Math.abs(solve(m.circuit, new Set()).parts[m.vid].v) < 0.1);
+  const r = evaluateTask(t, t.initProgress(), wsOf(m.circuit, 'L1'));
+  assert.ok(r.progress.probed.includes(`part:${l2.id}`));
+  assert.equal(r.hint, null);
 });
