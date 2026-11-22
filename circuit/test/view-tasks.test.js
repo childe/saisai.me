@@ -2,22 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { taskListHtml, taskbarHtml, parseAnswer } from '../lib/taskbar.js';
 import { createEditor, reduce } from '../lib/editor.js';
+import { TASKS } from '../lib/tasks.js';
 
+const T = id => TASKS.find(t => t.id === id);
 const inTask = index => reduce(reduce(createEditor(), { type: 'setMode', mode: 'task' }), { type: 'chooseTask', index });
+const inLevel = id => inTask(TASKS.indexOf(T(id)));
 
-test('taskListHtml groups 47 levels under 8 chapter headings', () => {
+test('taskListHtml groups 46 levels under 7 chapter headings', () => {
   const html = taskListHtml();
-  assert.equal((html.match(/<h3>/g) || []).length, 8);
-  assert.equal((html.match(/data-task=/g) || []).length, 47);
-  assert.ok(html.includes('第 8 章 · 电容与定时'));
-  assert.ok(html.includes('第 7 章 · 逻辑与加法器'));
+  assert.equal((html.match(/<h3>/g) || []).length, 7);
+  assert.equal((html.match(/data-task=/g) || []).length, 46);
+  assert.ok(html.includes('第 7 章 · 电容与定时'));
+  assert.ok(html.includes('第 6 章 · 逻辑与加法器'));
+  assert.ok(html.includes('第 5 章 · 单刀双掷开关与保险丝'));
   assert.ok(html.includes('第 3 章 · 电表'));
   assert.ok(html.includes('第 6 关 · LED 能受多大电流'));
   assert.ok(html.includes('data-task="15"'));
 });
 
 test('taskbarHtml: predict level shows answer row, disabled after submit', () => {
-  const s = inTask(11);
+  const s = inLevel(12);
   const html = taskbarHtml(s);
   assert.ok(html.includes('第 3 章 · 第 2 关 · 串联电流'));
   assert.ok(html.includes('answerInput'));
@@ -31,7 +35,7 @@ test('taskbarHtml: predict level shows answer row, disabled after submit', () =>
 });
 
 test('taskbarHtml: accuse button disabled until measured and a preset item is selected', () => {
-  const s = inTask(20);
+  const s = inLevel(21);
   const html = taskbarHtml(s);
   assert.match(html, /<button[^>]*data-task-action="accuse"[^>]*disabled/);
   assert.ok(html.includes('就是它坏了！'));
@@ -47,7 +51,7 @@ const across = (s, e1, e2) => {
 const accuseBtn = html => html.match(/<button[^>]*data-task-action="accuse"[^>]*>/)[0];
 
 test('taskbarHtml: accuse needs the selected item probed; disabled after passing', () => {
-  let s = inTask(20);
+  let s = inLevel(21);
   const bat = s.task.circuit.parts.find(p => p.type === 'battery');
   const lamp = s.task.circuit.parts.find(p => p.type === 'lamp' && p.fault);
   s = across(s, { part: bat.id, term: 'p' }, { part: bat.id, term: 'n' });
@@ -66,7 +70,7 @@ test('taskbarHtml: accuse needs the selected item probed; disabled after passing
 });
 
 test('taskbarHtml: answer row disabled once passed (level 16)', () => {
-  const s = inTask(15);
+  const s = inLevel(16);
   assert.doesNotMatch(taskbarHtml(s), /disabled/);
   const html = taskbarHtml({ ...s, task: { ...s.task, passed: true } });
   assert.match(html, /<input id="answerInput"[^>]*disabled/);

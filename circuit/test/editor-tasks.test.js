@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createEditor, reduce, activeSpace, pickVariant } from '../lib/editor.js';
+import { TASKS } from '../lib/tasks.js';
 
 const play = (s, ...as) => as.reduce(reduce, s);
-const enter = id => play(createEditor(), { type: 'setMode', mode: 'task' }, { type: 'chooseTask', index: id - 1 });
+// 关卡顺序不再等于 id 顺序，按 id 找索引。
+const indexOf = id => TASKS.findIndex(t => t.id === id);
+const enter = id => play(createEditor(), { type: 'setMode', mode: 'task' }, { type: 'chooseTask', index: indexOf(id) });
 const T = s => s.task;
 
 test('pickVariant', () => {
@@ -217,7 +220,7 @@ test('accuse after passing is ignored (level 21)', () => {
 test('choosing the open level again picks a different variant', () => {
   for (let k = 0; k < 30; k++) {
     const s = enter(12);
-    const again = play(s, { type: 'chooseTask', index: 11 });
+    const again = play(s, { type: 'chooseTask', index: indexOf(12) });
     assert.notEqual(T(again).variantIndex, T(s).variantIndex);
   }
 });
