@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { TASKS } from '../lib/tasks.js';
 import { createEditor, reduce, activeSpace } from '../lib/editor.js';
 import { build } from './helpers.js';
 
@@ -64,7 +65,7 @@ test('palette limit in task mode follows deletes and undo', () => {
 });
 
 test('task 6 locks battery cells; task 1 passes when wired', () => {
-  let s = play(createEditor(), { type: 'setMode', mode: 'task' }, { type: 'chooseTask', index: 5 }, { type: 'place', partType: 'battery', x: 5, y: 5 });
+  let s = play(createEditor(), { type: 'setMode', mode: 'task' }, { type: 'chooseTask', index: TASKS.findIndex(t => t.id === 6) }, { type: 'place', partType: 'battery', x: 5, y: 5 });
   const b = parts(s)[0];
   assert.equal(b.params.cells, 2);
   assert.equal(play(s, { type: 'setParam', id: b.id, key: 'cells', value: 4 }), s);

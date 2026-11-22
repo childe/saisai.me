@@ -1,9 +1,9 @@
-// 第 5 章：单刀双掷开关与保险丝。
+// 第 5 章：单刀双掷开关。
 import { PHYS } from '../parts.js';
 import { solve } from '../solve.js';
 import { brokenSet } from '../damage.js';
 import { createCircuit } from '../circuit.js';
-import { lampLit, ledLit, motorOn, buzzerOn, withParams, ofType, result, noProgress, presetCircuit, faultTask } from '../task-kit.js';
+import { lampLit, ledLit, motorOn, withParams, ofType, result, noProgress, presetCircuit, faultTask } from '../task-kit.js';
 
 // 23：楼梯灯，故障是某个开关的某一掷接触不良。variant 如 'S1.a' 表示 S1 的 a 掷
 const stairsPreset = variant => {
@@ -93,46 +93,6 @@ export const CH5 = [
           const v = on.map(r => Math.abs(r.parts[m.id].v));
           if (Math.max(...v) >= 2 * Math.min(...v)) return result(true, progress);
         }
-      }
-      return result(false, progress);
-    },
-  },
-  {
-    id: 25, chapter: 5, name: '保险丝救场', goal: '用保险丝保护短路的电池', palette: { fuse: 1 },
-    preset: () => presetCircuit([['B', 'battery', 9, 12], ['L', 'lamp', 9, 5]], [['B.p', 'L.a'], ['L.b', 'B.n'], ['B.p', 'B.n']]),
-    initProgress: () => ({ pre: null }),
-    check(progress, ws) {
-      const f = ofType(ws.circuit, 'fuse')[0];
-      const b = ofType(ws.circuit, 'battery')[0];
-      if (!f || !b) return result(false, progress);
-      let pre = progress.pre;
-      for (const r of ws.trail) {
-        if (r.brokenKey.split(',').includes(f.id)) continue;
-        if (!r.parts[f.id] || !r.parts[b.id]) continue;
-        pre = { iFuse: Math.abs(r.parts[f.id].i), iBatt: Math.abs(r.parts[b.id].i) };
-      }
-      const next = pre === progress.pre ? progress : { pre };
-      const blown = !!ws.damage.broken[f.id];
-      const iNow = Math.abs(ws.result.parts[b.id]?.i ?? Infinity);
-      const passed = blown && iNow < PHYS.SHORT_A && !!pre &&
-        Math.abs(pre.iFuse - pre.iBatt) <= 0.05 * pre.iBatt && pre.iFuse > PHYS.SHORT_A;
-      return result(passed, next);
-    },
-  },
-  {
-    id: 28, chapter: 5, name: '防盗报警', goal: '门关着时蜂鸣器不响，门一打开就响',
-    palette: { battery: 1, switch: 1, buzzer: 1, resistor: 1 }, defaults: { battery: { cells: 2 } },
-    preset: () => createCircuit(), initProgress: noProgress,
-    check(progress, ws) {
-      const br = brokenSet(ws.damage);
-      const batt = ofType(ws.circuit, 'battery')[0];
-      const buzzers = ofType(ws.circuit, 'buzzer');
-      if (!batt) return result(false, progress);
-      for (const s of ofType(ws.circuit, 'switch')) {
-        const closed = solve(withParams(ws.circuit, { [s.id]: { closed: true } }), br);
-        const open = solve(withParams(ws.circuit, { [s.id]: { closed: false } }), br);
-        if (!closed.ok || !open.ok || !(Math.abs(closed.parts[batt.id]?.i ?? Infinity) < PHYS.SHORT_A)) continue;
-        if (buzzers.some(z => !buzzerOn(closed, br, z.id) && buzzerOn(open, br, z.id))) return result(true, progress);
       }
       return result(false, progress);
     },

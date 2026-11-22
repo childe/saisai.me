@@ -4,7 +4,7 @@ import { brokenSet } from '../damage.js';
 import { createCircuit } from '../circuit.js';
 import { terminalPoint } from '../geometry.js';
 import { PHYS } from '../parts.js';
-import { lampLit, withParams, ofType, result, noProgress, predictTask, presetCircuit } from '../task-kit.js';
+import { lampLit, buzzerOn, withParams, ofType, result, noProgress, predictTask, presetCircuit } from '../task-kit.js';
 
 // 18：电池 → 开关 → 电流表 → L1 → (L2 并 L3) → 电池
 const mixedParts = cells => [
@@ -82,6 +82,25 @@ export const CH4 = [
     defaults: { battery: { cells: 2 } },
     preset: () => createCircuit(), initProgress: noProgress,
     check: (progress, ws) => result(dimToBright(ws), progress),
+  },
+  {
+    id: 28, chapter: 4, name: '防盗报警', goal: '门关着时蜂鸣器不响，门一打开就响',
+    palette: { battery: 1, switch: 1, buzzer: 1, resistor: 1 }, defaults: { battery: { cells: 2 } },
+    preset: () => createCircuit(), initProgress: noProgress,
+    // 和「越灭越亮」一个道理：开关并在蜂鸣器上，合上就把它短路；电阻串在干路上，免得短路电池。
+    check(progress, ws) {
+      const br = brokenSet(ws.damage);
+      const batt = ofType(ws.circuit, 'battery')[0];
+      const buzzers = ofType(ws.circuit, 'buzzer');
+      if (!batt) return result(false, progress);
+      for (const s of ofType(ws.circuit, 'switch')) {
+        const closed = solve(withParams(ws.circuit, { [s.id]: { closed: true } }), br);
+        const open = solve(withParams(ws.circuit, { [s.id]: { closed: false } }), br);
+        if (!closed.ok || !open.ok || !(Math.abs(closed.parts[batt.id]?.i ?? Infinity) < PHYS.SHORT_A)) continue;
+        if (buzzers.some(z => !buzzerOn(closed, br, z.id) && buzzerOn(open, br, z.id))) return result(true, progress);
+      }
+      return result(false, progress);
+    },
   },
   {
     id: 20, chapter: 4, name: '一盏调光一盏不变', goal: '转变阻器，一盏灯变亮变暗，另一盏灯不变', palette: { battery: 1, lamp: 2, rheostat: 1 },

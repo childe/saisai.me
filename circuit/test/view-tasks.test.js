@@ -14,14 +14,14 @@ test('taskListHtml groups 48 levels under 7 chapter headings', () => {
   assert.equal((html.match(/data-task=/g) || []).length, 48);
   assert.ok(html.includes('第 7 章 · 电容与定时'));
   assert.ok(html.includes('第 6 章 · 逻辑与加法器'));
-  assert.ok(html.includes('第 5 章 · 单刀双掷开关与保险丝'));
+  assert.ok(html.includes('第 5 章 · 单刀双掷开关'));
   assert.ok(html.includes('第 3 章 · 电表'));
   assert.ok(html.includes('第 6 关 · LED 能受多大电流'));
   assert.ok(html.includes('data-task="15"'));
   // 第 3 章末尾是教学关「断开的地方」，第 5 章第 2 关是挪过来的「失灵的开关」
   const at = s => html.indexOf(s);
   assert.ok(at('第 3 章 · 电表') < at('第 7 关 · 断开的地方') && at('第 7 关 · 断开的地方') < at('第 4 章 · 混联'));
-  assert.ok(at('第 5 章 · 单刀双掷开关与保险丝') < at('第 2 关 · 失灵的开关') && at('第 2 关 · 失灵的开关') < at('第 6 章 · 逻辑与加法器'));
+  assert.ok(at('第 5 章 · 单刀双掷开关') < at('第 2 关 · 失灵的开关') && at('第 2 关 · 失灵的开关') < at('第 6 章 · 逻辑与加法器'));
 });
 
 test('taskbarHtml: predict level shows answer row, disabled after submit', () => {

@@ -1,4 +1,5 @@
 // 第 1 章：认识元件。
+import { PHYS } from '../parts.js';
 import { solve } from '../solve.js';
 import { brokenSet } from '../damage.js';
 import { createCircuit } from '../circuit.js';
@@ -57,6 +58,30 @@ export const CH1 = [
     check(progress, ws) {
       const br = brokenSet(ws.damage);
       return result(ofType(ws.circuit, 'led').some(d => ledLit(ws.result, br, d.id)), progress);
+    },
+  },
+  {
+    id: 25, chapter: 1, name: '保险丝救场', goal: '用保险丝保护短路的电池', palette: { fuse: 1 },
+    how: '电池的正极和负极被一根导线直接连起来了，这叫短路，电流大得会烧坏电池。把保险丝接进短路的那根导线，电流一大它就先熔断，电池就没事了。',
+    preset: () => presetCircuit([['B', 'battery', 9, 12], ['L', 'lamp', 9, 5]], [['B.p', 'L.a'], ['L.b', 'B.n'], ['B.p', 'B.n']]),
+    initProgress: () => ({ pre: null }),
+    // 保险丝熔断前要流过和电池一样大的短路电流（接在短路那条线上），熔断后电池电流回到正常。
+    check(progress, ws) {
+      const f = ofType(ws.circuit, 'fuse')[0];
+      const b = ofType(ws.circuit, 'battery')[0];
+      if (!f || !b) return result(false, progress);
+      let pre = progress.pre;
+      for (const r of ws.trail) {
+        if (r.brokenKey.split(',').includes(f.id)) continue;
+        if (!r.parts[f.id] || !r.parts[b.id]) continue;
+        pre = { iFuse: Math.abs(r.parts[f.id].i), iBatt: Math.abs(r.parts[b.id].i) };
+      }
+      const next = pre === progress.pre ? progress : { pre };
+      const blown = !!ws.damage.broken[f.id];
+      const iNow = Math.abs(ws.result.parts[b.id]?.i ?? Infinity);
+      const passed = blown && iNow < PHYS.SHORT_A && !!pre &&
+        Math.abs(pre.iFuse - pre.iBatt) <= 0.05 * pre.iBatt && pre.iFuse > PHYS.SHORT_A;
+      return result(passed, next);
     },
   },
 ];

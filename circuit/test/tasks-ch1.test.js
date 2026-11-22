@@ -86,3 +86,21 @@ test('presetReading solves with the given switches closed', () => {
   assert.equal(presetReading(c, [], l.id, 'i'), 0);
   assert.ok(presetReading(c, [s.id], l.id, 'i') > 0.05);
 });
+
+test('task 25 sits at the end of chapter 1 with a how line', () => {
+  const t = T(25);
+  assert.equal(t.chapter, 1);
+  assert.equal(TASKS.indexOf(t), TASKS.indexOf(T(5)) + 1);
+  assert.equal(t.goal, '用保险丝保护短路的电池');
+  assert.equal(t.how, '电池的正极和负极被一根导线直接连起来了，这叫短路，电流大得会烧坏电池。把保险丝接进短路的那根导线，电流一大它就先熔断，电池就没事了。');
+});
+
+test('task 25: preset fails; fuse in the short loop passes; fuse elsewhere fails', () => {
+  assert.equal(run(25, T(25).preset()).passed, false);
+  const inLoop = build({ parts: { B: ['battery'], L: ['lamp'], F: ['fuse'] },
+    wires: [['B.p', 'L.a'], ['L.b', 'B.n'], ['B.p', 'F.a'], ['F.b', 'B.n']] });
+  assert.equal(run(25, inLoop).passed, true);
+  const elsewhere = build({ parts: { B: ['battery'], L: ['lamp'], F: ['fuse'] },
+    wires: [['B.p', 'F.a'], ['F.b', 'L.a'], ['L.b', 'B.n'], ['B.p', 'B.n']] });
+  assert.equal(run(25, elsewhere).passed, false);
+});

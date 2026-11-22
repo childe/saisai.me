@@ -4,7 +4,7 @@ import { CH2 } from './tasks/ch2-series.js';
 import { CH3 } from './tasks/ch3-meters.js';
 import { CH3_FAULTS } from './tasks/ch3-faults.js';
 import { CH4 } from './tasks/ch4-mixed.js';
-import { CH5 } from './tasks/ch5-spdt-fuse.js';
+import { CH5 } from './tasks/ch5-spdt.js';
 import { CH6 } from './tasks/ch6-logic.js';
 import { CH7 } from './tasks/ch7-capacitor.js';
 
@@ -12,7 +12,7 @@ export { lampLit, ledLit, withParams } from './task-kit.js';
 
 export const CHAPTERS = [
   { n: 1, name: '认识元件' }, { n: 2, name: '串联与并联' }, { n: 3, name: '电表' }, { n: 4, name: '混联' },
-  { n: 5, name: '单刀双掷开关与保险丝' }, { n: 6, name: '逻辑与加法器' }, { n: 7, name: '电容与定时' },
+  { n: 5, name: '单刀双掷开关' }, { n: 6, name: '逻辑与加法器' }, { n: 7, name: '电容与定时' },
 ];
 
 export const TASKS = [...CH1, ...CH2, ...CH3, ...CH3_FAULTS, ...CH4, ...CH5, ...CH6, ...CH7];

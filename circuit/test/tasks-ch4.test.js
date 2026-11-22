@@ -13,8 +13,8 @@ const run = (id, c, progress = T(id).initProgress(), variant) => evaluateTask(T(
 
 const bat = { battery: ['battery', { cells: 2 }] };
 
-test('chapter 4 lists tasks 17..20 then 38', () => {
-  assert.deepEqual(TASKS.filter(t => t.chapter === 4).map(t => t.id), [17, 18, 19, 20, 38]);
+test('chapter 4 lists 17, 18, 19, 28, 20, 38 in play order', () => {
+  assert.deepEqual(TASKS.filter(t => t.chapter === 4).map(t => t.id), [17, 18, 19, 28, 20, 38]);
   assert.deepEqual(T(17).defaults, { battery: { cells: 2 } });
 });
 
@@ -181,4 +181,16 @@ test('task 38: A and B swapped, C on the rheostat or burning lamps fail; one cel
   assert.equal(run(38, rheo(RHEO_OK, 0, 1)).passed, true);
   // 4 节电池：滑到头 A 会烧
   assert.equal(run(38, rheo(RHEO_OK, 0, 4)).passed, false);
+});
+
+test('task 28 follows 19 in chapter 4: switch across the buzzer passes; across the battery or in series fails', () => {
+  assert.equal(T(28).chapter, 4);
+  assert.equal(TASKS.indexOf(T(28)), TASKS.indexOf(T(19)) + 1);
+  const mk = swWires => build({ parts: { B: ['battery', { cells: 2 }], S: ['switch'], R: ['resistor', { ohms: 100 }], Z: ['buzzer'] },
+    wires: [['B.p', 'R.a'], ['R.b', 'Z.p'], ['Z.n', 'B.n'], ...swWires] });
+  assert.equal(run(28, mk([['S.a', 'Z.p'], ['S.b', 'Z.n']])).passed, true);
+  assert.equal(run(28, mk([['S.a', 'B.p'], ['S.b', 'B.n']])).passed, false);
+  const series = build({ parts: { B: ['battery', { cells: 2 }], S: ['switch'], R: ['resistor', { ohms: 100 }], Z: ['buzzer'] },
+    wires: [['B.p', 'S.a'], ['S.b', 'R.a'], ['R.b', 'Z.p'], ['Z.n', 'B.n']] });
+  assert.equal(run(28, series).passed, false);
 });

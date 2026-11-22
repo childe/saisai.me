@@ -20,7 +20,7 @@ test('remainingPalette counts non-preset parts on canvas', () => {
 
 test('chapters and ids line up', () => {
   assert.equal(CHAPTERS.length, 7);
-  assert.deepEqual(CHAPTERS.map(c => c.name), ['认识元件', '串联与并联', '电表', '混联', '单刀双掷开关与保险丝', '逻辑与加法器', '电容与定时']);
+  assert.deepEqual(CHAPTERS.map(c => c.name), ['认识元件', '串联与并联', '电表', '混联', '单刀双掷开关', '逻辑与加法器', '电容与定时']);
   assert.ok(TASKS.every(t => t.chapter >= 1 && t.chapter <= 7));
   assert.equal(new Set(TASKS.map(t => t.id)).size, TASKS.length);
   // 章内顺序按文件数组顺序，章与章之间递增
@@ -28,17 +28,17 @@ test('chapters and ids line up', () => {
 });
 
 test('tasks in curriculum order', () => {
-  assert.deepEqual(TASKS.map(t => t.name), ['点亮一盏灯', '加个开关', '门铃', '让风扇反转', '让 LED 亮起来',
+  assert.deepEqual(TASKS.map(t => t.name), ['点亮一盏灯', '加个开关', '门铃', '让风扇反转', '让 LED 亮起来', '保险丝救场',
     '串联和并联', '电池的串联和并联', '一个亮一个灭', '保险箱', '前门后门', '总开关',
     '量一量', '串联电流', '串联分压', '并联干路', '精确调电流', 'LED 能受多大电流', '断开的地方', '哪盏灯坏了', '哪根线断了',
-    '主灯和小灯', '混联电流', '越灭越亮', '一盏调光一盏不变', '一亮一暗',
-    '楼梯灯', '失灵的开关', '红绿灯', '两档风扇', '保险丝救场', '防盗报警',
+    '主灯和小灯', '混联电流', '越灭越亮', '防盗报警', '一盏调光一盏不变', '一亮一暗',
+    '楼梯灯', '失灵的开关', '红绿灯', '两档风扇',
     '认识数字显示器', '半加器', '认识继电器', '继电器非门', '继电器与门', '继电器或门', '自制电铃', '全加器', '会记住的继电器', '按一下换一下', '0 1 2 转圈圈', '按钮计数器',
     '会存电的电容', '延时关灯', '自己闪的灯', '自动红绿灯', '能调亮度的闪光灯']);
-  assert.deepEqual(TASKS.map(t => t.id), [1, 2, 3, 4, 5, 6, 49, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 48, 21, 22, 17, 18, 19, 20, 38,
-    24, 23, 26, 27, 25, 28, 30, 31, 32, 33, 34, 35, 36, 37, 39, 40, 41, 42, 43, 44, 45, 46, 47]);
+  assert.deepEqual(TASKS.map(t => t.id), [1, 2, 3, 4, 5, 25, 6, 49, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 48, 21, 22, 17, 18, 19, 28, 20, 38,
+    24, 23, 26, 27, 30, 31, 32, 33, 34, 35, 36, 37, 39, 40, 41, 42, 43, 44, 45, 46, 47]);
   const per = [1, 2, 3, 4, 5, 6, 7].map(n => TASKS.filter(t => t.chapter === n).length);
-  assert.deepEqual(per, [5, 6, 9, 5, 6, 12, 5]);
+  assert.deepEqual(per, [6, 6, 9, 6, 4, 12, 5]);
 });
 
 test('existing tasks keep curriculum ids and names', () => {
@@ -66,6 +66,7 @@ test('goalText takes string or function goals; chapterIndex counts within chapte
   assert.equal(chapterIndex(T(6)), 1);
   assert.equal(chapterIndex(T(24)), 1);
   assert.equal(chapterIndex(T(23)), 2);
-  assert.equal(chapterIndex(T(38)), 5);
-  assert.equal(chapterIndex(T(28)), 6);
+  assert.equal(chapterIndex(T(25)), 6);
+  assert.equal(chapterIndex(T(38)), 6);
+  assert.equal(chapterIndex(T(28)), 4);
 });
