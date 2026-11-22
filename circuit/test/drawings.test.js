@@ -111,3 +111,15 @@ test('capacitor shows farads label and charge bar', () => {
     assert.notEqual(drawPart(mk('capacitor'), style, vis({ charge: 0 })), drawPart(mk('capacitor'), style, vis({ charge: 1 })), style);
   }
 });
+
+test('a tagged meter shows its tag in place of the unit letter, in both styles', () => {
+  for (const style of ['cartoon', 'symbol']) {
+    const a = drawPart({ ...mk('ammeter'), tag: 'A1' }, style, vis({ text: '0.00 A' }));
+    assert.match(a, />A1</, `ammeter/${style}`);
+    assert.doesNotMatch(a, />A</, `ammeter/${style} bare letter`);
+    assert.match(drawPart(mk('ammeter'), style, vis({ text: '0.00 A' })), />A</);
+    const v = drawPart({ ...mk('voltmeter'), tag: 'V2' }, style, vis({ text: '0.0 V' }));
+    assert.match(v, />V2</, `voltmeter/${style}`);
+    assert.doesNotMatch(v, />V</, `voltmeter/${style} bare letter`);
+  }
+});

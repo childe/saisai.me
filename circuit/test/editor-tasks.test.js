@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createEditor, reduce, activeSpace, pickVariant } from '../lib/editor.js';
+import { TASKS } from '../lib/tasks.js';
 
 const play = (s, ...as) => as.reduce(reduce, s);
-const enter = id => play(createEditor(), { type: 'setMode', mode: 'task' }, { type: 'chooseTask', index: id - 1 });
+// 关卡顺序不再等于 id 顺序，按 id 找索引。
+const indexOf = id => TASKS.findIndex(t => t.id === id);
+const enter = id => play(createEditor(), { type: 'setMode', mode: 'task' }, { type: 'chooseTask', index: indexOf(id) });
 const T = s => s.task;
 
 test('pickVariant', () => {
@@ -102,7 +105,7 @@ const probeWire = (s, w) => probe(s, w.a, w.b);
 
 test('accuse: an unprobed item is ignored even after a meter read (level 21)', () => {
   const s = placeAcrossBattery(enter(21));
-  assert.equal(T(s).progress.measured, true);
+  assert.ok(T(s).progress.probed.length > 0);
   assert.equal(play(s, { type: 'accuse', target: { kind: 'part', id: faultyLamp(s).id } }), s);
   assert.equal(play(s, { type: 'accuse', target: { kind: 'part', id: goodLamp(s).id } }), s);
 });
@@ -110,11 +113,11 @@ test('accuse: an unprobed item is ignored even after a meter read (level 21)', (
 test('accuse: wrong restarts, right passes', () => {
   let s = placeAcrossBattery(enter(21));
   s = probeLamp(s, goodLamp(s));
-  assert.equal(T(s).progress.measured, true);
+  assert.ok(T(s).progress.probed.length > 0);
   const v = T(s).variantIndex;
   s = play(s, { type: 'accuse', target: { kind: 'part', id: goodLamp(s).id } });
   assert.notEqual(T(s).variantIndex, v);
-  assert.equal(T(s).hint, '不对哦，这关重来');
+  assert.equal(T(s).hint, '不是它。好的地方是 0 V，坏的地方才是 3 V。换一道再来');
   assert.equal(T(s).passed, false);
   s = probeLamp(s, faultyLamp(s));
   // 拆掉电压表后仍然记得量过
@@ -141,12 +144,12 @@ test('lockPreset blocks edits of preset items (level 22)', () => {
   assert.notEqual(play(s, { type: 'toggle', id: sw.id }), s);
 });
 
-test('connect to a non-preset wire is still allowed under lockPreset', () => {
-  let s = enter(22);
-  s = play(s, { type: 'place', partType: 'voltmeter', x: 20, y: 18 }, { type: 'place', partType: 'ammeter', x: 24, y: 18 });
-  const a = T(s).circuit.parts.find(p => p.type === 'voltmeter');
-  const b = T(s).circuit.parts.find(p => p.type === 'ammeter');
-  s = play(s, { type: 'connect', from: { part: a.id, term: 'p' }, to: { part: b.id, term: 'p' } });
+test('connect between own parts is still allowed under lockPreset (level 38)', () => {
+  let s = enter(38);
+  s = play(s, { type: 'place', partType: 'battery', x: 20, y: 18 }, { type: 'place', partType: 'rheostat', x: 26, y: 18 });
+  const a = T(s).circuit.parts.find(p => p.type === 'battery');
+  const b = T(s).circuit.parts.find(p => p.type === 'rheostat');
+  s = play(s, { type: 'connect', from: { part: a.id, term: 'p' }, to: { part: b.id, term: 'a' } });
   assert.equal(T(s).circuit.wires.filter(w => !w.preset).length, 1);
 });
 
@@ -162,7 +165,7 @@ test('wrong accuse cannot be undone back to the old variant (level 22)', () => {
   const faultId = () => T(s).circuit.wires.find(w => w.fault).id;
   const oldFault = faultId();
   s = placeAcrossBattery(s);
-  assert.equal(T(s).progress.measured, true);
+  assert.ok(T(s).progress.probed.length > 0);
   const good = T(s).circuit.wires.find(w => w.preset && !w.fault);
   s = probeWire(s, good);
   s = play(s, { type: 'accuse', target: { kind: 'wire', id: good.id } });
@@ -217,7 +220,19 @@ test('accuse after passing is ignored (level 21)', () => {
 test('choosing the open level again picks a different variant', () => {
   for (let k = 0; k < 30; k++) {
     const s = enter(12);
-    const again = play(s, { type: 'chooseTask', index: 11 });
+    const again = play(s, { type: 'chooseTask', index: indexOf(12) });
     assert.notEqual(T(again).variantIndex, T(s).variantIndex);
   }
+});
+
+test('accuse: a non-suspect (battery) is ignored; a wrong suspect restarts with the rule hint', () => {
+  let s = placeAcrossBattery(enter(21));
+  const bat = T(s).circuit.parts.find(p => p.type === 'battery');
+  assert.ok(T(s).progress.probed.includes(`part:${bat.id}`));
+  assert.equal(play(s, { type: 'accuse', target: { kind: 'part', id: bat.id } }), s);
+  const good = goodLamp(s);
+  s = probeLamp(s, good);
+  s = play(s, { type: 'accuse', target: { kind: 'part', id: good.id } });
+  assert.equal(T(s).hint, '不是它。好的地方是 0 V，坏的地方才是 3 V。换一道再来');
+  assert.deepEqual(T(s).progress, { found: false, probed: [] });
 });

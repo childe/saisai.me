@@ -133,7 +133,7 @@ export function metersRead(ws) {
   }));
 }
 
-const MEASURE_FIRST = '先用电表量一量';
+export const MEASURE_FIRST = '先用电压表量一量';
 const endKey = e => `${e.part}.${e.term}`;
 
 // 只走导线和重合端点（不穿过元件）的连通关系，返回 find(端点键) → 所在网络；skip 是不走的那根导线。
@@ -165,23 +165,23 @@ export function probedItems(c) {
   return [...parts, ...wires];
 }
 
-// 找故障：预置电路里藏着一处故障（元件或导线带 fault），孩子用电表量，再指认。
-// 只能指认用电压表量过两端的东西（probed，拆掉电压表后仍算）。指认由编辑器处理：accuse 只判对错，found 由编辑器写进 progress。
-export function faultTask({ id, chapter, name, goal, palette, variants, preset }) {
+// 找故障：预置电路里藏着一处故障（元件或导线带 fault），孩子用电压表量，再指认。
+// 只能指认 suspect.types 里那类预置件（'wire' 表示导线），而且要用电压表量过两端（probed，拆掉电压表后仍算，读 0 V 也算）。
+// 指认由编辑器处理：accuse 只判对错，found 由编辑器写进 progress。
+export function faultTask({ id, chapter, name, goal, how, palette, variants, preset, suspect }) {
   return {
-    id, chapter, name, goal, palette, variants, preset, lockPreset: true,
-    initProgress: () => ({ measured: false, found: false, probed: [] }),
+    id, chapter, name, goal, how, palette, variants, preset, suspect, lockPreset: true,
+    initProgress: () => ({ found: false, probed: [] }),
     check(progress, ws) {
-      const measured = progress.measured || metersRead(ws);
       const old = progress.probed ?? [];
       const fresh = probedItems(ws.circuit).filter(k => !old.includes(k));
-      const next = measured === progress.measured && !fresh.length ? progress : { ...progress, measured, probed: [...old, ...fresh] };
-      return result(next.found, next, measured ? null : MEASURE_FIRST);
+      const next = fresh.length ? { ...progress, probed: [...old, ...fresh] } : progress;
+      return result(next.found, next, next.probed.length ? null : MEASURE_FIRST);
     },
     accuse(progress, target, ws) {
-      if (!progress.measured || !(progress.probed ?? []).includes(`${target.kind}:${target.id}`)) return null;
+      if (!(progress.probed ?? []).includes(`${target.kind}:${target.id}`)) return null;
       const item = (target.kind === 'wire' ? ws.circuit.wires : ws.circuit.parts).find(x => x.id === target.id);
-      if (!item?.preset) return null;
+      if (!item?.preset || !suspect.types.includes(target.kind === 'wire' ? 'wire' : item.type)) return null;
       return item.fault ? 'right' : 'wrong';
     },
   };

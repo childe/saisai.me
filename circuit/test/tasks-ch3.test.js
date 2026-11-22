@@ -189,8 +189,8 @@ test('task 16: burned without an ammeter in series does not count', () => {
   assert.equal(r.passed, false);
 });
 
-test('chapter 3 lists tasks 11..16 in order', () => {
-  assert.deepEqual(TASKS.filter(t => t.chapter === 3).map(t => t.id), [11, 12, 13, 14, 15, 16]);
+test('chapter 3 lists tasks 11..16 then the fault levels', () => {
+  assert.deepEqual(TASKS.filter(t => t.chapter === 3).map(t => t.id), [11, 12, 13, 14, 15, 16, 48, 21, 22]);
 });
 
 test('task 13 question uses the physical cell voltage', () => {
@@ -204,4 +204,11 @@ test('task 11: correct meters pass, ammeter across lamp fails', () => {
   const bad = build({ parts: { B: ['battery'], A: ['ammeter'], L: ['lamp'], V: ['voltmeter'] },
     wires: [['B.p', 'L.a'], ['L.b', 'B.n'], ['A.p', 'L.a'], ['A.n', 'L.b'], ['V.p', 'L.a'], ['V.n', 'L.b']] });
   assert.equal(run(11, bad).passed, false);
+});
+
+test('levels 12 and 14 tag their ammeters A1 and A2 so the canvas matches the question', () => {
+  for (const [id, v] of [[12, 2], [14, { cells: 1, n: 3 }]]) {
+    const tags = ofType(T(id).preset(v), 'ammeter').map(a => a.tag).sort();
+    assert.deepEqual(tags, ['A1', 'A2'], `level ${id}`);
+  }
 });

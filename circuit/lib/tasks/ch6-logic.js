@@ -1,4 +1,4 @@
-// 第 7 章：逻辑与加法器。开关合上（或双刀双掷拨到「1 位置」）算 1。
+// 第 6 章：逻辑与加法器。开关合上（或双刀双掷拨到「1 位置」）算 1。
 import { connectivity } from '../solve.js';
 import { brokenSet } from '../damage.js';
 import { createCircuit } from '../circuit.js';
@@ -190,7 +190,7 @@ const RELAY_PALETTE ={ battery: 2, switch: 1, relay: 1, lamp: 1 };
 
 // 两个开关经继电器控制一盏灯；want 列出灯该亮的组合，键 tt、tf、ft、ff 对应 BITS 顺序
 const relayGateTask = (id, name, goal, want) => ({
-  id, chapter: 7, name, goal, palette: { battery: 2, switch: 2, relay: 2, lamp: 1 },
+  id, chapter: 6, name, goal, palette: { battery: 2, switch: 2, relay: 2, lamp: 1 },
   preset: () => createCircuit(), initProgress: noProgress,
   check(progress, ws) {
     const keys = ['tt', 'tf', 'ft', 'ff'];
@@ -198,9 +198,9 @@ const relayGateTask = (id, name, goal, want) => ({
   },
 });
 
-export const CH7 = [
+export const CH6 = [
   {
-    id: 30, chapter: 7, name: '认识数字显示器', goal: v => `让显示器显示 ${v}`, palette: { battery: 1, display: 1 },
+    id: 30, chapter: 6, name: '认识数字显示器', goal: v => `让显示器显示 ${v}`, palette: { battery: 1, display: 1 },
     variants: [3, 5, 6, 7, 9, 11, 13, 14], preset: () => createCircuit(), initProgress: noProgress,
     check(progress, ws) {
       const br = brokenSet(ws.damage);
@@ -208,25 +208,25 @@ export const CH7 = [
     },
   },
   {
-    id: 31, chapter: 7, name: '半加器', goal: '两个开关代表 A、B：拨到 a 是 0，拨到 b 是 1。让显示器显示 A+B', palette: { battery: 1, dpdt: 2, display: 1 },
+    id: 31, chapter: 6, name: '半加器', goal: '两个开关代表 A、B：拨到 a 是 0，拨到 b 是 1。让显示器显示 A+B', palette: { battery: 1, dpdt: 2, display: 1 },
     preset: () => createCircuit(), initProgress: noProgress,
     check: (progress, ws) => result(halfAdderOk(ws), progress),
   },
   {
-    id: 32, chapter: 7, name: '认识继电器', goal: '合上开关，继电器点亮另一节电池那边的灯', palette: RELAY_PALETTE,
+    id: 32, chapter: 6, name: '认识继电器', goal: '合上开关，继电器点亮另一节电池那边的灯', palette: RELAY_PALETTE,
     preset: () => createCircuit(), initProgress: noProgress,
     // 设定顺序：合上、断开
     check: (progress, ws) => result(relayLampTask(ws, 1, lit => lit(0) && !lit(1)), progress),
   },
   {
-    id: 33, chapter: 7, name: '继电器非门', goal: '开关合上灯灭，断开灯亮', palette: RELAY_PALETTE,
+    id: 33, chapter: 6, name: '继电器非门', goal: '开关合上灯灭，断开灯亮', palette: RELAY_PALETTE,
     preset: () => createCircuit(), initProgress: noProgress,
     check: (progress, ws) => result(relayLampTask(ws, 1, lit => !lit(0) && lit(1)), progress),
   },
   relayGateTask(34, '继电器与门', '两个开关都合上，灯才亮', ['tt']),
   relayGateTask(35, '继电器或门', '随便合上一个开关，灯就亮', ['tt', 'tf', 'ft']),
   {
-    id: 36, chapter: 7, name: '自制电铃', goal: '按住按钮，继电器自己哒哒响', palette: { battery: 1, button: 1, relay: 1 },
+    id: 36, chapter: 6, name: '自制电铃', goal: '按住按钮，继电器自己哒哒响', palette: { battery: 1, button: 1, relay: 1 },
     preset: () => createCircuit(), initProgress: () => ({ base: null, seen: false }),
     check(progress, ws) {
       // 按住期间继电器翻转 4 次以上才算真响过；松开就清掉起点，重新按再数
@@ -243,29 +243,31 @@ export const CH7 = [
     },
   },
   {
-    id: 37, chapter: 7, name: '全加器', goal: '三个开关 A、B、C：断开是 0，合上是 1。让显示器显示 A+B+C', palette: {}, lockPreset: true,
+    id: 37, chapter: 6, name: '全加器', goal: '三个开关 A、B、C：断开是 0，合上是 1。让显示器显示 A+B+C', palette: {}, lockPreset: true,
     preset: fullAdderPreset, initProgress: noProgress,
     check: (progress, ws) => result(fullAdderOk(ws), progress),
   },
   {
-    id: 39, chapter: 7, name: '会记住的继电器',
+    id: 39, chapter: 6, name: '会记住的继电器',
     goal: '按一下按钮，松手后灯还亮着。把继电器的常开触点接回它自己的线圈（按钮接的那一头），让它自己拉住自己。断开「清零」开关，它就忘了',
     palette: {}, paletteNote: '只需要接一根导线', lockPreset: true, preset: latchPreset,
     initProgress: () => ({ lit: false, byPress: false }),
     check: latchStep,
   },
   {
-    id: 40, chapter: 7, name: '按一下换一下',
-    goal: '按一下，显示器在 0 和 1 之间换一下。接两根线：「现」的常开触点接到左边「按」的常闭触点，让「现」记住现在的数；「现」的常闭触点接到右边「按」的常闭触点，下一个数就是现在反过来。连着换 4 次过关',
+    id: 40, chapter: 6, name: '按一下换一下',
+    goal: '按一下，显示器在 0 和 1 之间换一下，连着换 4 次过关',
+    how: '板子上四个继电器各有名字：「现」记着现在的数，「下」算下一个数，两个「按」跟着按钮换接法。要接两根线：「现」的常开触点接到左边「按」的常闭触点，让「现」记住现在的数；「现」的常闭触点接到右边「按」的常闭触点，下一个数就是现在反过来。',
     palette: {}, paletteNote: '只需要接两根导线', lockPreset: true, preset: togglePreset, ...countTask(2, 4),
   },
   {
-    id: 41, chapter: 7, name: '0 1 2 转圈圈',
-    goal: '按一下加 1：0、1、2，再回到 0。接两根线：「现1」的常开触点接到「下2」旁边「按」的常闭触点（现在是 1，下一个就是 2）；「现1」的常闭触点接到最左边「现2」的公共端（现1、现2 都没吸合，下一个就是 1）。转两圈过关',
+    id: 41, chapter: 6, name: '0 1 2 转圈圈',
+    goal: '按一下加 1：0、1、2，再回到 0，转两圈过关',
+    how: '继电器都有名字。上排是第 1 位：「现1」记着它现在的数，「下1」算它下一个数；下排是第 2 位：两个「现2」一起吸合，记着第 2 位的数，「下2」算它下一个数；每个「按」都跟着按钮换接法。要接两根线：「现1」的常开触点接到「下2」旁边「按」的常闭触点（现在是 1，下一个就是 2）；「现1」的常闭触点接到最左边「现2」的公共端（现1、现2 都没吸合，下一个就是 1）。',
     palette: {}, paletteNote: '只需要接两根导线', lockPreset: true, preset: count3Preset, ...countTask(3, 6),
   },
   {
-    id: 42, chapter: 7, name: '按钮计数器',
+    id: 42, chapter: 6, name: '按钮计数器',
     goal: '按一下按钮，显示器加 1，到 9 再按回到 0。「现」记住现在的数，「下」算好下一个数，「按」跟着按钮换接法。连按 10 次看它转一圈',
     palette: {}, paletteNote: '只需要按按钮', lockPreset: true, preset: counterPreset, initProgress: () => ({ last: null, steps: 0 }),
     check(progress, ws) {

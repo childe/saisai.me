@@ -334,6 +334,7 @@ body {
 /* 小任务 */
 .task-row { display: flex; align-items: center; gap: 12px; }
 .task-title { flex: 1; font-size: 1.1rem; font-weight: bold; }
+.task-how { font-size: 1rem; color: #4a3f33; line-height: 1.5; }
 .hint { font-size: 1rem; color: #6a5a48; }
 .passed {
   display: flex;

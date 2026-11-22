@@ -18,21 +18,35 @@ export function parseAnswer(text) {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
-const selectedIsPreset = (state, circuit) => {
+// 选中的预置件的类型（导线算 'wire'）；没选中、或选中的是孩子自己加的东西，返回 null。
+const selectedPresetType = (state, circuit) => {
   const sel = state.selection;
-  if (!sel) return false;
+  if (!sel) return null;
   const list = sel.kind === 'part' ? circuit.parts : circuit.wires;
-  return !!list.find(x => x.id === sel.id)?.preset;
+  const item = list.find(x => x.id === sel.id);
+  if (!item?.preset) return null;
+  return sel.kind === 'wire' ? 'wire' : item.type;
 };
 
 // 选中的东西量过两端没有（找故障只能指认量过的）。
 const selectedProbed = (state, t) => !!state.selection && (t.progress.probed ?? []).includes(`${state.selection.kind}:${state.selection.id}`);
+const PICK_FIRST = '点一下你觉得坏的那个，再按这里';
 const PROBE_FIRST = '先把电压表接在它两端量一量';
+
+// 「就是它坏了」按钮的状态：通过后灰且无说明；没选中预置件、选中的不是这关的候选、候选没量过，各有一句说明；候选量过了才能点。
+function accuseState(state, t, task) {
+  if (t.passed) return { ok: false, tip: '' };
+  const type = selectedPresetType(state, t.circuit);
+  if (!type) return { ok: false, tip: PICK_FIRST };
+  if (!task.suspect?.types.includes(type)) return { ok: false, tip: `这关坏的是${task.suspect.name}，不是它` };
+  if (!selectedProbed(state, t)) return { ok: false, tip: PROBE_FIRST };
+  return { ok: true, tip: '' };
+}
 
 export function taskbarCacheKey(state) {
   const t = state.task;
-  return JSON.stringify([t.index, t.variantIndex, t.hint, t.passed, t.progress.answer, !!t.progress.measured,
-    selectedIsPreset(state, t.circuit), selectedProbed(state, t)]);
+  return JSON.stringify([t.index, t.variantIndex, t.hint, t.passed, t.progress.answer,
+    selectedPresetType(state, t.circuit), selectedProbed(state, t)]);
 }
 
 export function taskbarHtml(state) {
@@ -43,6 +57,7 @@ export function taskbarHtml(state) {
   const title = `第 ${task.chapter} 章 · 第 ${chapterIndex(task)} 关 · ${task.name}：${goalText(task, t.variant)}`;
   let html = `<div class="task-row"><span class="task-title">${title}</span>` +
     `<button class="btn" data-task-action="list">选关</button></div>`;
+  if (task.how) html += `<div class="task-how">${task.how}</div>`;
   if (task.answer) {
     const { kind, question, unit } = task.answer;
     const off = lockInput || t.passed ? ' disabled' : '';
@@ -52,11 +67,9 @@ export function taskbarHtml(state) {
       `<button class="btn" data-task-action="submit"${off}>${kind === 'predict' ? '我猜好了' : '提交答案'}</button></div>`;
   }
   if (task.accuse) {
-    const preset = selectedIsPreset(state, t.circuit), probed = preset && selectedProbed(state, t);
-    const ok = !t.passed && t.progress.measured && probed;
-    const tip = preset && !probed && !t.passed ? PROBE_FIRST : '';
-    html += `<div class="task-row"><button class="btn" data-task-action="accuse"${ok ? '' : ' disabled'}${tip ? ` title="${tip}"` : ''}>就是它坏了！</button>` +
-      `${tip ? `<span>${tip}</span>` : ''}</div>`;
+    const { ok, tip } = accuseState(state, t, task);
+    html += `<div class="task-row"><button class="btn" data-task-action="accuse"${ok ? '' : ' disabled'}>就是它坏了！</button>` +
+      `${tip ? `<span class="accuse-tip">${tip}</span>` : ''}</div>`;
   }
   if (t.hint) html += `<div class="hint">💡 ${t.hint}</div>`;
   if (t.passed) {

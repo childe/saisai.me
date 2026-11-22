@@ -2,8 +2,9 @@
 import { solve } from '../solve.js';
 import { brokenSet } from '../damage.js';
 import { createCircuit } from '../circuit.js';
+import { terminalPoint } from '../geometry.js';
 import { PHYS } from '../parts.js';
-import { lampLit, withParams, ofType, result, noProgress, predictTask, presetCircuit } from '../task-kit.js';
+import { lampLit, buzzerOn, withParams, ofType, result, noProgress, predictTask, presetCircuit } from '../task-kit.js';
 
 // 18：电池 → 开关 → 电流表 → L1 → (L2 并 L3) → 电池
 const mixedParts = cells => [
@@ -83,8 +84,62 @@ export const CH4 = [
     check: (progress, ws) => result(dimToBright(ws), progress),
   },
   {
+    id: 28, chapter: 4, name: '防盗报警', goal: '门关着时蜂鸣器不响，门一打开就响',
+    palette: { battery: 1, switch: 1, buzzer: 1, resistor: 1 }, defaults: { battery: { cells: 2 } },
+    preset: () => createCircuit(), initProgress: noProgress,
+    // 和「越灭越亮」一个道理：开关并在蜂鸣器上，合上就把它短路；电阻串在干路上，免得短路电池。
+    check(progress, ws) {
+      const br = brokenSet(ws.damage);
+      const batt = ofType(ws.circuit, 'battery')[0];
+      const buzzers = ofType(ws.circuit, 'buzzer');
+      if (!batt) return result(false, progress);
+      for (const s of ofType(ws.circuit, 'switch')) {
+        const closed = solve(withParams(ws.circuit, { [s.id]: { closed: true } }), br);
+        const open = solve(withParams(ws.circuit, { [s.id]: { closed: false } }), br);
+        if (!closed.ok || !open.ok || !(Math.abs(closed.parts[batt.id]?.i ?? Infinity) < PHYS.SHORT_A)) continue;
+        if (buzzers.some(z => !buzzerOn(closed, br, z.id) && buzzerOn(open, br, z.id))) return result(true, progress);
+      }
+      return result(false, progress);
+    },
+  },
+  {
     id: 20, chapter: 4, name: '一盏调光一盏不变', goal: '转变阻器，一盏灯变亮变暗，另一盏灯不变', palette: { battery: 1, lamp: 2, rheostat: 1 },
     preset: () => createCircuit(), initProgress: noProgress,
     check: (progress, ws) => result(oneDims(ws), progress),
   },
+  {
+    id: 38, chapter: 4, name: '一亮一暗', goal: '滑片向左滑，A 变亮、B 变暗；向右滑反过来；C 一直不变',
+    palette: { battery: 1, rheostat: 1 }, defaults: { battery: { cells: 2 } }, lockPreset: true,
+    preset: () => presetCircuit([['A', 'lamp', 6, 12, {}, { tag: 'A' }], ['B', 'lamp', 14, 12, {}, { tag: 'B' }], ['C', 'lamp', 22, 12, {}, { tag: 'C' }]], []),
+    initProgress: noProgress,
+    check(progress, ws) {
+      const br = brokenSet(ws.damage);
+      const tagged = t => ws.circuit.parts.find(p => p.preset && p.tag === t);
+      const [a, b, c] = ['A', 'B', 'C'].map(tagged);
+      const batt = ofType(ws.circuit, 'battery')[0];
+      if (!a || !b || !c || !batt) return result(false, progress);
+      for (const rh of ofType(ws.circuit, 'rheostat')) {
+        const xa = terminalPoint(rh, 'a')[0], xb = terminalPoint(rh, 'b')[0];
+        if (xa === xb) return result(false, progress, '把滑动变阻器横着放，才分得清左右');
+        // 从最左滑到最右：a 端在左边时 pos 从 0 到 1，反过来放就从 1 到 0。
+        const steps = xa < xb ? POS_STEPS : [...POS_STEPS].reverse();
+        const rs = steps.map(pos => solve(withParams(ws.circuit, { [rh.id]: { pos } }), br));
+        const safe = rs.every(r => r.ok && Math.abs(r.parts[batt.id]?.i ?? Infinity) < PHYS.SHORT_A &&
+          [a, b, c].every(l => (r.parts[l.id]?.p ?? 0) < PHYS.LAMP_BURN_P));
+        if (!safe) continue;
+        const pw = l => rs.map(r => r.parts[l.id].p);
+        if (slideOk(pw(a), rs.map(r => lampLit(r, br, a.id))) && slideOk(pw(b).reverse(), rs.map(r => lampLit(r, br, b.id)).reverse()) &&
+          rs.every(r => lampLit(r, br, c.id)) && Math.max(...pw(c)) <= 1.05 * Math.min(...pw(c))) return result(true, progress);
+      }
+      return result(false, progress);
+    },
+  },
 ];
+
+// 第 38 关：滑片从左到右的几个位置。
+const POS_STEPS = [0, 0.25, 0.5, 0.75, 1];
+
+// 从左到右一路变暗：每一步都比上一步暗一截（至少 2%），最左边亮着，最左是最右的 2 倍以上。
+function slideOk(power, lit) {
+  return lit[0] && power.every((p, k) => k === 0 || p <= 0.98 * power[k - 1]) && power[0] >= 2 * power[power.length - 1];
+}
